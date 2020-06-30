@@ -2,6 +2,10 @@
 
 CLI and Go library with Custom Resource for testing on Kubernetes
 
+# Status
+
+WIP
+
 # Installation
 
 ## Install as a CLI
