@@ -3,6 +3,7 @@ package kubetest
 import (
 	"context"
 	"fmt"
+	"io"
 	"path/filepath"
 	"strings"
 
@@ -151,15 +152,18 @@ func (b *TestJobBuilder) Build() (*TestJob, error) {
 }
 
 type TestJob struct {
-	user      string
-	repo      string
-	rev       string
-	branch    string
-	image     string
-	token     string
-	cmd       []string
-	clientset *kubernetes.Clientset
-	namespace string
+	w                  io.Writer
+	user               string
+	repo               string
+	rev                string
+	branch             string
+	image              string
+	token              string
+	cmd                []string
+	clientset          *kubernetes.Clientset
+	namespace          string
+	disabledPrepareLog bool
+	disabledCommandLog bool
 }
 
 func (t *TestJob) sharedVolume() apiv1.Volume {
@@ -224,6 +228,18 @@ func (t *TestJob) initContainers() []apiv1.Container {
 	}
 }
 
+func (t *TestJob) DisablePrepareLog() {
+	t.disabledPrepareLog = true
+}
+
+func (t *TestJob) DisableCommandLog() {
+	t.disabledCommandLog = true
+}
+
+func (t *TestJob) SetWriter(w io.Writer) {
+	t.w = w
+}
+
 func (t *TestJob) Run(ctx context.Context) error {
 	volumeMount := t.sharedVolumeMount()
 	job, err := kubejob.NewJobBuilder(t.clientset, t.namespace).
@@ -249,9 +265,17 @@ func (t *TestJob) Run(ctx context.Context) error {
 	if err != nil {
 		return xerrors.Errorf("failed to build testjob: %w", err)
 	}
+	if t.w != nil {
+		job.SetWriter(t.w)
+	}
+	if t.disabledPrepareLog {
+		job.DisableInitContainerLog()
+	}
+	if t.disabledCommandLog {
+		job.DisableCommandLog()
+	}
 	if err := job.Run(ctx); err != nil {
 		return xerrors.Errorf("failed to run testjob: %w", err)
 	}
 	return nil
-
 }
