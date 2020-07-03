@@ -105,6 +105,6 @@ func main() {
 		return
 	}
 	if err := _main(args, opt); err != nil {
-		fmt.Println(err)
+		fmt.Printf("%+v", err)
 	}
 }

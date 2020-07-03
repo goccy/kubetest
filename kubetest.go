@@ -3,7 +3,6 @@ package kubetest
 import (
 	"context"
 	"fmt"
-	"io"
 	"path/filepath"
 	"strings"
 
@@ -152,7 +151,7 @@ func (b *TestJobBuilder) Build() (*TestJob, error) {
 }
 
 type TestJob struct {
-	w                  io.Writer
+	logger             func(*kubejob.ContainerLog)
 	user               string
 	repo               string
 	rev                string
@@ -236,8 +235,8 @@ func (t *TestJob) DisableCommandLog() {
 	t.disabledCommandLog = true
 }
 
-func (t *TestJob) SetWriter(w io.Writer) {
-	t.w = w
+func (t *TestJob) SetLogger(logger func(*kubejob.ContainerLog)) {
+	t.logger = logger
 }
 
 func (t *TestJob) Run(ctx context.Context) error {
@@ -265,8 +264,8 @@ func (t *TestJob) Run(ctx context.Context) error {
 	if err != nil {
 		return xerrors.Errorf("failed to build testjob: %w", err)
 	}
-	if t.w != nil {
-		job.SetWriter(t.w)
+	if t.logger != nil {
+		job.SetLogger(t.logger)
 	}
 	if t.disabledPrepareLog {
 		job.DisableInitContainerLog()

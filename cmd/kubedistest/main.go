@@ -30,6 +30,8 @@ type option struct {
 	ConcurrentNum   int    `description:"specify concurrent number" long:"concurrent"`
 	List            string `description:"specify command for listing test" long:"list"`
 	TestNamePattern string `description:"specify test name patter" long:"pattern"`
+	Retest          bool   `description:"specify enabled retest if exists failed tests" long:"retest"`
+	RetestDelimiter string `description:"specify delimiter for failed tests at retest command" long:"retest-delimiter"`
 }
 
 func loadConfig(opt option) (*rest.Config, error) {
@@ -90,6 +92,8 @@ func _main(args []string, opt option) error {
 		SetListCommand(list).
 		SetPodNum(opt.ConcurrentNum).
 		SetTestNamePattern(opt.TestNamePattern).
+		SetRetest(opt.Retest).
+		SetRetestDelimiter(opt.RetestDelimiter).
 		SetCommand(args)
 	if opt.TokenFromSecret != "" {
 		splitted := strings.Split(opt.TokenFromSecret, ".")

@@ -3,8 +3,11 @@ package kubetest
 import (
 	"bytes"
 	"context"
+	"fmt"
+	"os"
 	"regexp"
 	"strings"
+	"sync"
 	"text/template"
 
 	"github.com/goccy/kubejob"
@@ -22,10 +25,12 @@ const (
 
 type DistributedTestJobBuilder struct {
 	TestJobBuilder
-	listCmd       []string
-	listDelimiter string
-	pattern       string
-	podNum        int
+	listCmd         []string
+	listDelimiter   string
+	pattern         string
+	podNum          int
+	retest          bool
+	retestDelimiter string
 }
 
 func NewDistributedTestJobBuilder(clientset *kubernetes.Clientset, namespace string) *DistributedTestJobBuilder {
@@ -98,6 +103,16 @@ func (b *DistributedTestJobBuilder) SetPodNum(num int) *DistributedTestJobBuilde
 	return b
 }
 
+func (b *DistributedTestJobBuilder) SetRetest(enabled bool) *DistributedTestJobBuilder {
+	b.retest = enabled
+	return b
+}
+
+func (b *DistributedTestJobBuilder) SetRetestDelimiter(delim string) *DistributedTestJobBuilder {
+	b.retestDelimiter = delim
+	return b
+}
+
 func (b *DistributedTestJobBuilder) Build() (*DistributedTestJob, error) {
 	testJob, err := b.TestJobBuilder.Build()
 	if err != nil {
@@ -126,41 +141,65 @@ func (b *DistributedTestJobBuilder) Build() (*DistributedTestJob, error) {
 		pattern = reg
 	}
 	return &DistributedTestJob{
-		listJob:       listJob,
-		testJob:       testJob,
-		listDelimiter: b.listDelimiter,
-		podNum:        b.podNum,
-		pattern:       pattern,
+		listJob:         listJob,
+		testJob:         testJob,
+		listDelimiter:   b.listDelimiter,
+		podNum:          b.podNum,
+		pattern:         pattern,
+		retest:          b.retest,
+		retestDelimiter: b.retestDelimiter,
 	}, nil
 }
 
 type DistributedTestJob struct {
-	listJob       *TestJob
-	testJob       *TestJob
-	listDelimiter string
-	podNum        int
-	pattern       *regexp.Regexp
+	listJob         *TestJob
+	testJob         *TestJob
+	listDelimiter   string
+	podNum          int
+	pattern         *regexp.Regexp
+	retest          bool
+	retestDelimiter string
 }
 
-func (t *DistributedTestJob) testCommand(cmdTmpl, test string) (string, error) {
+type command struct {
+	tmpl  string
+	test  string
+	value string
+}
+
+type commands []*command
+
+func (c commands) commandValueMap() map[string]*command {
+	m := map[string]*command{}
+	for _, cc := range c {
+		m[cc.value] = cc
+	}
+	return m
+}
+
+func (t *DistributedTestJob) testCommand(cmdTmpl, test string) (*command, error) {
 	var cmd bytes.Buffer
 	tmpl, err := template.New("").Parse(cmdTmpl)
 	if err != nil {
-		return "", xerrors.Errorf("failed to parse command template: %w", err)
+		return nil, xerrors.Errorf("failed to parse command template: %w", err)
 	}
 	if err := tmpl.Execute(&cmd, struct {
 		Test string
 	}{
 		Test: test,
 	}); err != nil {
-		return "", xerrors.Errorf("failed to assign Test parameter to command template: %w", err)
+		return nil, xerrors.Errorf("failed to assign Test parameter to command template: %w", err)
 	}
-	return cmd.String(), nil
+	return &command{
+		tmpl:  cmdTmpl,
+		test:  test,
+		value: cmd.String(),
+	}, nil
 }
 
-func (t *DistributedTestJob) testsToCommands(tests []string) ([]string, error) {
+func (t *DistributedTestJob) testsToCommands(tests []string) ([]*command, error) {
 	cmdTmpl := strings.Join(t.testJob.cmd, " ")
-	commands := []string{}
+	commands := []*command{}
 	for _, test := range tests {
 		cmd, err := t.testCommand(cmdTmpl, test)
 		if err != nil {
@@ -177,6 +216,47 @@ func (t *DistributedTestJob) Run(ctx context.Context) error {
 		return xerrors.Errorf("failed to get test list: %w", err)
 	}
 	plan := t.plan(list)
+
+	failedTestCommands := []*command{}
+
+	var (
+		mu         sync.Mutex
+		lastPodIdx int
+	)
+	containerLogMap := map[string][]string{}
+	podNameToIndexMap := map[string]int{}
+	logger := func(log *kubejob.ContainerLog) {
+		mu.Lock()
+		defer mu.Unlock()
+
+		name := log.Container.Name
+		if log.IsFinished {
+			logs, exists := containerLogMap[name]
+			if exists {
+				podName := log.Pod.Name
+				idx, exists := podNameToIndexMap[podName]
+				if !exists {
+					idx = lastPodIdx
+					podNameToIndexMap[log.Pod.Name] = lastPodIdx
+					lastPodIdx++
+				}
+				for _, log := range logs {
+					fmt.Fprintf(os.Stderr, "[POD %d] %s", idx, log)
+				}
+				fmt.Fprintf(os.Stderr, "\n")
+			}
+			delete(containerLogMap, name)
+		} else {
+			value, exists := containerLogMap[name]
+			logs := []string{}
+			if exists {
+				logs = value
+			}
+			logs = append(logs, log.Log)
+			containerLogMap[name] = logs
+		}
+	}
+
 	var eg errgroup.Group
 	for _, tests := range plan {
 		commands, err := t.testsToCommands(tests)
@@ -184,8 +264,12 @@ func (t *DistributedTestJob) Run(ctx context.Context) error {
 			return xerrors.Errorf("failed to get commands from tests: %w", err)
 		}
 		eg.Go(func() error {
-			if err := t.runTests(ctx, commands); err != nil {
+			commands, err := t.runTests(ctx, logger, commands)
+			if err != nil {
 				return xerrors.Errorf("failed to runTests: %w", err)
+			}
+			if len(commands) > 0 {
+				failedTestCommands = append(failedTestCommands, commands...)
 			}
 			return nil
 		})
@@ -193,11 +277,35 @@ func (t *DistributedTestJob) Run(ctx context.Context) error {
 	if err := eg.Wait(); err != nil {
 		return xerrors.Errorf("failed to distributed test job: %w", err)
 	}
+
+	if len(failedTestCommands) > 0 {
+		if !t.retest {
+			return xerrors.Errorf("failed test")
+		}
+		fmt.Println("start retest....")
+		tests := []string{}
+		for _, command := range failedTestCommands {
+			tests = append(tests, command.test)
+		}
+		concatedTests := strings.Join(tests, t.retestDelimiter)
+		cmdTmpl := strings.Join(t.testJob.cmd, " ")
+		cmd, err := t.testCommand(cmdTmpl, concatedTests)
+		if err != nil {
+			return xerrors.Errorf("failed test: %w", err)
+		}
+		failedTests, err := t.runTests(ctx, logger, commands{cmd})
+		if err != nil {
+			return xerrors.Errorf("failed test: %w", err)
+		}
+		if len(failedTests) > 0 {
+			return xerrors.Errorf("failed test")
+		}
+	}
 	return nil
 }
 
-func (t *DistributedTestJob) testCommandToContainer(test string) apiv1.Container {
-	cmd := strings.Split(test, " ")
+func (t *DistributedTestJob) testCommandToContainer(test *command) apiv1.Container {
+	cmd := strings.Split(test.value, " ")
 	volumeMount := t.testJob.sharedVolumeMount()
 	return apiv1.Container{
 		Image:        t.testJob.image,
@@ -208,8 +316,10 @@ func (t *DistributedTestJob) testCommandToContainer(test string) apiv1.Container
 	}
 }
 
-func (t *DistributedTestJob) runTests(ctx context.Context, testCommands []string) error {
+func (t *DistributedTestJob) runTests(ctx context.Context, logger kubejob.Logger, testCommands commands) ([]*command, error) {
 	concurrentNum := defaultConcurrentNum
+	failedTestCommands := []*command{}
+	commandValueMap := testCommands.commandValueMap()
 	for i := 0; i < len(testCommands); i += concurrentNum {
 		containers := []apiv1.Container{}
 		for j := 0; j < concurrentNum; j++ {
@@ -230,19 +340,34 @@ func (t *DistributedTestJob) runTests(ctx context.Context, testCommands []string
 				},
 			})
 		if err != nil {
-			return xerrors.Errorf("failed to build testjob: %w", err)
+			return nil, xerrors.Errorf("failed to build testjob: %w", err)
 		}
+		job.SetLogger(logger)
 		if err := job.Run(ctx); err != nil {
-			return xerrors.Errorf("failed to run testjob: %w", err)
+			var failedJob *kubejob.FailedJob
+			if xerrors.As(err, &failedJob) {
+				for _, container := range failedJob.FailedContainers() {
+					cmd := []string{}
+					cmd = append(cmd, container.Command...)
+					cmd = append(cmd, container.Args...)
+					value := strings.Join(cmd, " ")
+					command := commandValueMap[value]
+					failedTestCommands = append(failedTestCommands, command)
+				}
+			} else {
+				return nil, xerrors.Errorf("failed to testjob: %w", err)
+			}
 		}
 	}
-	return nil
+	return failedTestCommands, nil
 }
 
 func (t *DistributedTestJob) testList(ctx context.Context) ([]string, error) {
 	job := t.listJob
 	var b bytes.Buffer
-	job.SetWriter(&b)
+	job.SetLogger(func(log *kubejob.ContainerLog) {
+		b.WriteString(log.Log)
+	})
 	if err := job.Run(ctx); err != nil {
 		return nil, xerrors.Errorf("failed to get test list: %w", err)
 	}
