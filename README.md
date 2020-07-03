@@ -1,6 +1,6 @@
 # kubetest
 
-CLI and Go library with Custom Resource for testing on Kubernetes
+CLI and Go library with Custom Resource for ( distributed ) testing on Kubernetes
 
 # Status
 
