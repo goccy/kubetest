@@ -1,0 +1,24 @@
+# permissions for end users to edit testjobs.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: testjob-editor-role
+rules:
+- apiGroups:
+  - kubetest.io
+  resources:
+  - testjobs
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - kubetest.io
+  resources:
+  - testjobs/status
+  verbs:
+  - get

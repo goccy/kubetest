@@ -1,0 +1,7 @@
+domain: kubetest.io
+repo: github.com/goccy/kubetest
+resources:
+- group: kubetest
+  kind: TestJob
+  version: v1
+version: "2"
