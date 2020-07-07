@@ -6,7 +6,7 @@ require (
 	cloud.google.com/go v0.56.0 // indirect
 	github.com/go-logr/logr v0.1.0
 	github.com/go-logr/zapr v0.1.1 // indirect
-	github.com/goccy/kubejob v0.0.0-20200703104159-fa6627173494
+	github.com/goccy/kubejob v0.0.0-20200706100422-8daf15a026e3
 	github.com/gogo/protobuf v1.3.1 // indirect
 	github.com/google/gofuzz v1.1.0 // indirect
 	github.com/googleapis/gnostic v0.4.0 // indirect
@@ -18,7 +18,6 @@ require (
 	github.com/onsi/gomega v1.10.1
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/prometheus/client_golang v1.7.1 // indirect
-	github.com/rs/xid v1.2.1 // indirect
 	github.com/stretchr/testify v1.6.0 // indirect
 	go.uber.org/zap v1.15.0 // indirect
 	golang.org/x/mod v0.3.0 // indirect
@@ -42,5 +41,3 @@ require (
 	sigs.k8s.io/controller-runtime v0.5.0
 	sigs.k8s.io/yaml v1.2.0 // indirect
 )
-
-replace github.com/goccy/kubejob => ../kubejob
