@@ -3,12 +3,19 @@
 package v1
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
+	"sync"
+	"text/template"
 
 	"github.com/goccy/kubejob"
+	"golang.org/x/sync/errgroup"
+	"golang.org/x/xerrors"
 	batchv1 "k8s.io/api/batch/v1"
 	apiv1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -18,9 +25,11 @@ import (
 )
 
 const (
-	gitImageName     = "alpine/git"
-	oauthTokenEnv    = "OAUTH_TOKEN"
-	sharedVolumeName = "repo"
+	gitImageName         = "alpine/git"
+	oauthTokenEnv        = "OAUTH_TOKEN"
+	sharedVolumeName     = "repo"
+	defaultConcurrentNum = 4
+	defaultListDelimiter = "\n"
 )
 
 type TestJobRunner struct {
@@ -141,6 +150,13 @@ func (r *TestJobRunner) Run(ctx context.Context, testjob TestJob) error {
 		}
 		r.token = strings.TrimSpace(string(data))
 	}
+	if testjob.Spec.DistributedTest != nil {
+		return r.runDistributedTest(ctx, testjob)
+	}
+	return r.run(ctx, testjob)
+}
+
+func (r *TestJobRunner) run(ctx context.Context, testjob TestJob) error {
 	volumeMount := r.sharedVolumeMount()
 	job, err := kubejob.NewJobBuilder(r.Clientset, testjob.Namespace).
 		BuildWithJob(&batchv1.Job{
@@ -178,4 +194,282 @@ func (r *TestJobRunner) Run(ctx context.Context, testjob TestJob) error {
 		return err
 	}
 	return nil
+}
+
+func (r *TestJobRunner) runDistributedTest(ctx context.Context, testjob TestJob) error {
+	list, err := r.testList(ctx, testjob)
+	if err != nil {
+		return err
+	}
+	plan := r.plan(testjob, list)
+
+	failedTestCommands := []*command{}
+
+	var (
+		mu         sync.Mutex
+		lastPodIdx int
+	)
+	containerLogMap := map[string][]string{}
+	podNameToIndexMap := map[string]int{}
+	logger := func(log *kubejob.ContainerLog) {
+		mu.Lock()
+		defer mu.Unlock()
+
+		name := log.Container.Name
+		if log.IsFinished {
+			logs, exists := containerLogMap[name]
+			if exists {
+				podName := log.Pod.Name
+				idx, exists := podNameToIndexMap[podName]
+				if !exists {
+					idx = lastPodIdx
+					podNameToIndexMap[log.Pod.Name] = lastPodIdx
+					lastPodIdx++
+				}
+				for _, log := range logs {
+					fmt.Fprintf(os.Stderr, "[POD %d] %s", idx, log)
+				}
+				fmt.Fprintf(os.Stderr, "\n")
+			}
+			delete(containerLogMap, name)
+		} else {
+			value, exists := containerLogMap[name]
+			logs := []string{}
+			if exists {
+				logs = value
+			}
+			logs = append(logs, log.Log)
+			containerLogMap[name] = logs
+		}
+	}
+
+	var eg errgroup.Group
+	for _, tests := range plan {
+		commands, err := r.testsToCommands(testjob, tests)
+		if err != nil {
+			return xerrors.Errorf("failed to get commands from tests: %w", err)
+		}
+		eg.Go(func() error {
+			commands, err := r.runTests(ctx, testjob, logger, commands)
+			if err != nil {
+				return xerrors.Errorf("failed to runTests: %w", err)
+			}
+			if len(commands) > 0 {
+				failedTestCommands = append(failedTestCommands, commands...)
+			}
+			return nil
+		})
+	}
+	if err := eg.Wait(); err != nil {
+		return xerrors.Errorf("failed to distributed test job: %w", err)
+	}
+
+	if len(failedTestCommands) > 0 {
+		if !testjob.Spec.DistributedTest.Retest {
+			return nil
+		}
+		fmt.Println("start retest....")
+		tests := []string{}
+		for _, command := range failedTestCommands {
+			tests = append(tests, command.test)
+		}
+		concatedTests := strings.Join(tests, testjob.Spec.DistributedTest.RetestDelimiter)
+		cmdTmpl := strings.Join(testjob.Spec.Command, " ")
+		cmd, err := r.testCommand(cmdTmpl, concatedTests)
+		if err != nil {
+			return xerrors.Errorf("failed test: %w", err)
+		}
+		failedTests, err := r.runTests(ctx, testjob, logger, commands{cmd})
+		if err != nil {
+			return xerrors.Errorf("failed test: %w", err)
+		}
+		if len(failedTests) > 0 {
+			return nil
+		}
+	}
+	return nil
+}
+
+type command struct {
+	tmpl  string
+	test  string
+	value string
+}
+
+type commands []*command
+
+func (c commands) commandValueMap() map[string]*command {
+	m := map[string]*command{}
+	for _, cc := range c {
+		m[cc.value] = cc
+	}
+	return m
+}
+
+func (r *TestJobRunner) testCommand(cmdTmpl, test string) (*command, error) {
+	var cmd bytes.Buffer
+	tmpl, err := template.New("").Parse(cmdTmpl)
+	if err != nil {
+		return nil, err
+	}
+	if err := tmpl.Execute(&cmd, struct {
+		Test string
+	}{
+		Test: test,
+	}); err != nil {
+		return nil, err
+	}
+	return &command{
+		tmpl:  cmdTmpl,
+		test:  test,
+		value: cmd.String(),
+	}, nil
+}
+
+func (r *TestJobRunner) testsToCommands(job TestJob, tests []string) ([]*command, error) {
+	cmdTmpl := strings.Join(job.Spec.Command, " ")
+	commands := []*command{}
+	for _, test := range tests {
+		cmd, err := r.testCommand(cmdTmpl, test)
+		if err != nil {
+			return nil, err
+		}
+		commands = append(commands, cmd)
+	}
+	return commands, nil
+}
+
+func (r *TestJobRunner) testCommandToContainer(job TestJob, test *command) apiv1.Container {
+	cmd := strings.Split(test.value, " ")
+	volumeMount := r.sharedVolumeMount()
+	return apiv1.Container{
+		Image:        job.Spec.Image,
+		Command:      []string{cmd[0]},
+		Args:         cmd[1:],
+		WorkingDir:   volumeMount.MountPath,
+		VolumeMounts: []apiv1.VolumeMount{volumeMount},
+	}
+}
+
+func (r *TestJobRunner) runTests(ctx context.Context, testjob TestJob, logger kubejob.Logger, testCommands commands) ([]*command, error) {
+	concurrentNum := defaultConcurrentNum
+	failedTestCommands := []*command{}
+	commandValueMap := testCommands.commandValueMap()
+	for i := 0; i < len(testCommands); i += concurrentNum {
+		containers := []apiv1.Container{}
+		for j := 0; j < concurrentNum; j++ {
+			if i+j < len(testCommands) {
+				containers = append(containers, r.testCommandToContainer(testjob, testCommands[i+j]))
+			}
+		}
+		job, err := kubejob.NewJobBuilder(r.Clientset, testjob.Namespace).
+			BuildWithJob(&batchv1.Job{
+				Spec: batchv1.JobSpec{
+					Template: apiv1.PodTemplateSpec{
+						Spec: apiv1.PodSpec{
+							Volumes:        []apiv1.Volume{r.sharedVolume()},
+							InitContainers: r.initContainers(testjob),
+							Containers:     containers,
+						},
+					},
+				},
+			})
+		if err != nil {
+			return nil, err
+		}
+		job.SetLogger(logger)
+		if err := job.Run(ctx); err != nil {
+			var failedJob *kubejob.FailedJob
+			if xerrors.As(err, &failedJob) {
+				for _, container := range failedJob.FailedContainers() {
+					cmd := []string{}
+					cmd = append(cmd, container.Command...)
+					cmd = append(cmd, container.Args...)
+					value := strings.Join(cmd, " ")
+					command := commandValueMap[value]
+					failedTestCommands = append(failedTestCommands, command)
+				}
+			} else {
+				return nil, err
+			}
+		}
+	}
+	return failedTestCommands, nil
+}
+
+func (r *TestJobRunner) testList(ctx context.Context, testjob TestJob) ([]string, error) {
+	distributedTest := testjob.Spec.DistributedTest
+
+	listjob := testjob
+	listjob.Spec.Command = distributedTest.ListCommand
+	listjob.Spec.DistributedTest = nil
+
+	listJobRunner := NewTestJobRunner(r.Clientset)
+	listJobRunner.DisablePrepareLog()
+	listJobRunner.DisableCommandLog()
+
+	var pattern *regexp.Regexp
+	if distributedTest.Pattern != "" {
+		reg, err := regexp.Compile(distributedTest.Pattern)
+		if err != nil {
+			return nil, err
+		}
+		pattern = reg
+	}
+
+	var b bytes.Buffer
+	listJobRunner.SetLogger(func(log *kubejob.ContainerLog) {
+		b.WriteString(log.Log)
+	})
+	if err := listJobRunner.Run(ctx, listjob); err != nil {
+		return nil, err
+	}
+	result := b.String()
+	if len(result) == 0 {
+		return nil, xerrors.Errorf("could not find test list. list is empty")
+	}
+	delim := distributedTest.ListDelimiter
+	if delim == "" {
+		delim = "\n"
+	}
+	tests := []string{}
+	list := strings.Split(result, delim)
+	if pattern != nil {
+		for _, name := range list {
+			if pattern.MatchString(name) {
+				tests = append(tests, name)
+			}
+		}
+	} else {
+		tests = list
+	}
+	if len(tests) == 0 {
+		return nil, xerrors.Errorf("could not find test list. list is invalid %s", result)
+	}
+	return tests, nil
+}
+
+func (r *TestJobRunner) plan(job TestJob, list []string) [][]string {
+	concurrent := job.Spec.DistributedTest.Concurrent
+
+	if len(list) < concurrent {
+		plan := make([][]string, len(list))
+		for i := 0; i < len(list); i++ {
+			plan[i] = []string{list[i]}
+		}
+		return plan
+	}
+	testNum := len(list) / concurrent
+	lastIdx := concurrent - 1
+	plan := [][]string{}
+	sum := 0
+	for i := 0; i < concurrent; i++ {
+		if i == lastIdx {
+			plan = append(plan, list[sum:])
+		} else {
+			plan = append(plan, list[sum:sum+testNum])
+		}
+		sum += testNum
+	}
+	return plan
 }
