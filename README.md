@@ -27,9 +27,7 @@ Application Options:
   -i, --image=             specify container image
   -b, --branch=            specify branch name
       --rev=               specify revision ( commit hash )
-      --user=              specify user ( organization ) name
       --repo=              specify repository name
-      --token=             specify github auth token
       --token-from-secret= specify github auth token from secret resource. specify ( name.key ) style
 
 Help Options:
@@ -41,22 +39,7 @@ Help Options:
 Test your private repository ( `github.com/user/repo.git` ) on Kubernetes .
 
 ```bash
-$ kubetest --image golang:1.14 --repo user/repo --branch feature/branch --token xxxxxxx -- go test -v ./
-```
-
-# How to use as a library
-
-```go
-  clientset, _ := kubernetes.NewForConfig(config)
-  job, _ := kubetest.NewTestJobBuilder(clientset, "default").
-    SetUser("user").
-    SetRepo("repo").
-    SetBranch("feature").
-    SetImage("golang:1.14").
-    SetToken("xxxxxx").
-    SetCommand([]string{"go", "test", "-v", "./"}).
-    Build()
-  job.Run(context.Background()) // start test and waiting for
+$ kubetest --image golang:1.14 --repo github.com/user/repo --branch feature/branch --token-from-secret name.key -- go test -v ./
 ```
 
 # Custom Resource Definition
