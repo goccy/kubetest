@@ -58,3 +58,74 @@ $ kubetest --image golang:1.14 --repo user/repo --branch feature/branch --token 
     Build()
   job.Run(context.Background()) // start test and waiting for
 ```
+
+# Custom Resource Definition
+
+## 1. Testing
+
+```yaml
+apiVersion: kubetest.io/v1
+kind: TestJob
+metadata:
+  name: testjob-sample
+spec:
+  image: golang:1.14
+  repo: github.com/user/repo
+  branch: master
+  command:
+    - go
+    - test
+    - -v
+    - ./
+  token: # if test for private repository, add oauth token to secret before testing and use it.
+    secretKeyRef:
+      name: oauth-token
+      key: oauth
+```
+
+## 2. Distributed Testing
+
+This is Go language example.
+
+```yaml
+apiVersion: kubetest.io/v1
+kind: TestJob
+metadata:
+  name: testjob-sample
+spec:
+  image: golang:1.14
+  repo: github.com/user/repo
+  branch: master
+  command:
+    - go
+    - test
+    - -v
+    - ./
+    - -run
+    - '{{.Test}}' # '{{.Test}}' is special keyword, this section is replaced to each test name on runtime.
+  token:
+    secretKeyRef:
+      name: oauth-token
+      key: oauth
+
+  # for distributed testing parameters.
+  distributedTest:
+    # concurrent number for testing.
+    concurrent: 2
+
+    # output testing list to stdout
+    listCommand:
+      - go
+      - test
+      - -list
+      - Test
+
+    # filter testing list by this regular expression.
+    pattern: ^Test
+
+    # restart testing for failed tests
+    retest: true
+
+    # delimiter for testing list of retest ( default: white space )
+    retestDelimiter: '|'
+```
