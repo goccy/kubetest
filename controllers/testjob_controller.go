@@ -22,6 +22,7 @@ import (
 	"strings"
 
 	"github.com/go-logr/logr"
+	"golang.org/x/xerrors"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes"
@@ -67,6 +68,9 @@ func (r *TestJobReconciler) Reconcile(req ctrl.Request) (result ctrl.Result, e e
 		}
 	}()
 	if err := kubetestv1.NewTestJobRunner(r.ClientSet).Run(ctx, job); err != nil {
+		if xerrors.Is(err, kubetestv1.ErrFailedTestJob) {
+			return ctrl.Result{}, nil
+		}
 		return ctrl.Result{}, err
 	}
 	return ctrl.Result{}, nil

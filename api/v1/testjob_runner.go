@@ -32,6 +32,10 @@ const (
 	defaultListDelimiter = "\n"
 )
 
+var (
+	ErrFailedTestJob = xerrors.New("failed test job")
+)
+
 type TestJobRunner struct {
 	*kubernetes.Clientset
 	token              string
@@ -191,7 +195,11 @@ func (r *TestJobRunner) run(ctx context.Context, testjob TestJob) error {
 		job.DisableCommandLog()
 	}
 	if err := job.Run(ctx); err != nil {
-		return err
+		var failedJob *kubejob.FailedJob
+		if xerrors.As(err, &failedJob) {
+			return ErrFailedTestJob
+		}
+		return nil
 	}
 	return nil
 }
@@ -266,7 +274,7 @@ func (r *TestJobRunner) runDistributedTest(ctx context.Context, testjob TestJob)
 
 	if len(failedTestCommands) > 0 {
 		if !testjob.Spec.DistributedTest.Retest {
-			return nil
+			return ErrFailedTestJob
 		}
 		fmt.Println("start retest....")
 		tests := []string{}
@@ -284,7 +292,7 @@ func (r *TestJobRunner) runDistributedTest(ctx context.Context, testjob TestJob)
 			return xerrors.Errorf("failed test: %w", err)
 		}
 		if len(failedTests) > 0 {
-			return nil
+			return ErrFailedTestJob
 		}
 	}
 	return nil
