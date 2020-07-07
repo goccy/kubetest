@@ -1,0 +1,19 @@
+apiVersion: kubetest.io/v1
+kind: TestJob
+metadata:
+  name: testjob-sample
+spec:
+  # Add fields here
+  image:
+    description: the image for which the testjob is running.
+    type: string
+  branch:
+    description: the branch name of the repo for which the testjob is running.
+    type: string
+  repo:
+    description: the repo for which the testjob is running.
+    type: string
+  rev:
+    description: the revision for which the testjob is running.
+    type: string
+

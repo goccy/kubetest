@@ -7,9 +7,10 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/goccy/kubetest"
+	kubetestv1 "github.com/goccy/kubetest/api/v1"
 	"github.com/jessevdk/go-flags"
 	"golang.org/x/xerrors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	_ "k8s.io/client-go/plugin/pkg/client/auth/gcp"
 	"k8s.io/client-go/rest"
@@ -20,12 +21,10 @@ type option struct {
 	Namespace       string `description:"specify namespace" short:"n" long:"namespace" default:"default"`
 	InCluster       bool   `description:"specify whether in cluster" long:"in-cluster"`
 	Config          string `description:"specify local kubeconfig path. ( default: $HOME/.kube/config )" short:"c" long:"config"`
-	Image           string `description:"specify container image" short:"i" long:"image"`
+	Image           string `description:"specify container image" short:"i" long:"image" required:"true"`
+	Repo            string `description:"specify repository name" long:"repo" required:"true"`
 	Branch          string `description:"specify branch name" short:"b" long:"branch"`
 	Revision        string `description:"specify revision ( commit hash )" long:"rev"`
-	User            string `description:"specify user ( organization ) name" long:"user"`
-	Repo            string `description:"specify repository name" long:"repo"`
-	Token           string `description:"specify github auth token" long:"token"`
 	TokenFromSecret string `description:"specify github auth token from secret resource. specify ( name.key ) style" long:"token-from-secret"`
 }
 
@@ -49,12 +48,6 @@ func loadConfig(opt option) (*rest.Config, error) {
 }
 
 func _main(args []string, opt option) error {
-	if opt.Image == "" {
-		return xerrors.Errorf("image must be specified")
-	}
-	if opt.Repo == "" {
-		return xerrors.Errorf("repo must be specified")
-	}
 	if opt.Branch == "" && opt.Revision == "" {
 		return xerrors.Errorf("branch or rev must be specified")
 	}
@@ -70,14 +63,18 @@ func _main(args []string, opt option) error {
 	if err != nil {
 		return xerrors.Errorf("failed to create clientset: %w", err)
 	}
-	builder := kubetest.NewTestJobBuilder(clientset, opt.Namespace).
-		SetUser(opt.User).
-		SetRepo(opt.Repo).
-		SetBranch(opt.Branch).
-		SetImage(opt.Image).
-		SetRev(opt.Revision).
-		SetToken(opt.Token).
-		SetCommand(args)
+	job := kubetestv1.TestJob{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: opt.Namespace,
+		},
+		Spec: kubetestv1.TestJobSpec{
+			Image:   opt.Image,
+			Repo:    opt.Repo,
+			Branch:  opt.Branch,
+			Rev:     opt.Revision,
+			Command: args,
+		},
+	}
 	if opt.TokenFromSecret != "" {
 		splitted := strings.Split(opt.TokenFromSecret, ".")
 		if len(splitted) != 2 {
@@ -85,14 +82,15 @@ func _main(args []string, opt option) error {
 		}
 		name := splitted[0]
 		key := splitted[1]
-		builder = builder.SetTokenFromSecret(name, key)
+		job.Spec.Token = &kubetestv1.TestJobToken{
+			SecretKeyRef: kubetestv1.TestJobSecretKeyRef{
+				Name: name,
+				Key:  key,
+			},
+		}
 	}
-	job, err := builder.Build()
-	if err != nil {
-		return xerrors.Errorf("failed to build testjob: %w", err)
-	}
-	if err := job.Run(context.Background()); err != nil {
-		return xerrors.Errorf("failed to run testjob: %w", err)
+	if err := kubetestv1.NewTestJobRunner(clientset).Run(context.Background(), job); err != nil {
+		return err
 	}
 	return nil
 }
@@ -105,6 +103,7 @@ func main() {
 		return
 	}
 	if err := _main(args, opt); err != nil {
-		fmt.Printf("%+v", err)
+		fmt.Println(err)
+		os.Exit(1)
 	}
 }
