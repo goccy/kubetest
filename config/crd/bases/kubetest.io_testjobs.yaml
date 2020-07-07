@@ -35,18 +35,70 @@ spec:
           description: TestJobSpec defines the desired state of TestJob
           properties:
             branch:
-              description: Branch name for which the testjob is running.
+              description: Branch name.
               type: string
+            command:
+              description: Command for testing.
+              items:
+                type: string
+              type: array
+            distributedTest:
+              description: Distributed testing parameter
+              properties:
+                concurrent:
+                  description: Concurrent number of process of testing
+                  type: integer
+                listCommand:
+                  description: Output testing list to stdout
+                  items:
+                    type: string
+                  type: array
+                listDelimiter:
+                  description: 'Delimiter for testing list ( default: new line character
+                    ( \n ) )'
+                  type: string
+                pattern:
+                  description: Test name pattern ( enable use regular expression )
+                  type: string
+                retest:
+                  description: Restart testing for failed tests
+                  type: boolean
+                retestDelimiter:
+                  description: 'Delimiter for testing list of retest ( default: white
+                    space )'
+                  type: string
+              required:
+              - concurrent
+              - listCommand
+              - retest
+              type: object
             image:
-              description: Image name for which the testjob is running.
+              description: Image name.
               type: string
             repo:
-              description: Repository for which the testjob is running.
+              description: Repository name.
               type: string
             rev:
-              description: Revision name for which the testjob is running.
+              description: Revision.
               type: string
+            token:
+              description: OAuth token to fetch private repository
+              properties:
+                secretKeyRef:
+                  properties:
+                    key:
+                      type: string
+                    name:
+                      type: string
+                  required:
+                  - key
+                  - name
+                  type: object
+              required:
+              - secretKeyRef
+              type: object
           required:
+          - command
           - image
           - repo
           type: object

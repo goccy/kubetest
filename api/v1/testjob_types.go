@@ -28,14 +28,44 @@ type TestJobSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
 
-	// Image name for which the testjob is running.
+	// Image name.
 	Image string `json:"image"`
-	// Repository for which the testjob is running.
+	// Repository name.
 	Repo string `json:"repo"`
-	// Branch name for which the testjob is running.
+	// Command for testing.
+	Command []string `json:"command"`
+	// Branch name.
 	Branch string `json:"branch,omitempty"`
-	// Revision name for which the testjob is running.
+	// Revision.
 	Rev string `json:"rev,omitempty"`
+	// OAuth token to fetch private repository
+	Token *TestJobToken `json:"token,omitempty"`
+	// Distributed testing parameter
+	DistributedTest *DistributedTestSpec `json:"distributedTest,omitempty"`
+}
+
+type TestJobToken struct {
+	SecretKeyRef TestJobSecretKeyRef `json:"secretKeyRef"`
+}
+
+type TestJobSecretKeyRef struct {
+	Name string `json:"name"`
+	Key  string `json:"key"`
+}
+
+type DistributedTestSpec struct {
+	// Output testing list to stdout
+	ListCommand []string `json:"listCommand"`
+	// Delimiter for testing list ( default: new line character ( \n ) )
+	ListDelimiter string `json:"listDelimiter,omitempty"`
+	// Test name pattern ( enable use regular expression )
+	Pattern string `json:"pattern,omitempty"`
+	// Concurrent number of process of testing
+	Concurrent int `json:"concurrent"`
+	// Restart testing for failed tests
+	Retest bool `json:"retest"`
+	// Delimiter for testing list of retest ( default: white space )
+	RetestDelimiter string `json:"retestDelimiter,omitempty"`
 }
 
 // TestJobStatus defines the observed state of TestJob
