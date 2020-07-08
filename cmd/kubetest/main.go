@@ -11,7 +11,7 @@ import (
 	"github.com/jessevdk/go-flags"
 	"golang.org/x/xerrors"
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/client-go/kubernetes"
 	_ "k8s.io/client-go/plugin/pkg/client/auth/gcp"
 	"k8s.io/client-go/rest"
@@ -22,12 +22,22 @@ type option struct {
 	Namespace       string `description:"specify namespace" short:"n" long:"namespace" default:"default"`
 	InCluster       bool   `description:"specify whether in cluster" long:"in-cluster"`
 	Config          string `description:"specify local kubeconfig path. ( default: $HOME/.kube/config )" short:"c" long:"config"`
-	Image           string `description:"specify container image" short:"i" long:"image" required:"true"`
-	Repo            string `description:"specify repository name" long:"repo" required:"true"`
+	Image           string `description:"specify container image" short:"i" long:"image"`
+	Repo            string `description:"specify repository name" long:"repo"`
 	Branch          string `description:"specify branch name" short:"b" long:"branch"`
 	Revision        string `description:"specify revision ( commit hash )" long:"rev"`
 	TokenFromSecret string `description:"specify github auth token from secret resource. specify ( name.key ) style" long:"token-from-secret"`
 	ImagePullSecret string `description:"specify image pull secret name" long:"image-pull-secret"`
+
+	// Distributed Testing Parameters
+	Concurrent      int    `description:"specify concurrent number" long:"concurrent"`
+	List            string `description:"specify command for listing test" long:"list"`
+	ListDelimiter   string `description:"specify delimiter for list command" long:"list-delimiter"`
+	Pattern         string `description:"specify test name patter" long:"pattern"`
+	Retest          *bool  `description:"specify enabled retest if exists failed tests" long:"retest"`
+	RetestDelimiter string `description:"specify delimiter for failed tests at retest command" long:"retest-delimiter"`
+
+	File string `description:"specify yaml file path" short:"f" long:"file"`
 }
 
 func loadConfig(opt option) (*rest.Config, error) {
@@ -49,14 +59,55 @@ func loadConfig(opt option) (*rest.Config, error) {
 	return cfg, nil
 }
 
-func _main(args []string, opt option) error {
-	if opt.Branch == "" && opt.Revision == "" {
-		return xerrors.Errorf("branch or rev must be specified")
+func hasDistributedParam(job kubetestv1.TestJob, opt option) bool {
+	if job.Spec.DistributedTest != nil {
+		return true
 	}
-	if len(args) == 0 {
-		return xerrors.Errorf("command is required. please speficy after '--' section")
+	if opt.Concurrent > 0 {
+		return true
 	}
+	if opt.List != "" {
+		return true
+	}
+	if opt.ListDelimiter != "" {
+		return true
+	}
+	if opt.Pattern != "" {
+		return true
+	}
+	if opt.Retest != nil {
+		return true
+	}
+	if opt.RetestDelimiter != "" {
+		return true
+	}
+	return false
+}
 
+func validateDistributedTestParam(job kubetestv1.TestJob) error {
+	if job.Spec.DistributedTest.Concurrent == 0 {
+		return xerrors.New("the required flag '--concurrent' was not specified")
+	}
+	if len(job.Spec.DistributedTest.ListCommand) == 0 {
+		return xerrors.New("the required flag '--list' was not specified")
+	}
+	return nil
+}
+
+func validateTestJobParam(job kubetestv1.TestJob) error {
+	if job.Spec.Image == "" {
+		return xerrors.New("the required flag '--image' was not specified")
+	}
+	if job.Spec.Repo == "" {
+		return xerrors.New("the required flag '--repo' was not specified")
+	}
+	if len(job.Spec.Command) == 0 {
+		return xerrors.New("command is required. please speficy after '--' section")
+	}
+	return nil
+}
+
+func _main(args []string, opt option) error {
 	cfg, err := loadConfig(opt)
 	if err != nil {
 		return xerrors.Errorf("failed to load config: %w", err)
@@ -65,17 +116,33 @@ func _main(args []string, opt option) error {
 	if err != nil {
 		return xerrors.Errorf("failed to create clientset: %w", err)
 	}
-	job := kubetestv1.TestJob{
-		ObjectMeta: metav1.ObjectMeta{
-			Namespace: opt.Namespace,
-		},
-		Spec: kubetestv1.TestJobSpec{
-			Image:   opt.Image,
-			Repo:    opt.Repo,
-			Branch:  opt.Branch,
-			Rev:     opt.Revision,
-			Command: args,
-		},
+	var job kubetestv1.TestJob
+	if opt.File != "" {
+		file, err := os.Open(opt.File)
+		if err != nil {
+			return xerrors.Errorf("failed to open %s: %w", err)
+		}
+		if err := yaml.NewYAMLOrJSONDecoder(file, 1024).Decode(&job); err != nil {
+			return xerrors.Errorf("failed to decode YAML: %w", err)
+		}
+	}
+	if job.ObjectMeta.Namespace == "" {
+		job.ObjectMeta.Namespace = opt.Namespace
+	}
+	if opt.Image != "" {
+		job.Spec.Image = opt.Image
+	}
+	if opt.Repo != "" {
+		job.Spec.Repo = opt.Repo
+	}
+	if opt.Branch != "" {
+		job.Spec.Branch = opt.Branch
+	}
+	if opt.Revision != "" {
+		job.Spec.Rev = opt.Revision
+	}
+	if len(args) > 0 {
+		job.Spec.Command = args
 	}
 	if opt.TokenFromSecret != "" {
 		splitted := strings.Split(opt.TokenFromSecret, ".")
@@ -95,6 +162,36 @@ func _main(args []string, opt option) error {
 		job.Spec.ImagePullSecrets = append(job.Spec.ImagePullSecrets, corev1.LocalObjectReference{
 			Name: opt.ImagePullSecret,
 		})
+	}
+
+	if hasDistributedParam(job, opt) {
+		if job.Spec.DistributedTest == nil {
+			job.Spec.DistributedTest = &kubetestv1.DistributedTestSpec{}
+		}
+		if opt.Concurrent > 0 {
+			job.Spec.DistributedTest.Concurrent = opt.Concurrent
+		}
+		if opt.List != "" {
+			job.Spec.DistributedTest.ListCommand = strings.Split(opt.List, " ")
+		}
+		if opt.ListDelimiter != "" {
+			job.Spec.DistributedTest.ListDelimiter = opt.ListDelimiter
+		}
+		if opt.Pattern != "" {
+			job.Spec.DistributedTest.Pattern = opt.Pattern
+		}
+		if opt.Retest != nil {
+			job.Spec.DistributedTest.Retest = *opt.Retest
+		}
+		if opt.RetestDelimiter != "" {
+			job.Spec.DistributedTest.RetestDelimiter = opt.RetestDelimiter
+		}
+		if err := validateDistributedTestParam(job); err != nil {
+			return err
+		}
+	}
+	if err := validateTestJobParam(job); err != nil {
+		return err
 	}
 	if err := kubetestv1.NewTestJobRunner(clientset).Run(context.Background(), job); err != nil {
 		return err
