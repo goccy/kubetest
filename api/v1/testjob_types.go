@@ -17,6 +17,7 @@ limitations under the License.
 package v1
 
 import (
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -40,6 +41,11 @@ type TestJobSpec struct {
 	Rev string `json:"rev,omitempty"`
 	// OAuth token to fetch private repository
 	Token *TestJobToken `json:"token,omitempty"`
+	// ImagePullSecrets is an optional list of references to secrets in the same namespace to use for pulling any of the images used by this TestJobSpec.
+	// If specified, these secrets will be passed to individual puller implementations for them to use. For example,
+	// in the case of docker, only DockerConfig type secrets are honored.
+	// More info: https://kubernetes.io/docs/concepts/containers/images#specifying-imagepullsecrets-on-a-pod
+	ImagePullSecrets []corev1.LocalObjectReference `json:"imagePullSecrets,omitempty"`
 	// Distributed testing parameter
 	DistributedTest *DistributedTestSpec `json:"distributedTest,omitempty"`
 }

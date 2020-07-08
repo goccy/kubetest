@@ -10,6 +10,7 @@ import (
 	kubetestv1 "github.com/goccy/kubetest/api/v1"
 	"github.com/jessevdk/go-flags"
 	"golang.org/x/xerrors"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	_ "k8s.io/client-go/plugin/pkg/client/auth/gcp"
@@ -26,6 +27,7 @@ type option struct {
 	Revision        string `description:"specify revision ( commit hash )" long:"rev"`
 	Repo            string `description:"specify repository name" long:"repo" required:"true"`
 	TokenFromSecret string `description:"specify github auth token from secret resource. specify ( name.key ) style" long:"token-from-secret"`
+	ImagePullSecret string `description:"specify image pull secret name" long:"image-pull-secret"`
 	Concurrent      int    `description:"specify concurrent number" long:"concurrent" required:"true"`
 	List            string `description:"specify command for listing test" long:"list" required:"true"`
 	ListDelimiter   string `description:"specify delimiter for list command" long:"list-delimiter"`
@@ -106,6 +108,11 @@ func _main(args []string, opt option) error {
 				Key:  key,
 			},
 		}
+	}
+	if opt.ImagePullSecret != "" {
+		job.Spec.ImagePullSecrets = append(job.Spec.ImagePullSecrets, corev1.LocalObjectReference{
+			Name: opt.ImagePullSecret,
+		})
 	}
 	if err := kubetestv1.NewTestJobRunner(clientset).Run(context.Background(), job); err != nil {
 		return err
