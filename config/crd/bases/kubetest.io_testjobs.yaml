@@ -104,6 +104,10 @@ spec:
           type: object
         status:
           description: TestJobStatus defines the observed state of TestJob
+          properties:
+            running:
+              description: Whether the testjob is running
+              type: boolean
           type: object
       type: object
   version: v1

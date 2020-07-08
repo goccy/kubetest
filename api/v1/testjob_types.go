@@ -72,6 +72,9 @@ type DistributedTestSpec struct {
 type TestJobStatus struct {
 	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
+
+	// Whether the testjob is running
+	Running bool `json:"running,omitempty"`
 }
 
 // +kubebuilder:object:root=true

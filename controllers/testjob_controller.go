@@ -56,6 +56,24 @@ func (r *TestJobReconciler) Reconcile(req ctrl.Request) (result ctrl.Result, e e
 		}
 		return ctrl.Result{}, err
 	}
+	if job.Status.Running {
+		return ctrl.Result{}, nil
+	}
+
+	job.Status.Running = true
+	if err := r.Update(ctx, &job); err != nil {
+		return ctrl.Result{}, err
+	}
+
+	go func() {
+		if err := r.runTestJob(ctx, job); err != nil {
+			e = err
+		}
+	}()
+	return ctrl.Result{}, nil
+}
+
+func (r *TestJobReconciler) runTestJob(ctx context.Context, job kubetestv1.TestJob) (e error) {
 	defer func() {
 		if err := r.Delete(ctx, &job); err != nil {
 			if e != nil {
@@ -69,11 +87,11 @@ func (r *TestJobReconciler) Reconcile(req ctrl.Request) (result ctrl.Result, e e
 	}()
 	if err := kubetestv1.NewTestJobRunner(r.ClientSet).Run(ctx, job); err != nil {
 		if xerrors.Is(err, kubetestv1.ErrFailedTestJob) {
-			return ctrl.Result{}, nil
+			return nil
 		}
-		return ctrl.Result{}, err
+		return err
 	}
-	return ctrl.Result{}, nil
+	return nil
 }
 
 func (r *TestJobReconciler) SetupWithManager(mgr ctrl.Manager) error {
