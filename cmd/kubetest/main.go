@@ -1,11 +1,14 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strings"
+	"text/template"
 
 	kubetestv1 "github.com/goccy/kubetest/api/v1"
 	"github.com/jessevdk/go-flags"
@@ -37,7 +40,8 @@ type option struct {
 	Retest          *bool  `description:"specify enabled retest if exists failed tests" long:"retest"`
 	RetestDelimiter string `description:"specify delimiter for failed tests at retest command" long:"retest-delimiter"`
 
-	File string `description:"specify yaml file path" short:"f" long:"file"`
+	File     string            `description:"specify yaml file path" short:"f" long:"file"`
+	Template map[string]string `description:"specify template parameter for file specified with --file option" long:"template"`
 }
 
 func loadConfig(opt option) (*rest.Config, error) {
@@ -88,7 +92,7 @@ func validateDistributedTestParam(job kubetestv1.TestJob) error {
 	if job.Spec.DistributedTest.Concurrent == 0 {
 		return xerrors.New("the required flag '--concurrent' was not specified")
 	}
-	if len(job.Spec.DistributedTest.ListCommand) == 0 {
+	if job.Spec.DistributedTest.ListCommand == "" {
 		return xerrors.New("the required flag '--list' was not specified")
 	}
 	return nil
@@ -101,7 +105,7 @@ func validateTestJobParam(job kubetestv1.TestJob) error {
 	if job.Spec.Repo == "" {
 		return xerrors.New("the required flag '--repo' was not specified")
 	}
-	if len(job.Spec.Command) == 0 {
+	if job.Spec.Command == "" {
 		return xerrors.New("command is required. please speficy after '--' section")
 	}
 	return nil
@@ -118,11 +122,19 @@ func _main(args []string, opt option) error {
 	}
 	var job kubetestv1.TestJob
 	if opt.File != "" {
-		file, err := os.Open(opt.File)
+		file, err := ioutil.ReadFile(opt.File)
 		if err != nil {
-			return xerrors.Errorf("failed to open %s: %w", err)
+			return xerrors.Errorf("failed to open %s: %w", string(file), err)
 		}
-		if err := yaml.NewYAMLOrJSONDecoder(file, 1024).Decode(&job); err != nil {
+		f, err := template.New("").Parse(string(file))
+		if err != nil {
+			return xerrors.Errorf("failed to parse file as template %s: %w", string(file), err)
+		}
+		var b bytes.Buffer
+		if err := f.Execute(&b, opt.Template); err != nil {
+			return xerrors.Errorf("failed to execute template %s: %w", string(file), err)
+		}
+		if err := yaml.NewYAMLOrJSONDecoder(&b, 1024).Decode(&job); err != nil {
 			return xerrors.Errorf("failed to decode YAML: %w", err)
 		}
 	}
@@ -142,7 +154,7 @@ func _main(args []string, opt option) error {
 		job.Spec.Rev = opt.Revision
 	}
 	if len(args) > 0 {
-		job.Spec.Command = args
+		job.Spec.Command = kubetestv1.Command(strings.Join(args, " "))
 	}
 	if opt.TokenFromSecret != "" {
 		splitted := strings.Split(opt.TokenFromSecret, ".")
@@ -172,7 +184,7 @@ func _main(args []string, opt option) error {
 			job.Spec.DistributedTest.Concurrent = opt.Concurrent
 		}
 		if opt.List != "" {
-			job.Spec.DistributedTest.ListCommand = strings.Split(opt.List, " ")
+			job.Spec.DistributedTest.ListCommand = kubetestv1.Command(opt.List)
 		}
 		if opt.ListDelimiter != "" {
 			job.Spec.DistributedTest.ListDelimiter = opt.ListDelimiter

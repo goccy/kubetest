@@ -29,26 +29,38 @@ type TestJobSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
 
+	// Image name for clone and checkout by git protocol.
+	GitImage string `json:"gitImage,omitempty"`
+	// Checkout whether checkout repository before testing ( default: true ).
+	Checkout *bool `json:"checkout,omitempty"`
 	// Image name.
 	Image string `json:"image"`
 	// Repository name.
 	Repo string `json:"repo"`
 	// Command for testing.
-	Command []string `json:"command"`
+	Command Command `json:"command"`
+	// Workdir ( default: /git/workspace )
+	Workdir string `json:"workdir,omitempty"`
 	// Branch name.
 	Branch string `json:"branch,omitempty"`
 	// Revision.
 	Rev string `json:"rev,omitempty"`
 	// OAuth token to fetch private repository
 	Token *TestJobToken `json:"token,omitempty"`
+	// List of environment variables to set in the container.
+	Env []corev1.EnvVar `json:"env,omiempty"`
 	// ImagePullSecrets is an optional list of references to secrets in the same namespace to use for pulling any of the images used by this TestJobSpec.
 	// If specified, these secrets will be passed to individual puller implementations for them to use. For example,
 	// in the case of docker, only DockerConfig type secrets are honored.
 	// More info: https://kubernetes.io/docs/concepts/containers/images#specifying-imagepullsecrets-on-a-pod
 	ImagePullSecrets []corev1.LocalObjectReference `json:"imagePullSecrets,omitempty"`
+	// Prepare steps before testing
+	Prepare PrepareSpec `json:"prepare,omitempty"`
 	// Distributed testing parameter
 	DistributedTest *DistributedTestSpec `json:"distributedTest,omitempty"`
 }
+
+type Command string
 
 type TestJobToken struct {
 	SecretKeyRef TestJobSecretKeyRef `json:"secretKeyRef"`
@@ -59,9 +71,25 @@ type TestJobSecretKeyRef struct {
 	Key  string `json:"key"`
 }
 
+type PrepareSpec struct {
+	// Checkout whether checkout repository before testing ( default: true ).
+	Checkout *bool             `json:"checkout,omitempty"`
+	Image    string            `json:"image,omitempty"`
+	Steps    []PrepareStepSpec `json:"steps"`
+}
+
+type PrepareStepSpec struct {
+	Name    string  `json:"name"`
+	Image   string  `json:"image,omitempty"`
+	Command Command `json:"command"`
+	// Workdir ( default: /git/workspace )
+	Workdir string          `json:"workdir,omitempty"`
+	Env     []corev1.EnvVar `json:"env,omiempty"`
+}
+
 type DistributedTestSpec struct {
 	// Output testing list to stdout
-	ListCommand []string `json:"listCommand"`
+	ListCommand Command `json:"listCommand"`
 	// Delimiter for testing list ( default: new line character ( \n ) )
 	ListDelimiter string `json:"listDelimiter,omitempty"`
 	// Test name pattern ( enable use regular expression )

@@ -5,13 +5,13 @@ package v1
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
-	"text/template"
 
 	"github.com/goccy/kubejob"
 	"golang.org/x/sync/errgroup"
@@ -70,6 +70,13 @@ func (r *TestJobRunner) sharedVolumeMount() apiv1.VolumeMount {
 	}
 }
 
+func (r *TestJobRunner) gitImage(job TestJob) string {
+	if job.Spec.GitImage != "" {
+		return job.Spec.GitImage
+	}
+	return gitImageName
+}
+
 func (r *TestJobRunner) cloneURL(job TestJob) string {
 	repo := job.Spec.Repo
 	if r.token != "" {
@@ -90,7 +97,7 @@ func (r *TestJobRunner) gitCloneContainer(job TestJob) apiv1.Container {
 	}
 	return apiv1.Container{
 		Name:         "kubetest-init-clone",
-		Image:        gitImageName,
+		Image:        r.gitImage(job),
 		Command:      []string{"git"},
 		Args:         cloneCmd,
 		Env:          []apiv1.EnvVar{{Name: oauthTokenEnv, Value: r.token}},
@@ -102,10 +109,10 @@ func (r *TestJobRunner) gitSwitchContainer(job TestJob) apiv1.Container {
 	volumeMount := r.sharedVolumeMount()
 	return apiv1.Container{
 		Name:         "kubetest-init-switch",
-		Image:        gitImageName,
+		Image:        r.gitImage(job),
 		WorkingDir:   volumeMount.MountPath,
 		Command:      []string{"git"},
-		Args:         []string{"switch", "--detach", job.Spec.Rev},
+		Args:         []string{"checkout", "--detach", job.Spec.Rev},
 		VolumeMounts: []apiv1.VolumeMount{volumeMount},
 	}
 }
@@ -118,6 +125,16 @@ func (r *TestJobRunner) initContainers(job TestJob) []apiv1.Container {
 		r.gitCloneContainer(job),
 		r.gitSwitchContainer(job),
 	}
+}
+
+func (r *TestJobRunner) command(cmd Command) ([]string, []string) {
+	e := base64.StdEncoding.EncodeToString([]byte(string(cmd)))
+	return []string{"sh"}, []string{"-c", fmt.Sprintf("echo %s | base64 -d | sh", e)}
+}
+
+func (r *TestJobRunner) commandText(cmd Command) string {
+	c, args := r.command(cmd)
+	return strings.Join(append(c, args...), " ")
 }
 
 func (r *TestJobRunner) DisablePrepareLog() {
@@ -154,34 +171,132 @@ func (r *TestJobRunner) Run(ctx context.Context, testjob TestJob) error {
 		}
 		r.token = strings.TrimSpace(string(data))
 	}
+	if err := r.prepare(ctx, testjob); err != nil {
+		return err
+	}
 	if testjob.Spec.DistributedTest != nil {
 		return r.runDistributedTest(ctx, testjob)
 	}
 	return r.run(ctx, testjob)
 }
 
-func (r *TestJobRunner) run(ctx context.Context, testjob TestJob) error {
-	volumeMount := r.sharedVolumeMount()
+func (r *TestJobRunner) prepareImage(stepIdx int, testjob TestJob) string {
+	step := testjob.Spec.Prepare.Steps[stepIdx]
+	if step.Image != "" {
+		return step.Image
+	}
+	image := testjob.Spec.Prepare.Image
+	if image != "" {
+		return image
+	}
+	return testjob.Spec.Image
+}
+
+func (r *TestJobRunner) prepareWorkingDir(stepIdx int, testjob TestJob) string {
+	step := testjob.Spec.Prepare.Steps[stepIdx]
+	if step.Workdir != "" {
+		return step.Workdir
+	}
+	return r.sharedVolumeMount().MountPath
+}
+
+func (r *TestJobRunner) prepareEnv(stepIdx int, testjob TestJob) []apiv1.EnvVar {
+	step := testjob.Spec.Prepare.Steps[stepIdx]
+	env := step.Env
+	env = append(env, testjob.Spec.Env...)
+	return env
+}
+
+func (r *TestJobRunner) enabledPrepareCheckout(testjob TestJob) bool {
+	checkout := testjob.Spec.Prepare.Checkout
+	if checkout != nil && !(*checkout) {
+		return false
+	}
+	return true
+}
+
+func (r *TestJobRunner) enabledCheckout(testjob TestJob) bool {
+	checkout := testjob.Spec.Checkout
+	if checkout != nil && !(*checkout) {
+		return false
+	}
+	return true
+}
+
+func (r *TestJobRunner) prepare(ctx context.Context, testjob TestJob) error {
+	if len(testjob.Spec.Prepare.Steps) == 0 {
+		return nil
+	}
+	var containers []apiv1.Container
+	if r.enabledPrepareCheckout(testjob) {
+		containers = r.initContainers(testjob)
+	}
+	fmt.Println("run prepare")
+	for stepIdx, step := range testjob.Spec.Prepare.Steps {
+		image := r.prepareImage(stepIdx, testjob)
+		cmd, args := r.command(step.Command)
+		volumeMount := r.sharedVolumeMount()
+		containers = append(containers, apiv1.Container{
+			Name:       step.Name,
+			Image:      image,
+			Command:    cmd,
+			Args:       args,
+			WorkingDir: r.prepareWorkingDir(stepIdx, testjob),
+			VolumeMounts: []apiv1.VolumeMount{
+				volumeMount,
+			},
+			Env: r.prepareEnv(stepIdx, testjob),
+		})
+	}
+	lastContainer := containers[len(containers)-1]
 	job, err := kubejob.NewJobBuilder(r.Clientset, testjob.Namespace).
 		BuildWithJob(&batchv1.Job{
 			Spec: batchv1.JobSpec{
 				Template: apiv1.PodTemplateSpec{
 					Spec: apiv1.PodSpec{
-						Volumes:        []apiv1.Volume{r.sharedVolume()},
-						InitContainers: r.initContainers(testjob),
-						Containers: []apiv1.Container{
-							{
-								Image:        testjob.Spec.Image,
-								Command:      []string{testjob.Spec.Command[0]},
-								Args:         testjob.Spec.Command[1:],
-								WorkingDir:   volumeMount.MountPath,
-								VolumeMounts: []apiv1.VolumeMount{volumeMount},
-							},
+						Volumes: []apiv1.Volume{
+							r.sharedVolume(),
 						},
+						InitContainers:   containers[:len(containers)-1],
+						Containers:       []apiv1.Container{lastContainer},
+						ImagePullSecrets: testjob.Spec.ImagePullSecrets,
 					},
 				},
 			},
 		})
+	if err != nil {
+		return err
+	}
+	if r.logger != nil {
+		job.SetLogger(r.logger)
+	}
+	return job.Run(ctx)
+}
+
+func (r *TestJobRunner) newJobForTesting(testjob TestJob, containers []apiv1.Container) (*kubejob.Job, error) {
+	var initContainers []apiv1.Container
+	if r.enabledCheckout(testjob) {
+		initContainers = r.initContainers(testjob)
+	}
+	return kubejob.NewJobBuilder(r.Clientset, testjob.Namespace).
+		BuildWithJob(&batchv1.Job{
+			Spec: batchv1.JobSpec{
+				Template: apiv1.PodTemplateSpec{
+					Spec: apiv1.PodSpec{
+						Volumes: []apiv1.Volume{
+							r.sharedVolume(),
+						},
+						InitContainers:   initContainers,
+						Containers:       containers,
+						ImagePullSecrets: testjob.Spec.ImagePullSecrets,
+					},
+				},
+			},
+		})
+}
+
+func (r *TestJobRunner) run(ctx context.Context, testjob TestJob) error {
+	job, err := r.newJobForTesting(testjob, []apiv1.Container{r.testjobToContainer(testjob)})
 	if err != nil {
 		return err
 	}
@@ -253,10 +368,7 @@ func (r *TestJobRunner) runDistributedTest(ctx context.Context, testjob TestJob)
 
 	var eg errgroup.Group
 	for _, tests := range plan {
-		commands, err := r.testsToCommands(testjob, tests)
-		if err != nil {
-			return xerrors.Errorf("failed to get commands from tests: %w", err)
-		}
+		commands := r.testsToCommands(testjob, tests)
 		eg.Go(func() error {
 			commands, err := r.runTests(ctx, testjob, logger, commands)
 			if err != nil {
@@ -282,11 +394,8 @@ func (r *TestJobRunner) runDistributedTest(ctx context.Context, testjob TestJob)
 			tests = append(tests, command.test)
 		}
 		concatedTests := strings.Join(tests, testjob.Spec.DistributedTest.RetestDelimiter)
-		cmdTmpl := strings.Join(testjob.Spec.Command, " ")
-		cmd, err := r.testCommand(cmdTmpl, concatedTests)
-		if err != nil {
-			return xerrors.Errorf("failed test: %w", err)
-		}
+		command, args := r.command(testjob.Spec.Command)
+		cmd := r.testCommand(command, args, concatedTests)
 		failedTests, err := r.runTests(ctx, testjob, logger, commands{cmd})
 		if err != nil {
 			return xerrors.Errorf("failed test: %w", err)
@@ -299,9 +408,16 @@ func (r *TestJobRunner) runDistributedTest(ctx context.Context, testjob TestJob)
 }
 
 type command struct {
-	tmpl  string
-	test  string
-	value string
+	cmd  []string
+	args []string
+	test string
+}
+
+func (c *command) value() string {
+	cmd := []string{}
+	cmd = append(cmd, c.cmd...)
+	cmd = append(cmd, c.args...)
+	return strings.Join(cmd, " ")
 }
 
 type commands []*command
@@ -309,53 +425,67 @@ type commands []*command
 func (c commands) commandValueMap() map[string]*command {
 	m := map[string]*command{}
 	for _, cc := range c {
-		m[cc.value] = cc
+		m[cc.value()] = cc
 	}
 	return m
 }
 
-func (r *TestJobRunner) testCommand(cmdTmpl, test string) (*command, error) {
-	var cmd bytes.Buffer
-	tmpl, err := template.New("").Parse(cmdTmpl)
-	if err != nil {
-		return nil, err
-	}
-	if err := tmpl.Execute(&cmd, struct {
-		Test string
-	}{
-		Test: test,
-	}); err != nil {
-		return nil, err
-	}
+func (r *TestJobRunner) testCommand(cmd []string, args []string, test string) *command {
 	return &command{
-		tmpl:  cmdTmpl,
-		test:  test,
-		value: cmd.String(),
-	}, nil
+		cmd:  cmd,
+		args: args,
+		test: test,
+	}
 }
 
-func (r *TestJobRunner) testsToCommands(job TestJob, tests []string) ([]*command, error) {
-	cmdTmpl := strings.Join(job.Spec.Command, " ")
+func (r *TestJobRunner) testsToCommands(job TestJob, tests []string) []*command {
+	c, args := r.command(job.Spec.Command)
 	commands := []*command{}
 	for _, test := range tests {
-		cmd, err := r.testCommand(cmdTmpl, test)
-		if err != nil {
-			return nil, err
-		}
+		cmd := r.testCommand(c, args, test)
 		commands = append(commands, cmd)
 	}
-	return commands, nil
+	return commands
+}
+
+func (r *TestJobRunner) workingDir(testjob TestJob) string {
+	if testjob.Spec.Workdir != "" {
+		return testjob.Spec.Workdir
+	}
+	return r.sharedVolumeMount().MountPath
+}
+
+func (r *TestJobRunner) testjobToContainer(testjob TestJob) apiv1.Container {
+	cmd, args := r.command(testjob.Spec.Command)
+	volumeMount := r.sharedVolumeMount()
+	return apiv1.Container{
+		Image:      testjob.Spec.Image,
+		Command:    cmd,
+		Args:       args,
+		WorkingDir: r.workingDir(testjob),
+		VolumeMounts: []apiv1.VolumeMount{
+			volumeMount,
+		},
+		Env: testjob.Spec.Env,
+	}
 }
 
 func (r *TestJobRunner) testCommandToContainer(job TestJob, test *command) apiv1.Container {
-	cmd := strings.Split(test.value, " ")
 	volumeMount := r.sharedVolumeMount()
+	env := job.Spec.Env
+	env = append(env, apiv1.EnvVar{
+		Name:  "TEST",
+		Value: test.test,
+	})
 	return apiv1.Container{
-		Image:        job.Spec.Image,
-		Command:      []string{cmd[0]},
-		Args:         cmd[1:],
-		WorkingDir:   volumeMount.MountPath,
-		VolumeMounts: []apiv1.VolumeMount{volumeMount},
+		Image:      job.Spec.Image,
+		Command:    test.cmd,
+		Args:       test.args,
+		WorkingDir: r.workingDir(job),
+		VolumeMounts: []apiv1.VolumeMount{
+			volumeMount,
+		},
+		Env: env,
 	}
 }
 
@@ -370,18 +500,7 @@ func (r *TestJobRunner) runTests(ctx context.Context, testjob TestJob, logger ku
 				containers = append(containers, r.testCommandToContainer(testjob, testCommands[i+j]))
 			}
 		}
-		job, err := kubejob.NewJobBuilder(r.Clientset, testjob.Namespace).
-			BuildWithJob(&batchv1.Job{
-				Spec: batchv1.JobSpec{
-					Template: apiv1.PodTemplateSpec{
-						Spec: apiv1.PodSpec{
-							Volumes:        []apiv1.Volume{r.sharedVolume()},
-							InitContainers: r.initContainers(testjob),
-							Containers:     containers,
-						},
-					},
-				},
-			})
+		job, err := r.newJobForTesting(testjob, containers)
 		if err != nil {
 			return nil, err
 		}
@@ -410,6 +529,7 @@ func (r *TestJobRunner) testList(ctx context.Context, testjob TestJob) ([]string
 
 	listjob := testjob
 	listjob.Spec.Command = distributedTest.ListCommand
+	listjob.Spec.Prepare.Steps = []PrepareStepSpec{}
 	listjob.Spec.DistributedTest = nil
 
 	listJobRunner := NewTestJobRunner(r.Clientset)
