@@ -19,6 +19,7 @@ import (
 	_ "k8s.io/client-go/plugin/pkg/client/auth/gcp"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
+	"sigs.k8s.io/controller-runtime/pkg/client/config"
 )
 
 type option struct {
@@ -46,7 +47,7 @@ type option struct {
 
 func loadConfig(opt option) (*rest.Config, error) {
 	if opt.InCluster {
-		cfg, err := rest.InClusterConfig()
+		cfg, err := config.GetConfig()
 		if err != nil {
 			return nil, xerrors.Errorf("failed to load config in cluster: %w", err)
 		}
