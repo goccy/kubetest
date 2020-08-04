@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -314,7 +315,8 @@ func (r *TestJobRunner) run(ctx context.Context, testjob TestJob) error {
 		if xerrors.As(err, &failedJob) {
 			return ErrFailedTestJob
 		}
-		return nil
+		log.Printf(err.Error())
+		return ErrFailedTestJob
 	}
 	return nil
 }

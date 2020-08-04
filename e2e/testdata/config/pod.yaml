@@ -1,0 +1,59 @@
+kind: ServiceAccount
+apiVersion: v1
+metadata:
+  name: kubetest
+---
+kind: Role
+apiVersion: rbac.authorization.k8s.io/v1beta1
+metadata:
+  name: kubetest
+rules:
+  - apiGroups:
+      - batch
+    resources:
+      - jobs
+    verbs:
+      - create
+      - delete
+  - apiGroups:
+      - ""
+    resources:
+      - pods
+      - pods/log
+    verbs:
+      - get
+      - watch
+  - apiGroups:
+      - ""
+    resources:
+      - secrets
+    verbs:
+      - get
+---
+kind: RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1beta1
+metadata:
+  name: kubetest
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: kubetest
+subjects:
+- kind: ServiceAccount
+  name: kubetest
+---
+kind: Pod
+apiVersion: v1
+metadata:
+  name: job-pod
+spec:
+  serviceAccountName: kubetest
+  containers:
+    - name: job-container
+      image: kubetest:v1
+      imagePullPolicy: Never
+      command:
+        - tail
+      args:
+        - -f
+        - /dev/null
