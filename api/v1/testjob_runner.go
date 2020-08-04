@@ -370,6 +370,7 @@ func (r *TestJobRunner) runDistributedTest(ctx context.Context, testjob TestJob)
 
 	var eg errgroup.Group
 	for _, tests := range plan {
+		tests := tests
 		commands := r.testsToCommands(testjob, tests)
 		eg.Go(func() error {
 			commands, err := r.runTests(ctx, testjob, logger, commands)
@@ -474,7 +475,8 @@ func (r *TestJobRunner) testjobToContainer(testjob TestJob) apiv1.Container {
 
 func (r *TestJobRunner) testCommandToContainer(job TestJob, test *command) apiv1.Container {
 	volumeMount := r.sharedVolumeMount()
-	env := job.Spec.Env
+	env := []apiv1.EnvVar{}
+	env = append(env, job.Spec.Env...)
 	env = append(env, apiv1.EnvVar{
 		Name:  "TEST",
 		Value: test.test,
