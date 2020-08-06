@@ -251,6 +251,10 @@ func (r *TestJobRunner) prepare(ctx context.Context, testjob TestJob) error {
 		})
 	}
 	lastContainer := containers[len(containers)-1]
+	initContainers := []apiv1.Container{}
+	if len(containers) > 1 {
+		initContainers = containers[:len(containers)-1]
+	}
 	job, err := kubejob.NewJobBuilder(r.Clientset, testjob.Namespace).
 		BuildWithJob(&batchv1.Job{
 			Spec: batchv1.JobSpec{
@@ -259,7 +263,7 @@ func (r *TestJobRunner) prepare(ctx context.Context, testjob TestJob) error {
 						Volumes: []apiv1.Volume{
 							r.sharedVolume(),
 						},
-						InitContainers:   containers[:len(containers)-1],
+						InitContainers:   initContainers,
 						Containers:       []apiv1.Container{lastContainer},
 						ImagePullSecrets: testjob.Spec.ImagePullSecrets,
 					},
@@ -269,6 +273,7 @@ func (r *TestJobRunner) prepare(ctx context.Context, testjob TestJob) error {
 	if err != nil {
 		return err
 	}
+	job.DisableCommandLog()
 	if r.logger != nil {
 		job.SetLogger(r.logger)
 	}
