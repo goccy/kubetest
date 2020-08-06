@@ -6,7 +6,7 @@ require (
 	cloud.google.com/go v0.56.0 // indirect
 	github.com/go-logr/logr v0.1.0
 	github.com/go-logr/zapr v0.1.1 // indirect
-	github.com/goccy/kubejob v0.0.0-20200706100422-8daf15a026e3
+	github.com/goccy/kubejob v0.0.0-20200806025843-c52da3179157
 	github.com/gogo/protobuf v1.3.1 // indirect
 	github.com/google/gofuzz v1.1.0 // indirect
 	github.com/googleapis/gnostic v0.4.0 // indirect

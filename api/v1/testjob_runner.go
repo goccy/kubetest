@@ -39,10 +39,11 @@ var (
 
 type TestJobRunner struct {
 	*kubernetes.Clientset
-	token              string
-	disabledPrepareLog bool
-	disabledCommandLog bool
-	logger             func(*kubejob.ContainerLog)
+	token                     string
+	disabledPrepareLog        bool
+	disabledCommandLog        bool
+	logger                    func(*kubejob.ContainerLog)
+	containerNameToCommandMap sync.Map
 }
 
 func NewTestJobRunner(clientset *kubernetes.Clientset) *TestJobRunner {
@@ -334,7 +335,7 @@ func (r *TestJobRunner) runDistributedTest(ctx context.Context, testjob TestJob)
 		mu         sync.Mutex
 		lastPodIdx int
 	)
-	containerLogMap := map[string][]string{}
+	containerNameToLogMap := map[string][]string{}
 	podNameToIndexMap := map[string]int{}
 	logger := func(log *kubejob.ContainerLog) {
 		mu.Lock()
@@ -342,7 +343,8 @@ func (r *TestJobRunner) runDistributedTest(ctx context.Context, testjob TestJob)
 
 		name := log.Container.Name
 		if log.IsFinished {
-			logs, exists := containerLogMap[name]
+			cmd, _ := r.containerNameToCommandMap.Load(name)
+			logs, exists := containerNameToLogMap[name]
 			if exists {
 				podName := log.Pod.Name
 				idx, exists := podNameToIndexMap[podName]
@@ -351,20 +353,21 @@ func (r *TestJobRunner) runDistributedTest(ctx context.Context, testjob TestJob)
 					podNameToIndexMap[log.Pod.Name] = lastPodIdx
 					lastPodIdx++
 				}
+				fmt.Fprintf(os.Stderr, "[POD %d] TEST=%s %s", idx, cmd.(*command).test, testjob.Spec.Command)
 				for _, log := range logs {
 					fmt.Fprintf(os.Stderr, "[POD %d] %s", idx, log)
 				}
 				fmt.Fprintf(os.Stderr, "\n")
 			}
-			delete(containerLogMap, name)
+			delete(containerNameToLogMap, name)
 		} else {
-			value, exists := containerLogMap[name]
+			value, exists := containerNameToLogMap[name]
 			logs := []string{}
 			if exists {
 				logs = value
 			}
 			logs = append(logs, log.Log)
-			containerLogMap[name] = logs
+			containerNameToLogMap[name] = logs
 		}
 	}
 
@@ -411,9 +414,10 @@ func (r *TestJobRunner) runDistributedTest(ctx context.Context, testjob TestJob)
 }
 
 type command struct {
-	cmd  []string
-	args []string
-	test string
+	cmd       []string
+	args      []string
+	test      string
+	container string
 }
 
 func (c *command) value() string {
@@ -508,6 +512,14 @@ func (r *TestJobRunner) runTests(ctx context.Context, testjob TestJob, logger ku
 		if err != nil {
 			return nil, err
 		}
+		for j := 0; j < concurrentNum; j++ {
+			if i+j < len(testCommands) {
+				containerName := job.Spec.Template.Spec.Containers[j].Name
+				testCommands[i+j].container = containerName
+				r.containerNameToCommandMap.Store(containerName, testCommands[i+j])
+			}
+		}
+		job.DisableCommandLog()
 		job.SetLogger(logger)
 		if err := job.Run(ctx); err != nil {
 			var failedJob *kubejob.FailedJob
