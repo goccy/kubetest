@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/goccy/kubejob"
 	"golang.org/x/sync/errgroup"
@@ -173,9 +174,11 @@ func (r *TestJobRunner) Run(ctx context.Context, testjob TestJob) error {
 		}
 		r.token = strings.TrimSpace(string(data))
 	}
+	startPrepareTime := time.Now()
 	if err := r.prepare(ctx, testjob); err != nil {
 		return err
 	}
+	fmt.Fprintf(os.Stderr, "prepare: elapsed time %f sec", time.Since(startPrepareTime).Seconds())
 	if testjob.Spec.DistributedTest != nil {
 		return r.runDistributedTest(ctx, testjob)
 	}
@@ -328,11 +331,19 @@ func (r *TestJobRunner) run(ctx context.Context, testjob TestJob) error {
 }
 
 func (r *TestJobRunner) runDistributedTest(ctx context.Context, testjob TestJob) error {
+	fmt.Println("get listing of tests...")
+	startListTime := time.Now()
 	list, err := r.testList(ctx, testjob)
 	if err != nil {
 		return err
 	}
+	fmt.Fprintf(os.Stderr, "list: elapsed time %f sec", time.Since(startListTime).Seconds())
 	plan := r.plan(testjob, list)
+
+	startTestTime := time.Now()
+	defer func() {
+		fmt.Fprintf(os.Stderr, "test: elapsed time %f sec", time.Since(startTestTime).Seconds())
+	}()
 
 	failedTestCommands := []*command{}
 
