@@ -34,11 +34,21 @@ build-image:
 		fi ;\
 	}
 
+delete-image:
+	docker image rm kubetest:v1
+
+update-image: delete-image build-image
+
 upload-image: build-image
 	@$(KIND) load --name $(TEST_CLUSTER_NAME) docker-image kubetest:v1
 
 deploy: test-cluster upload-image
 	kubectl apply -f testdata/config/pod.yaml
+	kubectl apply -f https://docs.projectcalico.org/v3.8/manifests/calico.yaml
 
 delete-pod:
 	kubectl delete pod job-pod
+
+test:
+	kubectl cp ./testjob.yaml job-pod:/go/
+	kubectl exec job-pod -- kubetest --in-cluster -f testjob.yaml --template JobName=e2e

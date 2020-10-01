@@ -1,0 +1,27 @@
+apiVersion: kubetest.io/v1
+kind: TestJob
+metadata:
+  name: {{ .JobName }}
+spec:
+  repo: github.com/goccy/kubetest
+  prepare:
+    steps:
+      - name: prepare-command
+        image: kubetest:v1
+        command: |
+          echo $NAME
+        env:
+          - name: NAME
+            value: kubetest
+  checkout: false
+  gitImage: kubetest:v1
+  image: kubetest:v1
+  workdir: /go/src/github.com/goccy/kubetest
+  command: |
+    go test -v $TEST
+  distributedTest:
+    concurrent: 8
+    listCommand: |
+      echo 'no such test'
+    pattern: '^"Test'
+    retest: false
