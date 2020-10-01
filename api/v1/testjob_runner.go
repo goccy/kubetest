@@ -336,7 +336,10 @@ func (r *TestJobRunner) runDistributedTest(ctx context.Context, testjob TestJob)
 	fmt.Println("get listing of tests...")
 	list, err := r.testList(ctx, testjob)
 	if err != nil {
-		return err
+		return xerrors.Errorf("failed to get list for testing: %w", err)
+	}
+	if len(list) == 0 {
+		return nil
 	}
 	plan := r.plan(testjob, list)
 
@@ -576,7 +579,7 @@ func (r *TestJobRunner) testList(ctx context.Context, testjob TestJob) ([]string
 	if distributedTest.Pattern != "" {
 		reg, err := regexp.Compile(distributedTest.Pattern)
 		if err != nil {
-			return nil, err
+			return nil, xerrors.Errorf("failed to compile pattern for distributed testing: %w", err)
 		}
 		pattern = reg
 	}
@@ -586,7 +589,7 @@ func (r *TestJobRunner) testList(ctx context.Context, testjob TestJob) ([]string
 		b.WriteString(log.Log)
 	})
 	if err := listJobRunner.Run(ctx, listjob); err != nil {
-		return nil, err
+		return nil, xerrors.Errorf("failed to run listJob %s: %w", b.String(), err)
 	}
 	result := b.String()
 	if len(result) == 0 {
@@ -606,9 +609,6 @@ func (r *TestJobRunner) testList(ctx context.Context, testjob TestJob) ([]string
 		}
 	} else {
 		tests = list
-	}
-	if len(tests) == 0 {
-		return nil, xerrors.Errorf("could not find test list. list is invalid %s", result)
 	}
 	return tests, nil
 }
