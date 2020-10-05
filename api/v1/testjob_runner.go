@@ -30,7 +30,6 @@ const (
 	gitImageName         = "alpine/git"
 	oauthTokenEnv        = "OAUTH_TOKEN"
 	sharedVolumeName     = "repo"
-	defaultConcurrentNum = 4
 	defaultListDelimiter = "\n"
 )
 
@@ -343,10 +342,9 @@ func (r *TestJobRunner) runDistributedTest(ctx context.Context, testjob TestJob)
 	}
 	plan := r.plan(testjob, list)
 
-	startTestTime := time.Now()
-	defer func() {
-		fmt.Fprintf(os.Stderr, "test: elapsed time %f sec\n", time.Since(startTestTime).Seconds())
-	}()
+	defer func(start time.Time) {
+		fmt.Fprintf(os.Stderr, "test: elapsed time %f sec\n", time.Since(start).Seconds())
+	}(time.Now())
 
 	failedTestCommands := []*command{}
 
@@ -372,7 +370,9 @@ func (r *TestJobRunner) runDistributedTest(ctx context.Context, testjob TestJob)
 					podNameToIndexMap[log.Pod.Name] = lastPodIdx
 					lastPodIdx++
 				}
-				fmt.Fprintf(os.Stderr, "[POD %d] TEST=%s %s", idx, cmd.(*command).test, testjob.Spec.Command)
+				if cmd != nil {
+					fmt.Fprintf(os.Stderr, "[POD %d] TEST=%s %s", idx, cmd.(*command).test, testjob.Spec.Command)
+				}
 				for _, log := range logs {
 					fmt.Fprintf(os.Stderr, "[POD %d] %s", idx, log)
 				}
@@ -517,43 +517,62 @@ func (r *TestJobRunner) testCommandToContainer(job TestJob, test *command) apiv1
 }
 
 func (r *TestJobRunner) runTests(ctx context.Context, testjob TestJob, logger kubejob.Logger, testCommands commands) ([]*command, error) {
-	concurrentNum := defaultConcurrentNum
 	failedTestCommands := []*command{}
 	commandValueMap := testCommands.commandValueMap()
-	for i := 0; i < len(testCommands); i += concurrentNum {
-		containers := []apiv1.Container{}
-		for j := 0; j < concurrentNum; j++ {
-			if i+j < len(testCommands) {
-				containers = append(containers, r.testCommandToContainer(testjob, testCommands[i+j]))
-			}
+	containers := []apiv1.Container{}
+	for i := 0; i < len(testCommands); i++ {
+		containers = append(containers, r.testCommandToContainer(testjob, testCommands[i]))
+	}
+	job, err := r.newJobForTesting(testjob, containers)
+	if err != nil {
+		return nil, err
+	}
+	for _, cache := range testjob.Spec.DistributedTest.Cache {
+		cmd, args := r.command(cache.Command)
+		cacheContainer := apiv1.Container{
+			Name:       cache.Name,
+			Image:      testjob.Spec.Image,
+			Command:    cmd,
+			Args:       args,
+			WorkingDir: r.workingDir(testjob),
+			VolumeMounts: []apiv1.VolumeMount{
+				r.sharedVolumeMount(),
+				apiv1.VolumeMount{
+					Name:      cache.Name,
+					MountPath: cache.Path,
+				},
+			},
+			Env: testjob.Spec.Env,
 		}
-		job, err := r.newJobForTesting(testjob, containers)
-		if err != nil {
+		volume := apiv1.Volume{
+			Name: cache.Name,
+			VolumeSource: apiv1.VolumeSource{
+				EmptyDir: &apiv1.EmptyDirVolumeSource{},
+			},
+		}
+		job.Spec.Template.Spec.Volumes = append(job.Spec.Template.Spec.Volumes, volume)
+		job.Spec.Template.Spec.InitContainers = append(job.Spec.Template.Spec.InitContainers, cacheContainer)
+	}
+	for i := 0; i < len(testCommands); i++ {
+		containerName := job.Spec.Template.Spec.Containers[i].Name
+		testCommands[i].container = containerName
+		r.containerNameToCommandMap.Store(containerName, testCommands[i])
+	}
+	job.DisableCommandLog()
+	job.SetLogger(logger)
+	if err := job.Run(ctx); err != nil {
+		var failedJob *kubejob.FailedJob
+		if xerrors.As(err, &failedJob) {
+			for _, container := range failedJob.FailedContainers() {
+				cmd := []string{}
+				cmd = append(cmd, container.Command...)
+				cmd = append(cmd, container.Args...)
+				value := strings.Join(cmd, " ")
+				command := commandValueMap[value]
+				failedTestCommands = append(failedTestCommands, command)
+			}
+		} else {
 			return nil, err
-		}
-		for j := 0; j < concurrentNum; j++ {
-			if i+j < len(testCommands) {
-				containerName := job.Spec.Template.Spec.Containers[j].Name
-				testCommands[i+j].container = containerName
-				r.containerNameToCommandMap.Store(containerName, testCommands[i+j])
-			}
-		}
-		job.DisableCommandLog()
-		job.SetLogger(logger)
-		if err := job.Run(ctx); err != nil {
-			var failedJob *kubejob.FailedJob
-			if xerrors.As(err, &failedJob) {
-				for _, container := range failedJob.FailedContainers() {
-					cmd := []string{}
-					cmd = append(cmd, container.Command...)
-					cmd = append(cmd, container.Args...)
-					value := strings.Join(cmd, " ")
-					command := commandValueMap[value]
-					failedTestCommands = append(failedTestCommands, command)
-				}
-			} else {
-				return nil, err
-			}
 		}
 	}
 	return failedTestCommands, nil

@@ -100,6 +100,17 @@ type DistributedTestSpec struct {
 	Retest bool `json:"retest"`
 	// Delimiter for testing list of retest ( default: white space )
 	RetestDelimiter string `json:"retestDelimiter,omitempty"`
+	// CacheSpec for making cache before testing
+	Cache []CacheSpec `json:"cache,omitempty"`
+}
+
+type CacheSpec struct {
+	// Name cache identifier
+	Name string `json:"name"`
+	// Command for making cache
+	Command Command `json:"command"`
+	// Path specify mount path
+	Path string `json:"path"`
 }
 
 // TestJobStatus defines the observed state of TestJob
