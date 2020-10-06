@@ -633,26 +633,21 @@ func (r *TestJobRunner) testList(ctx context.Context, testjob TestJob) ([]string
 }
 
 func (r *TestJobRunner) plan(job TestJob, list []string) [][]string {
-	concurrent := job.Spec.DistributedTest.Concurrent
+	maxContainers := job.Spec.DistributedTest.MaxContainersPerPod
 
-	if len(list) < concurrent {
-		plan := make([][]string, len(list))
-		for i := 0; i < len(list); i++ {
-			plan[i] = []string{list[i]}
-		}
-		return plan
+	if len(list) < maxContainers {
+		return [][]string{list}
 	}
-	testNum := len(list) / concurrent
-	lastIdx := concurrent - 1
+	concurrent := len(list) / maxContainers
 	plan := [][]string{}
 	sum := 0
 	for i := 0; i < concurrent; i++ {
-		if i == lastIdx {
+		if i == concurrent {
 			plan = append(plan, list[sum:])
 		} else {
-			plan = append(plan, list[sum:sum+testNum])
+			plan = append(plan, list[sum:sum+maxContainers])
 		}
-		sum += testNum
+		sum += maxContainers
 	}
 	return plan
 }

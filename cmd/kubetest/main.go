@@ -33,12 +33,12 @@ type option struct {
 	ImagePullSecret string `description:"specify image pull secret name" long:"image-pull-secret"`
 
 	// Distributed Testing Parameters
-	Concurrent      int    `description:"specify concurrent number" long:"concurrent"`
-	List            string `description:"specify command for listing test" long:"list"`
-	ListDelimiter   string `description:"specify delimiter for list command" long:"list-delimiter"`
-	Pattern         string `description:"specify test name patter" long:"pattern"`
-	Retest          *bool  `description:"specify enabled retest if exists failed tests" long:"retest"`
-	RetestDelimiter string `description:"specify delimiter for failed tests at retest command" long:"retest-delimiter"`
+	MaxContainersPerPod int    `description:"specify max number of container per pod" long:"max-containers-per-pod"`
+	List                string `description:"specify command for listing test" long:"list"`
+	ListDelimiter       string `description:"specify delimiter for list command" long:"list-delimiter"`
+	Pattern             string `description:"specify test name patter" long:"pattern"`
+	Retest              *bool  `description:"specify enabled retest if exists failed tests" long:"retest"`
+	RetestDelimiter     string `description:"specify delimiter for failed tests at retest command" long:"retest-delimiter"`
 
 	File     string            `description:"specify yaml file path" short:"f" long:"file"`
 	Template map[string]string `description:"specify template parameter for file specified with --file option" long:"template"`
@@ -67,7 +67,7 @@ func hasDistributedParam(job kubetestv1.TestJob, opt option) bool {
 	if job.Spec.DistributedTest != nil {
 		return true
 	}
-	if opt.Concurrent > 0 {
+	if opt.MaxContainersPerPod > 0 {
 		return true
 	}
 	if opt.List != "" {
@@ -89,8 +89,8 @@ func hasDistributedParam(job kubetestv1.TestJob, opt option) bool {
 }
 
 func validateDistributedTestParam(job kubetestv1.TestJob) error {
-	if job.Spec.DistributedTest.Concurrent == 0 {
-		return xerrors.New("the required flag '--concurrent' was not specified")
+	if job.Spec.DistributedTest.MaxContainersPerPod == 0 {
+		return xerrors.New("the required flag '--max-containers-per-pod' was not specified")
 	}
 	if job.Spec.DistributedTest.ListCommand == "" {
 		return xerrors.New("the required flag '--list' was not specified")
@@ -180,8 +180,8 @@ func _main(args []string, opt option) error {
 		if job.Spec.DistributedTest == nil {
 			job.Spec.DistributedTest = &kubetestv1.DistributedTestSpec{}
 		}
-		if opt.Concurrent > 0 {
-			job.Spec.DistributedTest.Concurrent = opt.Concurrent
+		if opt.MaxContainersPerPod > 0 {
+			job.Spec.DistributedTest.MaxContainersPerPod = opt.MaxContainersPerPod
 		}
 		if opt.List != "" {
 			job.Spec.DistributedTest.ListCommand = kubetestv1.Command(opt.List)

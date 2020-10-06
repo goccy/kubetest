@@ -94,8 +94,8 @@ type DistributedTestSpec struct {
 	ListDelimiter string `json:"listDelimiter,omitempty"`
 	// Test name pattern ( enable use regular expression )
 	Pattern string `json:"pattern,omitempty"`
-	// Concurrent number of process of testing
-	Concurrent int `json:"concurrent"`
+	// MaxContainersPerPod maximum number of container per pod.
+	MaxContainersPerPod int `json:"maxContainersPerPod"`
 	// Restart testing for failed tests
 	Retest bool `json:"retest"`
 	// Delimiter for testing list of retest ( default: white space )
