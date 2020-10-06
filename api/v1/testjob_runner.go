@@ -674,15 +674,12 @@ func (r *TestJobRunner) testList(ctx context.Context, testjob TestJob) ([]string
 	if err := listJobRunner.Run(ctx, listjob); err != nil {
 		return nil, xerrors.Errorf("failed to run listJob %s: %w", b.String(), err)
 	}
-	result := b.String()
-	if len(result) == 0 {
-		return nil, xerrors.Errorf("could not find test list. list is empty")
-	}
 	delim := distributedTest.ListDelimiter
 	if delim == "" {
 		delim = "\n"
 	}
 	tests := []string{}
+	result := b.String()
 	list := strings.Split(result, delim)
 	if pattern != nil {
 		for _, name := range list {
