@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -16,6 +17,7 @@ import (
 	"time"
 
 	"github.com/goccy/kubejob"
+	"github.com/rs/xid"
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/xerrors"
 	batchv1 "k8s.io/api/batch/v1"
@@ -37,11 +39,30 @@ var (
 	ErrFailedTestJob = xerrors.New("failed test job")
 )
 
+type TestResultStatus string
+
+const (
+	TestResultStatusSuccess TestResultStatus = "success"
+	TestResultStatusFailure TestResultStatus = "failure"
+)
+
+type TestResultLog struct {
+	Status         TestResultStatus    `json:"status"`
+	Job            string              `json:"job"`
+	ElapsedTimeSec int                 `json:"elapsedTimeSec"`
+	StartedAt      time.Time           `json:"startedAt"`
+	Details        TestResultLogDetail `json:"details"`
+}
+
+type TestResultLogDetail struct {
+}
+
 type TestJobRunner struct {
 	*kubernetes.Clientset
 	token                     string
 	disabledPrepareLog        bool
 	disabledCommandLog        bool
+	disabledResultLog         bool
 	logger                    func(*kubejob.ContainerLog)
 	containerNameToCommandMap sync.Map
 }
@@ -147,11 +168,43 @@ func (r *TestJobRunner) DisableCommandLog() {
 	r.disabledCommandLog = true
 }
 
+func (r *TestJobRunner) DisableResultLog() {
+	r.disabledResultLog = true
+}
+
 func (r *TestJobRunner) SetLogger(logger func(*kubejob.ContainerLog)) {
 	r.logger = logger
 }
 
 func (r *TestJobRunner) Run(ctx context.Context, testjob TestJob) error {
+	testLog := TestResultLog{Job: testjob.ObjectMeta.Name, StartedAt: time.Now()}
+
+	defer func(start time.Time) {
+		if r.disabledResultLog {
+			return
+		}
+		testLog.ElapsedTimeSec = int(time.Since(start).Seconds())
+		b, _ := json.Marshal(testLog)
+
+		var logMap map[string]interface{}
+		json.Unmarshal(b, &logMap)
+
+		for k, v := range testjob.Spec.Log {
+			logMap[k] = v
+		}
+		b, _ = json.Marshal(logMap)
+		fmt.Println(string(b))
+	}(time.Now())
+
+	if err := r.run(ctx, testjob); err != nil {
+		testLog.Status = TestResultStatusFailure
+		return err
+	}
+	testLog.Status = TestResultStatusSuccess
+	return nil
+}
+
+func (r *TestJobRunner) run(ctx context.Context, testjob TestJob) error {
 	if testjob.Spec.Branch == "" && testjob.Spec.Rev == "" {
 		testjob.Spec.Branch = "master"
 	}
@@ -179,7 +232,7 @@ func (r *TestJobRunner) Run(ctx context.Context, testjob TestJob) error {
 	if testjob.Spec.DistributedTest != nil {
 		return r.runDistributedTest(ctx, testjob)
 	}
-	return r.run(ctx, testjob)
+	return r.runTest(ctx, testjob)
 }
 
 func (r *TestJobRunner) prepareImage(stepIdx int, testjob TestJob) string {
@@ -225,6 +278,10 @@ func (r *TestJobRunner) enabledCheckout(testjob TestJob) bool {
 	return true
 }
 
+func (r *TestJobRunner) generateName(name string) string {
+	return fmt.Sprintf("%s-%s", name, xid.New())
+}
+
 func (r *TestJobRunner) prepare(ctx context.Context, testjob TestJob) error {
 	if len(testjob.Spec.Prepare.Steps) == 0 {
 		return nil
@@ -261,6 +318,9 @@ func (r *TestJobRunner) prepare(ctx context.Context, testjob TestJob) error {
 	}
 	job, err := kubejob.NewJobBuilder(r.Clientset, testjob.Namespace).
 		BuildWithJob(&batchv1.Job{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: r.generateName(testjob.ObjectMeta.Name),
+			},
 			Spec: batchv1.JobSpec{
 				Template: apiv1.PodTemplateSpec{
 					Spec: apiv1.PodSpec{
@@ -291,6 +351,9 @@ func (r *TestJobRunner) newJobForTesting(testjob TestJob, containers []apiv1.Con
 	}
 	return kubejob.NewJobBuilder(r.Clientset, testjob.Namespace).
 		BuildWithJob(&batchv1.Job{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: r.generateName(testjob.ObjectMeta.Name),
+			},
 			Spec: batchv1.JobSpec{
 				Template: apiv1.PodTemplateSpec{
 					Spec: apiv1.PodSpec{
@@ -306,7 +369,7 @@ func (r *TestJobRunner) newJobForTesting(testjob TestJob, containers []apiv1.Con
 		})
 }
 
-func (r *TestJobRunner) run(ctx context.Context, testjob TestJob) error {
+func (r *TestJobRunner) runTest(ctx context.Context, testjob TestJob) error {
 	job, err := r.newJobForTesting(testjob, []apiv1.Container{r.testjobToContainer(testjob)})
 	if err != nil {
 		return err
@@ -593,6 +656,7 @@ func (r *TestJobRunner) testList(ctx context.Context, testjob TestJob) ([]string
 	listJobRunner := NewTestJobRunner(r.Clientset)
 	listJobRunner.DisablePrepareLog()
 	listJobRunner.DisableCommandLog()
+	listJobRunner.DisableResultLog()
 
 	var pattern *regexp.Regexp
 	if distributedTest.Pattern != "" {
