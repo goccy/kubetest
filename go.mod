@@ -18,6 +18,7 @@ require (
 	github.com/onsi/gomega v1.10.1
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/prometheus/client_golang v1.7.1 // indirect
+	github.com/rs/xid v1.2.1
 	github.com/stretchr/testify v1.6.0 // indirect
 	go.uber.org/zap v1.15.0 // indirect
 	golang.org/x/mod v0.3.0 // indirect

@@ -49,6 +49,8 @@ type TestJobSpec struct {
 	Token *TestJobToken `json:"token,omitempty"`
 	// List of environment variables to set in the container.
 	Env []corev1.EnvVar `json:"env,omiempty"`
+	// Log extend parameter to output log.
+	Log map[string]string `json:"log,omitempty"`
 	// ImagePullSecrets is an optional list of references to secrets in the same namespace to use for pulling any of the images used by this TestJobSpec.
 	// If specified, these secrets will be passed to individual puller implementations for them to use. For example,
 	// in the case of docker, only DockerConfig type secrets are honored.
@@ -94,12 +96,23 @@ type DistributedTestSpec struct {
 	ListDelimiter string `json:"listDelimiter,omitempty"`
 	// Test name pattern ( enable use regular expression )
 	Pattern string `json:"pattern,omitempty"`
-	// Concurrent number of process of testing
-	Concurrent int `json:"concurrent"`
+	// MaxContainersPerPod maximum number of container per pod.
+	MaxContainersPerPod int `json:"maxContainersPerPod"`
 	// Restart testing for failed tests
 	Retest bool `json:"retest"`
 	// Delimiter for testing list of retest ( default: white space )
 	RetestDelimiter string `json:"retestDelimiter,omitempty"`
+	// CacheSpec for making cache before testing
+	Cache []CacheSpec `json:"cache,omitempty"`
+}
+
+type CacheSpec struct {
+	// Name cache identifier
+	Name string `json:"name"`
+	// Command for making cache
+	Command Command `json:"command"`
+	// Path specify mount path
+	Path string `json:"path"`
 }
 
 // TestJobStatus defines the observed state of TestJob
