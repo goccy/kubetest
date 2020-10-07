@@ -349,6 +349,8 @@ func (r *TestJobRunner) newJobForTesting(testjob TestJob, containers []apiv1.Con
 	if r.enabledCheckout(testjob) {
 		initContainers = r.initContainers(testjob)
 	}
+	volumes := testjob.Spec.Volumes
+	volumes = append(volumes, r.sharedVolume())
 	return kubejob.NewJobBuilder(r.Clientset, testjob.Namespace).
 		BuildWithJob(&batchv1.Job{
 			ObjectMeta: metav1.ObjectMeta{
@@ -357,9 +359,7 @@ func (r *TestJobRunner) newJobForTesting(testjob TestJob, containers []apiv1.Con
 			Spec: batchv1.JobSpec{
 				Template: apiv1.PodTemplateSpec{
 					Spec: apiv1.PodSpec{
-						Volumes: []apiv1.Volume{
-							r.sharedVolume(),
-						},
+						Volumes:          volumes,
 						InitContainers:   initContainers,
 						Containers:       containers,
 						ImagePullSecrets: testjob.Spec.ImagePullSecrets,
@@ -560,7 +560,8 @@ func (r *TestJobRunner) testjobToContainer(testjob TestJob) apiv1.Container {
 }
 
 func (r *TestJobRunner) testCommandToContainer(job TestJob, test *command) apiv1.Container {
-	volumeMount := r.sharedVolumeMount()
+	volumeMounts := job.Spec.VolumeMounts
+	volumeMounts = append(volumeMounts, r.sharedVolumeMount())
 	env := []apiv1.EnvVar{}
 	env = append(env, job.Spec.Env...)
 	env = append(env, apiv1.EnvVar{
@@ -568,14 +569,12 @@ func (r *TestJobRunner) testCommandToContainer(job TestJob, test *command) apiv1
 		Value: test.test,
 	})
 	return apiv1.Container{
-		Image:      job.Spec.Image,
-		Command:    test.cmd,
-		Args:       test.args,
-		WorkingDir: r.workingDir(job),
-		VolumeMounts: []apiv1.VolumeMount{
-			volumeMount,
-		},
-		Env: env,
+		Image:        job.Spec.Image,
+		Command:      test.cmd,
+		Args:         test.args,
+		WorkingDir:   r.workingDir(job),
+		VolumeMounts: volumeMounts,
+		Env:          env,
 	}
 }
 
@@ -592,28 +591,28 @@ func (r *TestJobRunner) runTests(ctx context.Context, testjob TestJob, logger ku
 	}
 	for _, cache := range testjob.Spec.DistributedTest.Cache {
 		cmd, args := r.command(cache.Command)
+		volumeMounts := testjob.Spec.VolumeMounts
+		volumeMounts = append(volumeMounts, r.sharedVolumeMount(), apiv1.VolumeMount{
+			Name:      cache.Name,
+			MountPath: cache.Path,
+		})
 		cacheContainer := apiv1.Container{
-			Name:       cache.Name,
-			Image:      testjob.Spec.Image,
-			Command:    cmd,
-			Args:       args,
-			WorkingDir: r.workingDir(testjob),
-			VolumeMounts: []apiv1.VolumeMount{
-				r.sharedVolumeMount(),
-				apiv1.VolumeMount{
-					Name:      cache.Name,
-					MountPath: cache.Path,
-				},
-			},
-			Env: testjob.Spec.Env,
+			Name:         cache.Name,
+			Image:        testjob.Spec.Image,
+			Command:      cmd,
+			Args:         args,
+			WorkingDir:   r.workingDir(testjob),
+			VolumeMounts: volumeMounts,
+			Env:          testjob.Spec.Env,
 		}
-		volume := apiv1.Volume{
+		volumes := testjob.Spec.Volumes
+		volumes = append(volumes, apiv1.Volume{
 			Name: cache.Name,
 			VolumeSource: apiv1.VolumeSource{
 				EmptyDir: &apiv1.EmptyDirVolumeSource{},
 			},
-		}
-		job.Spec.Template.Spec.Volumes = append(job.Spec.Template.Spec.Volumes, volume)
+		})
+		job.Spec.Template.Spec.Volumes = append(job.Spec.Template.Spec.Volumes, volumes...)
 		job.Spec.Template.Spec.InitContainers = append(job.Spec.Template.Spec.InitContainers, cacheContainer)
 	}
 	for i := 0; i < len(testCommands); i++ {
