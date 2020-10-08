@@ -560,8 +560,6 @@ func (r *TestJobRunner) testjobToContainer(testjob TestJob) apiv1.Container {
 }
 
 func (r *TestJobRunner) testCommandToContainer(job TestJob, test *command) apiv1.Container {
-	volumeMounts := job.Spec.VolumeMounts
-	volumeMounts = append(volumeMounts, r.sharedVolumeMount())
 	env := []apiv1.EnvVar{}
 	env = append(env, job.Spec.Env...)
 	env = append(env, apiv1.EnvVar{
@@ -573,7 +571,7 @@ func (r *TestJobRunner) testCommandToContainer(job TestJob, test *command) apiv1
 		Command:      test.cmd,
 		Args:         test.args,
 		WorkingDir:   r.workingDir(job),
-		VolumeMounts: volumeMounts,
+		VolumeMounts: append(job.Spec.VolumeMounts, r.sharedVolumeMount()),
 		Env:          env,
 	}
 }
@@ -591,8 +589,7 @@ func (r *TestJobRunner) runTests(ctx context.Context, testjob TestJob, logger ku
 	}
 	for _, cache := range testjob.Spec.DistributedTest.Cache {
 		cmd, args := r.command(cache.Command)
-		volumeMounts := testjob.Spec.VolumeMounts
-		volumeMounts = append(volumeMounts, r.sharedVolumeMount(), apiv1.VolumeMount{
+		volumeMounts := append(testjob.Spec.VolumeMounts, r.sharedVolumeMount(), apiv1.VolumeMount{
 			Name:      cache.Name,
 			MountPath: cache.Path,
 		})
@@ -605,14 +602,12 @@ func (r *TestJobRunner) runTests(ctx context.Context, testjob TestJob, logger ku
 			VolumeMounts: volumeMounts,
 			Env:          testjob.Spec.Env,
 		}
-		volumes := testjob.Spec.Volumes
-		volumes = append(volumes, apiv1.Volume{
+		job.Spec.Template.Spec.Volumes = append(job.Spec.Template.Spec.Volumes, apiv1.Volume{
 			Name: cache.Name,
 			VolumeSource: apiv1.VolumeSource{
 				EmptyDir: &apiv1.EmptyDirVolumeSource{},
 			},
 		})
-		job.Spec.Template.Spec.Volumes = append(job.Spec.Template.Spec.Volumes, volumes...)
 		job.Spec.Template.Spec.InitContainers = append(job.Spec.Template.Spec.InitContainers, cacheContainer)
 	}
 	for i := 0; i < len(testCommands); i++ {
