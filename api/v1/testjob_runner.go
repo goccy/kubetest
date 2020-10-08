@@ -39,15 +39,15 @@ var (
 	ErrFailedTestJob = xerrors.New("failed test job")
 )
 
-type TestResultStatus string
+type TestResult string
 
 const (
-	TestResultStatusSuccess TestResultStatus = "success"
-	TestResultStatusFailure TestResultStatus = "failure"
+	TestResultSuccess TestResult = "success"
+	TestResultFailure TestResult = "failure"
 )
 
 type TestResultLog struct {
-	Status         TestResultStatus    `json:"status"`
+	TestResult     TestResult          `json:"testResult"`
 	Job            string              `json:"job"`
 	ElapsedTimeSec int                 `json:"elapsedTimeSec"`
 	StartedAt      time.Time           `json:"startedAt"`
@@ -55,6 +55,14 @@ type TestResultLog struct {
 }
 
 type TestResultLogDetail struct {
+	Tests []TestLog `json:"tests"`
+}
+
+type TestLog struct {
+	Name           string     `json:"name"`
+	TestResult     TestResult `json:"testResult"`
+	ElapsedTimeSec int        `json:"elapsedTimeSec"`
+	Message        string     `json:"-"`
 }
 
 type TestJobRunner struct {
@@ -196,15 +204,19 @@ func (r *TestJobRunner) Run(ctx context.Context, testjob TestJob) error {
 		fmt.Println(string(b))
 	}(time.Now())
 
-	if err := r.run(ctx, testjob); err != nil {
-		testLog.Status = TestResultStatusFailure
+	testLogs, err := r.run(ctx, testjob)
+	testLog.Details = TestResultLogDetail{
+		Tests: testLogs,
+	}
+	if err != nil {
+		testLog.TestResult = TestResultFailure
 		return err
 	}
-	testLog.Status = TestResultStatusSuccess
+	testLog.TestResult = TestResultSuccess
 	return nil
 }
 
-func (r *TestJobRunner) run(ctx context.Context, testjob TestJob) error {
+func (r *TestJobRunner) run(ctx context.Context, testjob TestJob) ([]TestLog, error) {
 	if testjob.Spec.Branch == "" && testjob.Spec.Rev == "" {
 		testjob.Spec.Branch = "master"
 	}
@@ -214,7 +226,7 @@ func (r *TestJobRunner) run(ctx context.Context, testjob TestJob) error {
 			Secrets(testjob.Namespace).
 			Get(token.SecretKeyRef.Name, metav1.GetOptions{})
 		if err != nil {
-			return err
+			return nil, err
 		}
 		data, exists := secret.Data[token.SecretKeyRef.Key]
 		if !exists {
@@ -222,12 +234,12 @@ func (r *TestJobRunner) run(ctx context.Context, testjob TestJob) error {
 				Group:    GroupVersion.Group,
 				Resource: "TestJob",
 			}
-			return errors.NewNotFound(gr, "token")
+			return nil, errors.NewNotFound(gr, "token")
 		}
 		r.token = strings.TrimSpace(string(data))
 	}
 	if err := r.prepare(ctx, testjob); err != nil {
-		return err
+		return nil, err
 	}
 	if testjob.Spec.DistributedTest != nil {
 		return r.runDistributedTest(ctx, testjob)
@@ -369,10 +381,10 @@ func (r *TestJobRunner) newJobForTesting(testjob TestJob, containers []apiv1.Con
 		})
 }
 
-func (r *TestJobRunner) runTest(ctx context.Context, testjob TestJob) error {
+func (r *TestJobRunner) runTest(ctx context.Context, testjob TestJob) ([]TestLog, error) {
 	job, err := r.newJobForTesting(testjob, []apiv1.Container{r.testjobToContainer(testjob)})
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if r.logger != nil {
 		job.SetLogger(r.logger)
@@ -386,22 +398,22 @@ func (r *TestJobRunner) runTest(ctx context.Context, testjob TestJob) error {
 	if err := job.Run(ctx); err != nil {
 		var failedJob *kubejob.FailedJob
 		if xerrors.As(err, &failedJob) {
-			return ErrFailedTestJob
+			return nil, ErrFailedTestJob
 		}
 		log.Printf(err.Error())
-		return ErrFailedTestJob
+		return nil, ErrFailedTestJob
 	}
-	return nil
+	return nil, nil
 }
 
-func (r *TestJobRunner) runDistributedTest(ctx context.Context, testjob TestJob) error {
+func (r *TestJobRunner) runDistributedTest(ctx context.Context, testjob TestJob) ([]TestLog, error) {
 	fmt.Println("get listing of tests...")
 	list, err := r.testList(ctx, testjob)
 	if err != nil {
-		return xerrors.Errorf("failed to get list for testing: %w", err)
+		return nil, xerrors.Errorf("failed to get list for testing: %w", err)
 	}
 	if len(list) == 0 {
-		return nil
+		return nil, nil
 	}
 	plan := r.plan(testjob, list)
 
@@ -412,14 +424,16 @@ func (r *TestJobRunner) runDistributedTest(ctx context.Context, testjob TestJob)
 	failedTestCommands := []*command{}
 
 	var (
-		mu         sync.Mutex
-		lastPodIdx int
+		loggerMu      sync.Mutex
+		failedTestsMu sync.Mutex
+		lastPodIdx    int
 	)
 	containerNameToLogMap := map[string][]string{}
 	podNameToIndexMap := map[string]int{}
+	testLogMap := map[string]TestLog{}
 	logger := func(log *kubejob.ContainerLog) {
-		mu.Lock()
-		defer mu.Unlock()
+		loggerMu.Lock()
+		defer loggerMu.Unlock()
 
 		name := log.Container.Name
 		if log.IsFinished {
@@ -434,7 +448,14 @@ func (r *TestJobRunner) runDistributedTest(ctx context.Context, testjob TestJob)
 					lastPodIdx++
 				}
 				if cmd != nil {
-					fmt.Fprintf(os.Stderr, "[POD %d] TEST=%s %s", idx, cmd.(*command).test, testjob.Spec.Command)
+					c := cmd.(*command)
+					fmt.Fprintf(os.Stderr, "[POD %d] TEST=%s %s", idx, c.test, testjob.Spec.Command)
+					testLogMap[c.test] = TestLog{
+						Name:           c.test,
+						TestResult:     TestResultSuccess,
+						ElapsedTimeSec: int(time.Since(c.startedAt).Seconds()),
+						Message:        strings.Join(logs, "\n"),
+					}
 				}
 				for _, log := range logs {
 					fmt.Fprintf(os.Stderr, "[POD %d] %s", idx, log)
@@ -447,6 +468,22 @@ func (r *TestJobRunner) runDistributedTest(ctx context.Context, testjob TestJob)
 			logs := []string{}
 			if exists {
 				logs = value
+			} else {
+				cmd, _ := r.containerNameToCommandMap.Load(name)
+				if cmd != nil {
+					startedAt := time.Now()
+					for _, status := range log.Pod.Status.ContainerStatuses {
+						if log.Container.Name != status.Name {
+							continue
+						}
+						running := status.State.Running
+						if running == nil {
+							continue
+						}
+						startedAt = running.StartedAt.Time
+					}
+					cmd.(*command).startedAt = startedAt
+				}
 			}
 			logs = append(logs, log.Log)
 			containerNameToLogMap[name] = logs
@@ -463,18 +500,29 @@ func (r *TestJobRunner) runDistributedTest(ctx context.Context, testjob TestJob)
 				return xerrors.Errorf("failed to runTests: %w", err)
 			}
 			if len(commands) > 0 {
+				failedTestsMu.Lock()
 				failedTestCommands = append(failedTestCommands, commands...)
+				failedTestsMu.Unlock()
 			}
 			return nil
 		})
 	}
 	if err := eg.Wait(); err != nil {
-		return xerrors.Errorf("failed to distributed test job: %w", err)
+		return nil, xerrors.Errorf("failed to distributed test job: %w", err)
 	}
 
 	if len(failedTestCommands) > 0 {
+		for _, command := range failedTestCommands {
+			log := testLogMap[command.test]
+			log.TestResult = TestResultFailure
+			testLogMap[command.test] = log
+		}
+		logs := []TestLog{}
+		for _, log := range testLogMap {
+			logs = append(logs, log)
+		}
 		if !testjob.Spec.DistributedTest.Retest {
-			return ErrFailedTestJob
+			return logs, ErrFailedTestJob
 		}
 		fmt.Println("start retest....")
 		tests := []string{}
@@ -486,13 +534,17 @@ func (r *TestJobRunner) runDistributedTest(ctx context.Context, testjob TestJob)
 		cmd := r.testCommand(command, args, concatedTests)
 		failedTests, err := r.runTests(ctx, testjob, logger, commands{cmd})
 		if err != nil {
-			return xerrors.Errorf("failed test: %w", err)
+			return logs, xerrors.Errorf("failed test: %w", err)
 		}
 		if len(failedTests) > 0 {
-			return ErrFailedTestJob
+			return logs, ErrFailedTestJob
 		}
 	}
-	return nil
+	logs := []TestLog{}
+	for _, log := range testLogMap {
+		logs = append(logs, log)
+	}
+	return logs, nil
 }
 
 type command struct {
@@ -500,6 +552,7 @@ type command struct {
 	args      []string
 	test      string
 	container string
+	startedAt time.Time
 }
 
 func (c *command) value() string {
