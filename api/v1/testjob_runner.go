@@ -555,19 +555,12 @@ type command struct {
 	startedAt time.Time
 }
 
-func (c *command) value() string {
-	cmd := []string{}
-	cmd = append(cmd, c.cmd...)
-	cmd = append(cmd, c.args...)
-	return strings.Join(cmd, " ")
-}
-
 type commands []*command
 
 func (c commands) commandValueMap() map[string]*command {
 	m := map[string]*command{}
 	for _, cc := range c {
-		m[cc.value()] = cc
+		m[cc.test] = cc
 	}
 	return m
 }
@@ -630,7 +623,6 @@ func (r *TestJobRunner) testCommandToContainer(job TestJob, test *command) apiv1
 }
 
 func (r *TestJobRunner) runTests(ctx context.Context, testjob TestJob, logger kubejob.Logger, testCommands commands) ([]*command, error) {
-	failedTestCommands := []*command{}
 	commandValueMap := testCommands.commandValueMap()
 	containers := []apiv1.Container{}
 	for i := 0; i < len(testCommands); i++ {
@@ -670,15 +662,19 @@ func (r *TestJobRunner) runTests(ctx context.Context, testjob TestJob, logger ku
 	}
 	job.DisableCommandLog()
 	job.SetLogger(logger)
+	failedTestCommands := []*command{}
 	if err := job.Run(ctx); err != nil {
 		var failedJob *kubejob.FailedJob
 		if xerrors.As(err, &failedJob) {
 			for _, container := range failedJob.FailedContainers() {
-				cmd := []string{}
-				cmd = append(cmd, container.Command...)
-				cmd = append(cmd, container.Args...)
-				value := strings.Join(cmd, " ")
-				command := commandValueMap[value]
+				var testName string
+				for _, env := range container.Env {
+					if env.Name == "TEST" {
+						testName = env.Value
+						break
+					}
+				}
+				command := commandValueMap[testName]
 				failedTestCommands = append(failedTestCommands, command)
 			}
 		} else {
