@@ -749,7 +749,7 @@ func (r *TestJobRunner) plan(job TestJob, list []string) [][]string {
 	concurrent := len(list) / maxContainers
 	plan := [][]string{}
 	sum := 0
-	for i := 0; i < concurrent; i++ {
+	for i := 0; i <= concurrent; i++ {
 		if i == concurrent {
 			plan = append(plan, list[sum:])
 		} else {
