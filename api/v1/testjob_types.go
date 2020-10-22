@@ -29,42 +29,35 @@ type TestJobSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
 
+	Git      GitSpec                `json:"git,omitempty"`
+	Template corev1.PodTemplateSpec `json:"template"`
+	// Log extend parameter to output log.
+	Log LogSpec `json:"log,omitempty"`
+	// Prepare steps before testing
+	Prepare PrepareSpec `json:"prepare,omitempty"`
+	// Distributed testing parameter
+	DistributedTest *DistributedTestSpec `json:"distributedTest,omitempty"`
+}
+
+type GitSpec struct {
 	// Image name for clone and checkout by git protocol.
-	GitImage string `json:"gitImage,omitempty"`
+	Image string `json:"image,omitempty"`
 	// Checkout whether checkout repository before testing ( default: true ).
 	Checkout *bool `json:"checkout,omitempty"`
-	// Image name.
-	Image string `json:"image"`
 	// Repository name.
 	Repo string `json:"repo"`
-	// Command for testing.
-	Command Command `json:"command"`
-	// Workdir ( default: /git/workspace )
-	Workdir string `json:"workdir,omitempty"`
 	// Branch name.
 	Branch string `json:"branch,omitempty"`
 	// Revision.
 	Rev string `json:"rev,omitempty"`
 	// OAuth token to fetch private repository
 	Token *TestJobToken `json:"token,omitempty"`
-	// List of environment variables to set in the container.
-	Env []corev1.EnvVar `json:"env,omiempty"`
-	// Volumes list of volumes that can be mounted by containers belonging to the pod.
-	// More info: https://kubernetes.io/docs/concepts/storage/volumes
-	Volumes []corev1.Volume `json:"volumes,omitempty"`
-	// VolumeMounts pod volumes to mount into the container's filesystem.
-	VolumeMounts []corev1.VolumeMount `json:"volumeMounts,omitempty"`
-	// Log extend parameter to output log.
-	Log map[string]string `json:"log,omitempty"`
-	// ImagePullSecrets is an optional list of references to secrets in the same namespace to use for pulling any of the images used by this TestJobSpec.
-	// If specified, these secrets will be passed to individual puller implementations for them to use. For example,
-	// in the case of docker, only DockerConfig type secrets are honored.
-	// More info: https://kubernetes.io/docs/concepts/containers/images#specifying-imagepullsecrets-on-a-pod
-	ImagePullSecrets []corev1.LocalObjectReference `json:"imagePullSecrets,omitempty"`
-	// Prepare steps before testing
-	Prepare PrepareSpec `json:"prepare,omitempty"`
-	// Distributed testing parameter
-	DistributedTest *DistributedTestSpec `json:"distributedTest,omitempty"`
+	// CheckoutDir ( default: /git/workspace )
+	CheckoutDir string `json:"checkoutDir,omitempty"`
+}
+
+type LogSpec struct {
+	ExtParam map[string]string `json:"extParam"`
 }
 
 type Command string
@@ -81,7 +74,7 @@ type TestJobSecretKeyRef struct {
 type PrepareSpec struct {
 	// Checkout whether checkout repository before testing ( default: true ).
 	Checkout *bool             `json:"checkout,omitempty"`
-	Image    string            `json:"image,omitempty"`
+	Image    string            `json:"image"`
 	Steps    []PrepareStepSpec `json:"steps"`
 }
 
@@ -95,20 +88,32 @@ type PrepareStepSpec struct {
 }
 
 type DistributedTestSpec struct {
-	// Output testing list to stdout
-	ListCommand Command `json:"listCommand"`
-	// Delimiter for testing list ( default: new line character ( \n ) )
-	ListDelimiter string `json:"listDelimiter,omitempty"`
-	// Test name pattern ( enable use regular expression )
-	Pattern string `json:"pattern,omitempty"`
+	// ContainerName container name for running test in template.spec.containers.
+	ContainerName string `json:"containerName"`
 	// MaxContainersPerPod maximum number of container per pod.
 	MaxContainersPerPod int `json:"maxContainersPerPod"`
+	// Output testing list to stdout
+	List DistributedTestListSpec `json:"list"`
 	// Restart testing for failed tests
-	Retest bool `json:"retest"`
-	// Delimiter for testing list of retest ( default: white space )
-	RetestDelimiter string `json:"retestDelimiter,omitempty"`
+	Retest DistributedTestRetestSpec `json:"retest,omitempty"`
 	// CacheSpec for making cache before testing
 	Cache []CacheSpec `json:"cache,omitempty"`
+}
+
+type DistributedTestListSpec struct {
+	Command []string `json:"command"`
+	Args    []string `json:"args"`
+	// Delimiter for testing list ( default: new line character ( \n ) )
+	Delimiter string `json:"delimiter,omitempty"`
+	// Test name pattern ( enable use regular expression )
+	Pattern string `json:"pattern,omitempty"`
+}
+
+type DistributedTestRetestSpec struct {
+	// Enabled restart testing for failed tests
+	Enabled bool `json:"enabled"`
+	// Delimiter for testing list of retest ( default: white space )
+	Delimiter string `json:"delimiter,omitempty"`
 }
 
 type CacheSpec struct {

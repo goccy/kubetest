@@ -92,20 +92,20 @@ func validateDistributedTestParam(job kubetestv1.TestJob) error {
 	if job.Spec.DistributedTest.MaxContainersPerPod == 0 {
 		return xerrors.New("the required flag '--max-containers-per-pod' was not specified")
 	}
-	if job.Spec.DistributedTest.ListCommand == "" {
+	if len(job.Spec.DistributedTest.List.Command) == 0 {
 		return xerrors.New("the required flag '--list' was not specified")
 	}
 	return nil
 }
 
 func validateTestJobParam(job kubetestv1.TestJob) error {
-	if job.Spec.Image == "" {
-		return xerrors.New("the required flag '--image' was not specified")
-	}
-	if job.Spec.Repo == "" {
+	if job.Spec.Git.Repo == "" {
 		return xerrors.New("the required flag '--repo' was not specified")
 	}
-	if job.Spec.Command == "" {
+	if job.Spec.Template.Spec.Containers[0].Image == "" {
+		return xerrors.New("the required flag '--image' was not specified")
+	}
+	if len(job.Spec.Template.Spec.Containers[0].Command) == 0 {
 		return xerrors.New("command is required. please speficy after '--' section")
 	}
 	return nil
@@ -138,23 +138,29 @@ func _main(args []string, opt option) error {
 			return xerrors.Errorf("failed to decode YAML: %w", err)
 		}
 	}
+	if len(job.Spec.Template.Spec.Containers) == 0 {
+		job.Spec.Template.Spec.Containers = []corev1.Container{{}}
+	}
 	if job.ObjectMeta.Namespace == "" {
 		job.ObjectMeta.Namespace = opt.Namespace
 	}
 	if opt.Image != "" {
-		job.Spec.Image = opt.Image
+		job.Spec.Template.Spec.Containers[0].Image = opt.Image
 	}
 	if opt.Repo != "" {
-		job.Spec.Repo = opt.Repo
+		job.Spec.Git.Repo = opt.Repo
 	}
 	if opt.Branch != "" {
-		job.Spec.Branch = opt.Branch
+		job.Spec.Git.Branch = opt.Branch
 	}
 	if opt.Revision != "" {
-		job.Spec.Rev = opt.Revision
+		job.Spec.Git.Rev = opt.Revision
 	}
 	if len(args) > 0 {
-		job.Spec.Command = kubetestv1.Command(strings.Join(args, " "))
+		job.Spec.Template.Spec.Containers[0].Command = []string{args[0]}
+		if len(args) > 1 {
+			job.Spec.Template.Spec.Containers[0].Args = args[1:]
+		}
 	}
 	if opt.TokenFromSecret != "" {
 		splitted := strings.Split(opt.TokenFromSecret, ".")
@@ -163,7 +169,7 @@ func _main(args []string, opt option) error {
 		}
 		name := splitted[0]
 		key := splitted[1]
-		job.Spec.Token = &kubetestv1.TestJobToken{
+		job.Spec.Git.Token = &kubetestv1.TestJobToken{
 			SecretKeyRef: kubetestv1.TestJobSecretKeyRef{
 				Name: name,
 				Key:  key,
@@ -171,7 +177,7 @@ func _main(args []string, opt option) error {
 		}
 	}
 	if opt.ImagePullSecret != "" {
-		job.Spec.ImagePullSecrets = append(job.Spec.ImagePullSecrets, corev1.LocalObjectReference{
+		job.Spec.Template.Spec.ImagePullSecrets = append(job.Spec.Template.Spec.ImagePullSecrets, corev1.LocalObjectReference{
 			Name: opt.ImagePullSecret,
 		})
 	}
@@ -184,19 +190,25 @@ func _main(args []string, opt option) error {
 			job.Spec.DistributedTest.MaxContainersPerPod = opt.MaxContainersPerPod
 		}
 		if opt.List != "" {
-			job.Spec.DistributedTest.ListCommand = kubetestv1.Command(opt.List)
+			list := strings.Split(opt.List, " ")
+			if len(list) > 0 {
+				job.Spec.DistributedTest.List.Command = []string{list[0]}
+				if len(list) > 1 {
+					job.Spec.DistributedTest.List.Args = list[1:]
+				}
+			}
 		}
 		if opt.ListDelimiter != "" {
-			job.Spec.DistributedTest.ListDelimiter = opt.ListDelimiter
+			job.Spec.DistributedTest.List.Delimiter = opt.ListDelimiter
 		}
 		if opt.Pattern != "" {
-			job.Spec.DistributedTest.Pattern = opt.Pattern
+			job.Spec.DistributedTest.List.Pattern = opt.Pattern
 		}
 		if opt.Retest != nil {
-			job.Spec.DistributedTest.Retest = *opt.Retest
+			job.Spec.DistributedTest.Retest.Enabled = *opt.Retest
 		}
 		if opt.RetestDelimiter != "" {
-			job.Spec.DistributedTest.RetestDelimiter = opt.RetestDelimiter
+			job.Spec.DistributedTest.Retest.Delimiter = opt.RetestDelimiter
 		}
 		if err := validateDistributedTestParam(job); err != nil {
 			return err
