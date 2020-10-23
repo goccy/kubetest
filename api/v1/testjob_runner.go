@@ -739,7 +739,7 @@ func (r *TestJobRunner) testList(ctx context.Context, testjob TestJob) ([]string
 func (r *TestJobRunner) plan(job TestJob, list []string) [][]string {
 	maxContainers := job.Spec.DistributedTest.MaxContainersPerPod
 
-	if len(list) < maxContainers {
+	if len(list) <= maxContainers {
 		return [][]string{list}
 	}
 	concurrent := len(list) / maxContainers
