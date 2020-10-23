@@ -364,6 +364,10 @@ func (r *TestJobRunner) newJobForTesting(testjob TestJob, containers ...apiv1.Co
 	template.Spec.InitContainers = append(initContainers, template.Spec.InitContainers...)
 	testContainers := []apiv1.Container{}
 	for _, container := range template.Spec.Containers {
+		if len(containers) > 0 && container.Name == "test" {
+			// skip default test container
+			continue
+		}
 		container.VolumeMounts = append(container.VolumeMounts, r.sharedVolumeMount(testjob))
 		testContainers = append(testContainers, container)
 	}
@@ -473,7 +477,7 @@ func (r *TestJobRunner) runDistributedTest(ctx context.Context, testjob TestJob)
 				}
 				if cmd != nil {
 					c := cmd.(*command)
-					fmt.Fprintf(os.Stderr, "[POD %d] TEST=%s %s", idx, c.test, r.commandString(testContainer))
+					fmt.Fprintf(os.Stderr, "[POD %d] TEST=%s %s\n", idx, c.test, r.commandString(testContainer))
 					testLogMap[c.test] = TestLog{
 						Name:           c.test,
 						TestResult:     TestResultSuccess,
@@ -609,6 +613,7 @@ func (r *TestJobRunner) runTests(ctx context.Context, testjob TestJob, logger ku
 	containers := []apiv1.Container{}
 	for _, test := range tests {
 		container := testContainer.DeepCopy()
+		container.Name = ""
 		container.Env = append(container.Env, apiv1.EnvVar{
 			Name:  "TEST",
 			Value: test,
