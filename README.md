@@ -50,20 +50,22 @@ $ kubetest --image golang:1.14 --repo github.com/user/repo --branch feature/bran
 apiVersion: kubetest.io/v1
 kind: TestJob
 metadata:
-  name: testjob-sample
+  name: testJobName
+  namespace: namespaceName
 spec:
-  image: golang:1.14
-  repo: github.com/user/repo
-  branch: master
-  command:
-    - go
-    - test
-    - -v
-    - ./
-  token: # if test for private repository, add oauth token to secret before testing and use it.
-    secretKeyRef:
-      name: oauth-token
-      key: oauth
+  git:
+    repo: github.com/goccy/kubetest
+    branch: master
+  template:
+    spec:
+      containers:
+        - name: test
+          image: golang:1.14
+          command:
+            - go
+          args:
+            - test
+            - ./
 ```
 
 ## 2. Distributed Testing
@@ -74,41 +76,33 @@ This is Go language example.
 apiVersion: kubetest.io/v1
 kind: TestJob
 metadata:
-  name: testjob-sample
+  name: testJobName
+  namespace: namespaceName
 spec:
-  image: golang:1.14
-  repo: github.com/user/repo
-  branch: master
-  command:
-    - go
-    - test
-    - -v
-    - ./
-    - -run
-    - '{{.Test}}' # '{{.Test}}' is special keyword, this section is replaced to each test name on runtime.
-  token:
-    secretKeyRef:
-      name: oauth-token
-      key: oauth
-
-  # for distributed testing parameters.
+  git:
+    repo: github.com/goccy/kubetest
+    branch: master
+  template:
+    spec:
+      containers:
+        - name: test
+          image: golang:1.14
+          command:
+            - go
+          args:
+            - test
+            - ./
+            - -run
+            - $TEST
   distributedTest:
-    # concurrent number for testing.
-    concurrent: 2
-
-    # output testing list to stdout
-    listCommand:
-      - go
-      - test
-      - -list
-      - Test
-
-    # filter testing list by this regular expression.
-    pattern: ^Test
-
-    # restart testing for failed tests
-    retest: true
-
-    # delimiter for testing list of retest ( default: white space )
-    retestDelimiter: '|'
+    containerName: test
+    maxContainersPerPod: 16
+    list:
+      command:
+        - go
+      args:
+        - test
+        - -list
+        - ./
+      pattern: '^"Test'
 ```
