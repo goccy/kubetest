@@ -165,7 +165,7 @@ $ kubetest --in-cluster -f testjob.yaml
 The `kubetest` CLI reads the definition of `TestJob`, which is a CRD of Kubernetes, and executes the test for the specified Kubernetes cluster.
 
 When the `--in-cluster` option is specified, it means the CLI is executed in the target Kubernetes cluster and works according to the privileges of ServiceAccount specified in the pod running the `kubetest` CLI.
-(See [here]() for permissions required to run `kubetest`)
+(See [here](https://github.com/goccy/kubetest/blob/master/README.md#serviceaccount) for permissions required to run `kubetest`)
 
 The `testjob.yaml` passed to the argument of the `-f` option is the same as the one shown above.
 
@@ -440,7 +440,7 @@ distributedTest:
 
 ## ServiceAccount
 
-```
+```yaml
 kind: ServiceAccount
 apiVersion: v1
 metadata:
