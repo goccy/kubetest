@@ -35,7 +35,7 @@ build-image:
 	}
 
 delete-image:
-	docker image rm kubetest:v1
+	docker image rm -f kubetest:v1
 
 update-image: delete-image build-image
 
@@ -50,5 +50,5 @@ delete-pod:
 	kubectl delete pod job-pod
 
 test:
-	kubectl cp ./testjob.yaml job-pod:/go/
-	kubectl exec job-pod -- kubetest --in-cluster -f testjob.yaml --template JobName=e2e
+	kubectl cp ./testjob.yaml job-pod:/go/src/github.com/goccy/kubetest
+	kubectl exec job-pod -- kubetest --in-cluster -f testjob.yaml

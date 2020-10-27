@@ -1,27 +1,32 @@
 apiVersion: kubetest.io/v1
 kind: TestJob
 metadata:
-  name: {{ .JobName }}
+  name: testjob
 spec:
-  repo: github.com/goccy/kubetest
-  prepare:
-    steps:
-      - name: prepare-command
-        image: kubetest:v1
-        command: |
-          echo $NAME
-        env:
-          - name: NAME
-            value: kubetest
-  checkout: false
-  gitImage: kubetest:v1
-  image: kubetest:v1
-  workdir: /go/src/github.com/goccy/kubetest
-  command: |
-    go test -v $TEST
+  git:
+    checkout: false
+  template:
+    spec:
+      containers:
+        - name: test
+          image: kubetest:v1
+          command:
+            - go
+          args:
+            - test
+            - -v
+            - ./
+            - -run
+            - $(TEST)
+          workingDir: /go/src/github.com/goccy/kubetest/_examples
   distributedTest:
-    concurrent: 8
-    listCommand: |
-      echo 'no such test'
-    pattern: '^"Test'
-    retest: false
+    containerName: test
+    maxContainersPerPod: 6
+    list:
+      command:
+        - go
+      args:
+        - test
+        - -list
+        - .
+      pattern: ^Test

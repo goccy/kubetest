@@ -99,6 +99,9 @@ func validateDistributedTestParam(job kubetestv1.TestJob) error {
 }
 
 func validateTestJobParam(job kubetestv1.TestJob) error {
+	if job.Spec.Git.Checkout != nil && !job.Spec.Git.Checkout {
+		return nil
+	}
 	if job.Spec.Git.Repo == "" {
 		return xerrors.New("the required flag '--repo' was not specified")
 	}

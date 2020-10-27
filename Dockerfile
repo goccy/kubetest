@@ -1,4 +1,4 @@
-FROM golang:1.14-stretch AS builder
+FROM golang:1.14-stretch
 
 ENV GOPATH /go
 WORKDIR /go/src/github.com/goccy/kubetest
@@ -9,10 +9,4 @@ RUN go mod download
 
 COPY . .
 
-RUN go build -o kubetest cmd/kubetest/main.go
-
-FROM golang:1.14-stretch
-
-ENV GOPATH /go
-
-COPY --from=builder /go/src/github.com/goccy/kubetest/kubetest /go/bin/kubetest
+RUN go build -o /go/bin/kubetest cmd/kubetest/main.go
