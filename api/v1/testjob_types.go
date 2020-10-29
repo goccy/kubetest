@@ -54,6 +54,13 @@ type GitSpec struct {
 	Token *TestJobToken `json:"token,omitempty"`
 	// CheckoutDir ( default: /git/workspace )
 	CheckoutDir string `json:"checkoutDir,omitempty"`
+	// Merge base branch
+	Merge GitMergeSpec `json:"merge,omitempty"`
+}
+
+type GitMergeSpec struct {
+	// Base branch name
+	Base string `json:"base"`
 }
 
 type LogSpec struct {

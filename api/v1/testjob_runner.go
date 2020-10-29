@@ -154,14 +154,29 @@ func (r *TestJobRunner) gitSwitchContainer(job TestJob) apiv1.Container {
 	}
 }
 
+func (r *TestJobRunner) gitMergeContainer(job TestJob) apiv1.Container {
+	volumeMount := r.sharedVolumeMount(job)
+	return apiv1.Container{
+		Name:         "kubetest-init-merge",
+		Image:        r.gitImage(job),
+		WorkingDir:   volumeMount.MountPath,
+		Command:      []string{"git"},
+		Args:         []string{"pull", "origin", job.Spec.Git.Merge.Base},
+		VolumeMounts: []apiv1.VolumeMount{volumeMount},
+	}
+}
+
 func (r *TestJobRunner) initContainers(job TestJob) []apiv1.Container {
+	containers := []apiv1.Container{}
 	if job.Spec.Git.Branch != "" {
-		return []apiv1.Container{r.gitCloneContainer(job)}
+		containers = append(containers, r.gitCloneContainer(job))
+	} else {
+		containers = append(containers, r.gitCloneContainer(job), r.gitSwitchContainer(job))
 	}
-	return []apiv1.Container{
-		r.gitCloneContainer(job),
-		r.gitSwitchContainer(job),
+	if job.Spec.Git.Merge.Base != "" {
+		containers = append(containers, r.gitMergeContainer(job))
 	}
+	return containers
 }
 
 func (r *TestJobRunner) command(cmd Command) ([]string, []string) {
