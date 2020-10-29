@@ -363,8 +363,12 @@ func (r *TestJobRunner) newJobForTesting(testjob TestJob, containers ...apiv1.Co
 	template := testjob.Spec.Template
 	template.Spec.InitContainers = append(initContainers, template.Spec.InitContainers...)
 	testContainers := []apiv1.Container{}
+	var testContainerName string
+	if testjob.Spec.DistributedTest != nil {
+		testContainerName = testjob.Spec.DistributedTest.ContainerName
+	}
 	for _, container := range template.Spec.Containers {
-		if len(containers) > 0 && container.Name == "test" {
+		if len(containers) > 0 && container.Name == testContainerName {
 			// skip default test container
 			continue
 		}
@@ -607,9 +611,21 @@ func (r *TestJobRunner) testsToCommands(c *apiv1.Container, tests []string) comm
 	return commands
 }
 
+func (r *TestJobRunner) testContainerWorkingDir(testContainer *apiv1.Container, testjob TestJob) string {
+	workingDir := testContainer.WorkingDir
+	if workingDir == "" {
+		return r.sharedVolumeMount(testjob).MountPath
+	}
+	return workingDir
+}
+
 func (r *TestJobRunner) runTests(ctx context.Context, testjob TestJob, logger kubejob.Logger, testContainer *apiv1.Container, tests []string) ([]*command, error) {
 	testCommands := r.testsToCommands(testContainer, tests)
 	commandValueMap := testCommands.commandValueMap()
+
+	testContainerWorkingDir := r.testContainerWorkingDir(testContainer, testjob)
+	testContainer.WorkingDir = testContainerWorkingDir
+
 	containers := []apiv1.Container{}
 	for _, test := range tests {
 		container := testContainer.DeepCopy()
@@ -630,16 +646,12 @@ func (r *TestJobRunner) runTests(ctx context.Context, testjob TestJob, logger ku
 			Name:      cache.Name,
 			MountPath: cache.Path,
 		})
-		workingDir := testContainer.WorkingDir
-		if workingDir == "" {
-			workingDir = r.sharedVolumeMount(testjob).MountPath
-		}
 		cacheContainer := apiv1.Container{
 			Name:         cache.Name,
 			Image:        testContainer.Image,
 			Command:      cmd,
 			Args:         args,
-			WorkingDir:   workingDir,
+			WorkingDir:   testContainerWorkingDir,
 			VolumeMounts: volumeMounts,
 			Env:          testContainer.Env,
 		}
@@ -692,6 +704,7 @@ func (r *TestJobRunner) testList(ctx context.Context, testjob TestJob) ([]string
 	if err != nil {
 		return nil, xerrors.Errorf("failed to find container for list: %w", err)
 	}
+	container.WorkingDir = r.testContainerWorkingDir(container, listjob)
 	container.Command = distributedTest.List.Command
 	container.Args = distributedTest.List.Args
 	listjob.Spec.Template.Spec.Containers = []apiv1.Container{*container}
