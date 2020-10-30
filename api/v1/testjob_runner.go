@@ -154,6 +154,30 @@ func (r *TestJobRunner) gitSwitchContainer(job TestJob) apiv1.Container {
 	}
 }
 
+func (r *TestJobRunner) gitConfigUserEmailContainer(job TestJob) apiv1.Container {
+	volumeMount := r.sharedVolumeMount(job)
+	return apiv1.Container{
+		Name:         "kubetest-init-git-config-user-email",
+		Image:        r.gitImage(job),
+		WorkingDir:   volumeMount.MountPath,
+		Command:      []string{"git"},
+		Args:         []string{"config", "user.email", "anonymous@kubetest.com"},
+		VolumeMounts: []apiv1.VolumeMount{volumeMount},
+	}
+}
+
+func (r *TestJobRunner) gitConfigUserNameContainer(job TestJob) apiv1.Container {
+	volumeMount := r.sharedVolumeMount(job)
+	return apiv1.Container{
+		Name:         "kubetest-init-git-config-user-name",
+		Image:        r.gitImage(job),
+		WorkingDir:   volumeMount.MountPath,
+		Command:      []string{"git"},
+		Args:         []string{"config", "user.name", "anonymous"},
+		VolumeMounts: []apiv1.VolumeMount{volumeMount},
+	}
+}
+
 func (r *TestJobRunner) gitMergeContainer(job TestJob) apiv1.Container {
 	volumeMount := r.sharedVolumeMount(job)
 	return apiv1.Container{
@@ -174,7 +198,11 @@ func (r *TestJobRunner) initContainers(job TestJob) []apiv1.Container {
 		containers = append(containers, r.gitCloneContainer(job), r.gitSwitchContainer(job))
 	}
 	if job.Spec.Git.Merge.Base != "" {
-		containers = append(containers, r.gitMergeContainer(job))
+		containers = append(containers,
+			r.gitConfigUserEmailContainer(job),
+			r.gitConfigUserNameContainer(job),
+			r.gitMergeContainer(job),
+		)
 	}
 	return containers
 }
@@ -745,6 +773,10 @@ func (r *TestJobRunner) testList(ctx context.Context, testjob TestJob) ([]string
 		b.WriteString(log.Log)
 	})
 	if err := listJobRunner.Run(ctx, listjob); err != nil {
+		listJobRunner.disabledPrepareLog = false
+		listJobRunner.disabledCommandLog = false
+		b.Reset()
+		listJobRunner.Run(ctx, listjob)
 		return nil, xerrors.Errorf("failed to run listJob %s: %w", b.String(), err)
 	}
 	delim := distributedTest.List.Delimiter
