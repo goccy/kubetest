@@ -99,6 +99,8 @@ type DistributedTestSpec struct {
 	ContainerName string `json:"containerName"`
 	// MaxContainersPerPod maximum number of container per pod.
 	MaxContainersPerPod int `json:"maxContainersPerPod"`
+	// MaxConcurrentNumPerPod maximum number of concurrent per pod.
+	MaxConcurrentNumPerPod int `json:"maxConcurrentNumPerPod"`
 	// Output testing list to stdout
 	List DistributedTestListSpec `json:"list"`
 	// Restart testing for failed tests

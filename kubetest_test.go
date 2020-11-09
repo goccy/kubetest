@@ -46,11 +46,12 @@ spec:
             - -v
             - ./
             - -run
-            - $(TEST)
+            - $TEST
           workingDir: /go/src/kubetest/_examples
   distributedTest:
     containerName: test
-    maxContainersPerPod: 6
+    maxContainersPerPod: 18
+    maxConcurrentNumPerPod: 2
     list:
       command:
         - go
