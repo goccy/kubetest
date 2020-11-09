@@ -11,11 +11,45 @@ else
 GOBIN=$(shell go env GOBIN)
 endif
 
+BIN := $(CURDIR)/.bin
+PATH := $(abspath $(BIN)):$(PATH)
+
+UNAME_OS := $(shell uname -s)
+
+$(BIN):
+	@mkdir -p $(BIN)
+
+KIND := $(BIN)/kind
+KIND_VERSION := v0.8.1
+$(KIND): | $(BIN)
+	@curl -sSLo $(KIND) "https://kind.sigs.k8s.io/dl/$(KIND_VERSION)/kind-$(UNAME_OS)-amd64"
+	@chmod +x $(KIND)
+
+CLUSTER_NAME ?= kubetest-cluster
+KUBECONFIG ?= $(CURDIR)/.kube/config
+export KUBECONFIG
+
+POD_NAME := $(shell KUBECONFIG=$(KUBECONFIG) kubectl get pod | grep Running | grep kubetest-deployment | awk '{print $$1}' )
+
 all: manager
 
-# Run tests
-test: generate fmt vet manifests
-	go test ./... -coverprofile cover.out
+test-cluster: $(KIND)
+	@{ \
+	set -e ;\
+	if [ "$$(kind get clusters --quiet | grep $(CLUSTER_NAME))" = "" ]; then \
+		$(KIND) create cluster --name $(CLUSTER_NAME) --config testdata/config/cluster.yaml ;\
+	fi ;\
+	}
+
+delete-cluster: $(KIND)
+	$(KIND) delete clusters $(CLUSTER_NAME)
+
+deploy: test-cluster
+	kubectl apply -f testdata/config/manifest.yaml
+	kubectl apply -f https://docs.projectcalico.org/v3.8/manifests/calico.yaml
+
+test:
+	kubectl exec -it $(POD_NAME) -- go test -v ./ -count=1
 
 # Build manager binary
 manager: generate fmt vet
@@ -34,7 +68,7 @@ uninstall: manifests
 	kustomize build config/crd | kubectl delete -f -
 
 # Deploy controller in the configured Kubernetes cluster in ~/.kube/config
-deploy: manifests
+deploy-manifests: manifests
 	cd config/manager && kustomize edit set image controller=${IMG}
 	kustomize build config/default | kubectl apply -f -
 

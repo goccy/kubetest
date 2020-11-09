@@ -1,0 +1,84 @@
+kind: ServiceAccount
+apiVersion: v1
+metadata:
+  name: kubetest
+---
+kind: Role
+apiVersion: rbac.authorization.k8s.io/v1beta1
+metadata:
+  name: kubetest
+rules:
+  - apiGroups:
+      - batch
+    resources:
+      - jobs
+    verbs:
+      - create
+      - delete
+  - apiGroups:
+      - ""
+    resources:
+      - pods
+      - pods/log
+    verbs:
+      - get
+      - watch
+  - apiGroups:
+      - ""
+    resources:
+      - pods/exec
+    verbs:
+      - create
+  - apiGroups:
+      - ""
+    resources:
+      - secrets
+    verbs:
+      - get
+---
+kind: RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1beta1
+metadata:
+  name: kubetest
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: kubetest
+subjects:
+- kind: ServiceAccount
+  name: kubetest
+---
+kind: Deployment
+apiVersion: apps/v1
+metadata:
+  name: kubetest-deployment
+  labels:
+    app: nginx
+spec:
+  selector:
+    matchLabels:
+      app: kubetest
+  template:
+    metadata:
+      name: kubetest
+      labels:
+        app: kubetest
+    spec:
+      serviceAccountName: kubetest
+      containers:
+        - name: kubetest
+          image: golang:1.15
+          workingDir: /go/src/kubetest
+          command:
+            - tail
+          args:
+            - -f
+            - /dev/null
+          volumeMounts:
+            - name: workdir
+              mountPath: /go/src/kubetest
+      volumes:
+        - name: workdir
+          hostPath:
+            path: /home/kubetest
+            type: Directory

@@ -26,6 +26,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 )
 
 const (
@@ -66,19 +67,25 @@ type TestLog struct {
 }
 
 type TestJobRunner struct {
-	*kubernetes.Clientset
 	token                     string
 	disabledPrepareLog        bool
 	disabledCommandLog        bool
 	disabledResultLog         bool
 	logger                    func(*kubejob.ContainerLog)
 	containerNameToCommandMap sync.Map
+	config                    *rest.Config
+	clientSet                 *kubernetes.Clientset
 }
 
-func NewTestJobRunner(clientset *kubernetes.Clientset) *TestJobRunner {
-	return &TestJobRunner{
-		Clientset: clientset,
+func NewTestJobRunner(config *rest.Config) (*TestJobRunner, error) {
+	cs, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to create clientset: %w", err)
 	}
+	return &TestJobRunner{
+		config:    config,
+		clientSet: cs,
+	}, nil
 }
 
 func (r *TestJobRunner) SetToken(token string) {
@@ -271,7 +278,7 @@ func (r *TestJobRunner) run(ctx context.Context, testjob TestJob) ([]TestLog, er
 	}
 	token := testjob.Spec.Git.Token
 	if token != nil {
-		secret, err := r.CoreV1().
+		secret, err := r.clientSet.CoreV1().
 			Secrets(testjob.Namespace).
 			Get(token.SecretKeyRef.Name, metav1.GetOptions{})
 		if err != nil {
@@ -370,7 +377,7 @@ func (r *TestJobRunner) prepare(ctx context.Context, testjob TestJob) error {
 	if len(containers) > 1 {
 		initContainers = containers[:len(containers)-1]
 	}
-	job, err := kubejob.NewJobBuilder(r.Clientset, testjob.Namespace).
+	job, err := kubejob.NewJobBuilder(r.config, testjob.Namespace).
 		BuildWithJob(&batchv1.Job{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: r.generateName(testjob.ObjectMeta.Name),
@@ -424,7 +431,7 @@ func (r *TestJobRunner) newJobForTesting(testjob TestJob, containers ...apiv1.Co
 	}
 	template.Spec.Containers = testContainers
 	template.Spec.Volumes = append(template.Spec.Volumes, r.sharedVolume())
-	return kubejob.NewJobBuilder(r.Clientset, testjob.Namespace).
+	return kubejob.NewJobBuilder(r.config, testjob.Namespace).
 		BuildWithJob(&batchv1.Job{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: r.generateName(testjob.ObjectMeta.Name),
@@ -754,7 +761,10 @@ func (r *TestJobRunner) testList(ctx context.Context, testjob TestJob) ([]string
 	listjob.Spec.Prepare.Steps = []PrepareStepSpec{}
 	listjob.Spec.DistributedTest = nil
 
-	listJobRunner := NewTestJobRunner(r.Clientset)
+	listJobRunner, err := NewTestJobRunner(r.config)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to create test job runner: %w", err)
+	}
 	listJobRunner.DisablePrepareLog()
 	listJobRunner.DisableCommandLog()
 	listJobRunner.DisableResultLog()
