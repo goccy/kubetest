@@ -15,7 +15,6 @@ import (
 	"golang.org/x/xerrors"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/yaml"
-	"k8s.io/client-go/kubernetes"
 	_ "k8s.io/client-go/plugin/pkg/client/auth/gcp"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
@@ -38,7 +37,6 @@ type option struct {
 	ListDelimiter       string `description:"specify delimiter for list command" long:"list-delimiter"`
 	Pattern             string `description:"specify test name patter" long:"pattern"`
 	Retest              *bool  `description:"specify enabled retest if exists failed tests" long:"retest"`
-	RetestDelimiter     string `description:"specify delimiter for failed tests at retest command" long:"retest-delimiter"`
 
 	File     string            `description:"specify yaml file path" short:"f" long:"file"`
 	Template map[string]string `description:"specify template parameter for file specified with --file option" long:"template"`
@@ -82,9 +80,6 @@ func hasDistributedParam(job kubetestv1.TestJob, opt option) bool {
 	if opt.Retest != nil {
 		return true
 	}
-	if opt.RetestDelimiter != "" {
-		return true
-	}
 	return false
 }
 
@@ -118,10 +113,6 @@ func _main(args []string, opt option) error {
 	cfg, err := loadConfig(opt)
 	if err != nil {
 		return xerrors.Errorf("failed to load config: %w", err)
-	}
-	clientset, err := kubernetes.NewForConfig(cfg)
-	if err != nil {
-		return xerrors.Errorf("failed to create clientset: %w", err)
 	}
 	var job kubetestv1.TestJob
 	if opt.File != "" {
@@ -208,10 +199,7 @@ func _main(args []string, opt option) error {
 			job.Spec.DistributedTest.List.Pattern = opt.Pattern
 		}
 		if opt.Retest != nil {
-			job.Spec.DistributedTest.Retest.Enabled = *opt.Retest
-		}
-		if opt.RetestDelimiter != "" {
-			job.Spec.DistributedTest.Retest.Delimiter = opt.RetestDelimiter
+			job.Spec.DistributedTest.Retest = *opt.Retest
 		}
 		if err := validateDistributedTestParam(job); err != nil {
 			return err
@@ -220,7 +208,11 @@ func _main(args []string, opt option) error {
 	if err := validateTestJobParam(job); err != nil {
 		return err
 	}
-	if err := kubetestv1.NewTestJobRunner(clientset).Run(context.Background(), job); err != nil {
+	kubetest, err := kubetestv1.NewTestJobRunner(cfg)
+	if err != nil {
+		return err
+	}
+	if err := kubetest.Run(context.Background(), job); err != nil {
 		return err
 	}
 	return nil

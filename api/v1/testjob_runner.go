@@ -26,6 +26,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 )
 
 const (
@@ -66,19 +67,25 @@ type TestLog struct {
 }
 
 type TestJobRunner struct {
-	*kubernetes.Clientset
-	token                     string
-	disabledPrepareLog        bool
-	disabledCommandLog        bool
-	disabledResultLog         bool
-	logger                    func(*kubejob.ContainerLog)
-	containerNameToCommandMap sync.Map
+	token              string
+	disabledPrepareLog bool
+	disabledCommandLog bool
+	disabledResultLog  bool
+	logger             func(*kubejob.ContainerLog)
+	config             *rest.Config
+	clientSet          *kubernetes.Clientset
+	printMu            sync.Mutex
 }
 
-func NewTestJobRunner(clientset *kubernetes.Clientset) *TestJobRunner {
-	return &TestJobRunner{
-		Clientset: clientset,
+func NewTestJobRunner(config *rest.Config) (*TestJobRunner, error) {
+	cs, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to create clientset: %w", err)
 	}
+	return &TestJobRunner{
+		config:    config,
+		clientSet: cs,
+	}, nil
 }
 
 func (r *TestJobRunner) SetToken(token string) {
@@ -271,7 +278,7 @@ func (r *TestJobRunner) run(ctx context.Context, testjob TestJob) ([]TestLog, er
 	}
 	token := testjob.Spec.Git.Token
 	if token != nil {
-		secret, err := r.CoreV1().
+		secret, err := r.clientSet.CoreV1().
 			Secrets(testjob.Namespace).
 			Get(token.SecretKeyRef.Name, metav1.GetOptions{})
 		if err != nil {
@@ -370,7 +377,7 @@ func (r *TestJobRunner) prepare(ctx context.Context, testjob TestJob) error {
 	if len(containers) > 1 {
 		initContainers = containers[:len(containers)-1]
 	}
-	job, err := kubejob.NewJobBuilder(r.Clientset, testjob.Namespace).
+	job, err := kubejob.NewJobBuilder(r.config, testjob.Namespace).
 		BuildWithJob(&batchv1.Job{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: r.generateName(testjob.ObjectMeta.Name),
@@ -424,7 +431,7 @@ func (r *TestJobRunner) newJobForTesting(testjob TestJob, containers ...apiv1.Co
 	}
 	template.Spec.Containers = testContainers
 	template.Spec.Volumes = append(template.Spec.Volumes, r.sharedVolume())
-	return kubejob.NewJobBuilder(r.Clientset, testjob.Namespace).
+	return kubejob.NewJobBuilder(r.config, testjob.Namespace).
 		BuildWithJob(&batchv1.Job{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: r.generateName(testjob.ObjectMeta.Name),
@@ -496,88 +503,21 @@ func (r *TestJobRunner) runDistributedTest(ctx context.Context, testjob TestJob)
 		fmt.Fprintf(os.Stderr, "test: elapsed time %f sec\n", time.Since(start).Seconds())
 	}(time.Now())
 
-	failedTestCommands := []*command{}
-
-	var (
-		loggerMu      sync.Mutex
-		failedTestsMu sync.Mutex
-		lastPodIdx    int
-	)
-	containerNameToLogMap := map[string][]string{}
-	podNameToIndexMap := map[string]int{}
-	testLogMap := map[string]TestLog{}
-	logger := func(log *kubejob.ContainerLog) {
-		loggerMu.Lock()
-		defer loggerMu.Unlock()
-
-		name := log.Container.Name
-		if log.IsFinished {
-			cmd, _ := r.containerNameToCommandMap.Load(name)
-			logs, exists := containerNameToLogMap[name]
-			if exists {
-				podName := log.Pod.Name
-				idx, exists := podNameToIndexMap[podName]
-				if !exists {
-					idx = lastPodIdx
-					podNameToIndexMap[log.Pod.Name] = lastPodIdx
-					lastPodIdx++
-				}
-				if cmd != nil {
-					c := cmd.(*command)
-					fmt.Fprintf(os.Stderr, "[POD %d] TEST=%s %s\n", idx, c.test, r.commandString(testContainer))
-					testLogMap[c.test] = TestLog{
-						Name:           c.test,
-						TestResult:     TestResultSuccess,
-						ElapsedTimeSec: int(time.Since(c.startedAt).Seconds()),
-						Message:        strings.Join(logs, "\n"),
-					}
-				}
-				for _, log := range logs {
-					fmt.Fprintf(os.Stderr, "[POD %d] %s", idx, log)
-				}
-				fmt.Fprintf(os.Stderr, "\n")
-			}
-			delete(containerNameToLogMap, name)
-		} else {
-			value, exists := containerNameToLogMap[name]
-			logs := []string{}
-			if exists {
-				logs = value
-			} else {
-				cmd, _ := r.containerNameToCommandMap.Load(name)
-				if cmd != nil {
-					startedAt := time.Now()
-					for _, status := range log.Pod.Status.ContainerStatuses {
-						if log.Container.Name != status.Name {
-							continue
-						}
-						running := status.State.Running
-						if running == nil {
-							continue
-						}
-						startedAt = running.StartedAt.Time
-					}
-					cmd.(*command).startedAt = startedAt
-				}
-			}
-			logs = append(logs, log.Log)
-			containerNameToLogMap[name] = logs
-		}
-	}
+	testLogs := []TestLog{}
+	testLogMu := sync.Mutex{}
 
 	var eg errgroup.Group
-	for _, tests := range plan {
+	for podIdx, tests := range plan {
+		podIdx := podIdx
 		tests := tests
 		eg.Go(func() error {
-			commands, err := r.runTests(ctx, testjob, logger, testContainer, tests)
+			logs, err := r.runTests(ctx, testjob, testContainer, podIdx, tests)
 			if err != nil {
 				return xerrors.Errorf("failed to runTests: %w", err)
 			}
-			if len(commands) > 0 {
-				failedTestsMu.Lock()
-				failedTestCommands = append(failedTestCommands, commands...)
-				failedTestsMu.Unlock()
-			}
+			testLogMu.Lock()
+			testLogs = append(testLogs, logs...)
+			testLogMu.Unlock()
 			return nil
 		})
 	}
@@ -585,38 +525,42 @@ func (r *TestJobRunner) runDistributedTest(ctx context.Context, testjob TestJob)
 		return nil, xerrors.Errorf("failed to distributed test job: %w", err)
 	}
 
-	if len(failedTestCommands) > 0 {
-		for _, command := range failedTestCommands {
-			log := testLogMap[command.test]
-			log.TestResult = TestResultFailure
-			testLogMap[command.test] = log
+	failedTestLogs := []TestLog{}
+	for _, testLog := range testLogs {
+		if testLog.TestResult == TestResultFailure {
+			failedTestLogs = append(failedTestLogs, testLog)
 		}
-		logs := []TestLog{}
-		for _, log := range testLogMap {
-			logs = append(logs, log)
-		}
-		if !testjob.Spec.DistributedTest.Retest.Enabled {
-			return logs, ErrFailedTestJob
+	}
+	if len(failedTestLogs) > 0 {
+		if !testjob.Spec.DistributedTest.Retest {
+			return testLogs, ErrFailedTestJob
 		}
 		fmt.Println("start retest....")
 		tests := []string{}
-		for _, command := range failedTestCommands {
-			tests = append(tests, command.test)
+		for _, log := range failedTestLogs {
+			tests = append(tests, log.Name)
 		}
-		concatedTests := strings.Join(tests, testjob.Spec.DistributedTest.Retest.Delimiter)
-		failedTests, err := r.runTests(ctx, testjob, logger, testContainer, []string{concatedTests})
+
+		// force sequential running
+		testjob.Spec.DistributedTest.MaxConcurrentNumPerPod = 1
+
+		retestLogs, err := r.runTests(ctx, testjob, testContainer, 0, tests)
+		retestLogMap := map[string]TestLog{}
+		for _, log := range retestLogs {
+			retestLogMap[log.Name] = log
+		}
+		for idx := range testLogs {
+			name := testLogs[idx].Name
+			retestLog, exists := retestLogMap[name]
+			if exists {
+				testLogs[idx] = retestLog
+			}
+		}
 		if err != nil {
-			return logs, xerrors.Errorf("failed test: %w", err)
-		}
-		if len(failedTests) > 0 {
-			return logs, ErrFailedTestJob
+			return testLogs, ErrFailedTestJob
 		}
 	}
-	logs := []TestLog{}
-	for _, log := range testLogMap {
-		logs = append(logs, log)
-	}
-	return logs, nil
+	return testLogs, nil
 }
 
 type command struct {
@@ -662,9 +606,17 @@ func (r *TestJobRunner) testContainerWorkingDir(testContainer *apiv1.Container, 
 	return workingDir
 }
 
-func (r *TestJobRunner) runTests(ctx context.Context, testjob TestJob, logger kubejob.Logger, testContainer *apiv1.Container, tests []string) ([]*command, error) {
+func (r *TestJobRunner) printTestLog(idx int, log string) {
+	r.printMu.Lock()
+	defer r.printMu.Unlock()
+	fmt.Print(log)
+	//	for _, line := range strings.Split(log, "\n") {
+	//		fmt.Fprintf(os.Stderr, "[POD %d] %s\n", idx, line)
+	//	}
+}
+
+func (r *TestJobRunner) runTests(ctx context.Context, testjob TestJob, testContainer *apiv1.Container, podIdx int, tests []string) ([]TestLog, error) {
 	testCommands := r.testsToCommands(testContainer, tests)
-	commandValueMap := testCommands.commandValueMap()
 
 	testContainerWorkingDir := r.testContainerWorkingDir(testContainer, testjob)
 	testContainer.WorkingDir = testContainerWorkingDir
@@ -709,30 +661,92 @@ func (r *TestJobRunner) runTests(ctx context.Context, testjob TestJob, logger ku
 	for i := 0; i < len(testCommands); i++ {
 		containerName := job.Spec.Template.Spec.Containers[i].Name
 		testCommands[i].container = containerName
-		r.containerNameToCommandMap.Store(containerName, testCommands[i])
 	}
 	job.DisableCommandLog()
-	job.SetLogger(logger)
-	failedTestCommands := []*command{}
-	if err := job.Run(ctx); err != nil {
-		var failedJob *kubejob.FailedJob
-		if xerrors.As(err, &failedJob) {
-			for _, container := range failedJob.FailedContainers() {
-				var testName string
-				for _, env := range container.Env {
-					if env.Name == "TEST" {
-						testName = env.Value
-						break
-					}
+	testLogs := []TestLog{}
+	var failedJob *kubejob.FailedJob
+	if err := job.RunWithExecutionHandler(ctx, func(executors []*kubejob.JobExecutor) error {
+		testExecutors := []*kubejob.JobExecutor{}
+		sidecarExecutors := []*kubejob.JobExecutor{}
+		for _, executor := range executors {
+			isTestContainer := false
+			for _, env := range executor.Container.Env {
+				if env.Name == "TEST" {
+					isTestContainer = true
+					break
 				}
-				command := commandValueMap[testName]
-				failedTestCommands = append(failedTestCommands, command)
 			}
-		} else {
+			if isTestContainer {
+				testExecutors = append(testExecutors, executor)
+			} else {
+				sidecarExecutors = append(sidecarExecutors, executor)
+			}
+		}
+		for _, sidecar := range sidecarExecutors {
+			sidecar := sidecar
+			go func() {
+				sidecar.Exec()
+			}()
+		}
+		concurrent := testjob.Spec.DistributedTest.MaxConcurrentNumPerPod
+		testExecutorNum := len(testExecutors)
+		if concurrent <= 0 {
+			concurrent = testExecutorNum
+		} else if concurrent > testExecutorNum {
+			concurrent = testExecutorNum
+		}
+		for i := 0; i < testExecutorNum; i += concurrent {
+			start := i
+			end := i + concurrent
+			if end > testExecutorNum {
+				end = testExecutorNum
+			}
+			executors := testExecutors[start:end]
+			var (
+				eg errgroup.Group
+				mu sync.Mutex
+			)
+			for _, executor := range executors {
+				executor := executor
+				eg.Go(func() error {
+					start := time.Now()
+					out, err := executor.Exec()
+					elapsedTime := int(time.Since(start).Seconds())
+					mu.Lock()
+					defer mu.Unlock()
+					var testName string
+					for _, env := range executor.Container.Env {
+						if env.Name == "TEST" {
+							testName = env.Value
+							break
+						}
+					}
+					testResult := TestResultSuccess
+					if err != nil {
+						testResult = TestResultFailure
+					}
+					testLogs = append(testLogs, TestLog{
+						Name:           testName,
+						TestResult:     testResult,
+						ElapsedTimeSec: elapsedTime,
+						Message:        string(out),
+					})
+					r.printTestLog(
+						podIdx,
+						fmt.Sprintf("TEST=%s; %s\n%s", testName, r.commandString(testContainer), string(out)),
+					)
+					return nil
+				})
+			}
+			eg.Wait()
+		}
+		return nil
+	}); err != nil {
+		if !xerrors.As(err, &failedJob) {
 			return nil, err
 		}
 	}
-	return failedTestCommands, nil
+	return testLogs, nil
 }
 
 func (r *TestJobRunner) testList(ctx context.Context, testjob TestJob) ([]string, error) {
@@ -754,7 +768,10 @@ func (r *TestJobRunner) testList(ctx context.Context, testjob TestJob) ([]string
 	listjob.Spec.Prepare.Steps = []PrepareStepSpec{}
 	listjob.Spec.DistributedTest = nil
 
-	listJobRunner := NewTestJobRunner(r.Clientset)
+	listJobRunner, err := NewTestJobRunner(r.config)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to create test job runner: %w", err)
+	}
 	listJobRunner.DisablePrepareLog()
 	listJobRunner.DisableCommandLog()
 	listJobRunner.DisableResultLog()
