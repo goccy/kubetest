@@ -104,7 +104,7 @@ type DistributedTestSpec struct {
 	// Output testing list to stdout
 	List DistributedTestListSpec `json:"list"`
 	// Restart testing for failed tests
-	Retest DistributedTestRetestSpec `json:"retest,omitempty"`
+	Retest bool `json:"retest,omitempty"`
 	// CacheSpec for making cache before testing
 	Cache []CacheSpec `json:"cache,omitempty"`
 }
@@ -116,13 +116,6 @@ type DistributedTestListSpec struct {
 	Delimiter string `json:"delimiter,omitempty"`
 	// Test name pattern ( enable use regular expression )
 	Pattern string `json:"pattern,omitempty"`
-}
-
-type DistributedTestRetestSpec struct {
-	// Enabled restart testing for failed tests
-	Enabled bool `json:"enabled"`
-	// Delimiter for testing list of retest ( default: white space )
-	Delimiter string `json:"delimiter,omitempty"`
 }
 
 type CacheSpec struct {

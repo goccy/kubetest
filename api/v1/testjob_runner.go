@@ -532,7 +532,7 @@ func (r *TestJobRunner) runDistributedTest(ctx context.Context, testjob TestJob)
 		}
 	}
 	if len(failedTestLogs) > 0 {
-		if !testjob.Spec.DistributedTest.Retest.Enabled {
+		if !testjob.Spec.DistributedTest.Retest {
 			return testLogs, ErrFailedTestJob
 		}
 		fmt.Println("start retest....")
@@ -540,7 +540,23 @@ func (r *TestJobRunner) runDistributedTest(ctx context.Context, testjob TestJob)
 		for _, log := range failedTestLogs {
 			tests = append(tests, log.Name)
 		}
-		if _, err := r.runTests(ctx, testjob, testContainer, 0, tests); err != nil {
+
+		// force sequential running
+		testjob.Spec.DistributedTest.MaxConcurrentNumPerPod = 1
+
+		retestLogs, err := r.runTests(ctx, testjob, testContainer, 0, tests)
+		retestLogMap := map[string]TestLog{}
+		for _, log := range retestLogs {
+			retestLogMap[log.Name] = log
+		}
+		for idx := range testLogs {
+			name := testLogs[idx].Name
+			retestLog, exists := retestLogMap[name]
+			if exists {
+				testLogs[idx] = retestLog
+			}
+		}
+		if err != nil {
 			return testLogs, ErrFailedTestJob
 		}
 	}
