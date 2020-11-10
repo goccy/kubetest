@@ -609,9 +609,10 @@ func (r *TestJobRunner) testContainerWorkingDir(testContainer *apiv1.Container, 
 func (r *TestJobRunner) printTestLog(idx int, log string) {
 	r.printMu.Lock()
 	defer r.printMu.Unlock()
-	for _, line := range strings.Split(log, "\n") {
-		fmt.Fprintf(os.Stderr, "[POD %d] %s\n", idx, line)
-	}
+	fmt.Print(log)
+	//	for _, line := range strings.Split(log, "\n") {
+	//		fmt.Fprintf(os.Stderr, "[POD %d] %s\n", idx, line)
+	//	}
 }
 
 func (r *TestJobRunner) runTests(ctx context.Context, testjob TestJob, testContainer *apiv1.Container, podIdx int, tests []string) ([]TestLog, error) {
