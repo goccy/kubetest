@@ -61,7 +61,7 @@ spec:
     spec:
       containers:
         - name: test
-          image: golang:1.14
+          image: golang:1.15
           command:
             - go
           args:
@@ -86,7 +86,7 @@ spec:
     spec:
       containers:
         - name: test
-          image: kubetest:v1
+          image: golang:1.15
           command:
             - go
           args:
@@ -94,7 +94,7 @@ spec:
             - -v
             - ./
             - -run
-            - $(TEST)
+            - $TEST
           workingDir: /go/src/github.com/goccy/kubetest/_examples
   distributedTest:
     containerName: test
@@ -131,7 +131,7 @@ spec:
     spec:
       containers:
         - name: test
-          image: kubetest:v1
+          image: golang:1.15
           command:
             - go
           args:
@@ -139,7 +139,7 @@ spec:
             - -v
             - ./
             - -run
-            - $(TEST)
+            - $TEST
           workingDir: /go/src/github.com/goccy/kubetest/_examples
   distributedTest:
     containerName: test
