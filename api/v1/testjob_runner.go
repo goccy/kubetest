@@ -683,10 +683,7 @@ func (r *TestJobRunner) runTests(ctx context.Context, testjob TestJob, testConta
 			}
 		}
 		for _, sidecar := range sidecarExecutors {
-			sidecar := sidecar
-			go func() {
-				sidecar.Exec()
-			}()
+			sidecar.ExecAsync()
 		}
 		concurrent := testjob.Spec.DistributedTest.MaxConcurrentNumPerPod
 		testExecutorNum := len(testExecutors)
