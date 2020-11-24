@@ -661,6 +661,7 @@ func (r *TestJobRunner) runTests(ctx context.Context, testjob TestJob, testConta
 		containerName := job.Spec.Template.Spec.Containers[i].Name
 		testCommands[i].container = containerName
 	}
+	job.DisableInitContainerLog()
 	job.DisableCommandLog()
 	testLogs := []TestLog{}
 	var failedJob *kubejob.FailedJob
