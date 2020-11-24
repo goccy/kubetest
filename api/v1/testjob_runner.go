@@ -3,7 +3,6 @@
 package v1
 
 import (
-	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -746,13 +745,11 @@ func (r *TestJobRunner) runTests(ctx context.Context, testjob TestJob, testConta
 	return testLogs, nil
 }
 
-func (r *TestJobRunner) testList(ctx context.Context, testjob TestJob) ([]string, error) {
-	startListTime := time.Now()
-	defer func() {
-		fmt.Fprintf(os.Stderr, "list: elapsed time %f sec\n", time.Since(startListTime).Seconds())
-	}()
+func (r *TestJobRunner) createListJob(testjob TestJob) (*kubejob.Job, error) {
 	distributedTest := testjob.Spec.DistributedTest
-
+	if distributedTest == nil {
+		return nil, xerrors.Errorf("required distributedTest.list param")
+	}
 	listjob := testjob
 	container, err := r.testContainer(listjob)
 	if err != nil {
@@ -761,45 +758,72 @@ func (r *TestJobRunner) testList(ctx context.Context, testjob TestJob) ([]string
 	container.WorkingDir = r.testContainerWorkingDir(container, listjob)
 	container.Command = distributedTest.List.Command
 	container.Args = distributedTest.List.Args
+
 	listjob.Spec.Template.Spec.Containers = []apiv1.Container{*container}
 	listjob.Spec.Prepare.Steps = []PrepareStepSpec{}
 	listjob.Spec.DistributedTest = nil
 
-	listJobRunner, err := NewTestJobRunner(r.config)
+	return r.newJobForTesting(listjob)
+}
+
+func (r *TestJobRunner) listPattern(testjob TestJob) (*regexp.Regexp, error) {
+	listPattern := testjob.Spec.DistributedTest.List.Pattern
+	if listPattern == "" {
+		return nil, nil
+	}
+	reg, err := regexp.Compile(listPattern)
 	if err != nil {
-		return nil, xerrors.Errorf("failed to create test job runner: %w", err)
+		return nil, xerrors.Errorf("failed to compile pattern for distributed testing: %w", err)
 	}
-	listJobRunner.DisablePrepareLog()
-	listJobRunner.DisableCommandLog()
-	listJobRunner.DisableResultLog()
+	return reg, nil
+}
 
-	var pattern *regexp.Regexp
-	if distributedTest.List.Pattern != "" {
-		reg, err := regexp.Compile(distributedTest.List.Pattern)
-		if err != nil {
-			return nil, xerrors.Errorf("failed to compile pattern for distributed testing: %w", err)
+func (r *TestJobRunner) testList(ctx context.Context, testjob TestJob) ([]string, error) {
+	defer func(start time.Time) {
+		fmt.Fprintf(os.Stderr, "list: elapsed time %f sec\n", time.Since(start).Seconds())
+	}(time.Now())
+	listjob, err := r.createListJob(testjob)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to create list job: %w", err)
+	}
+
+	pattern, err := r.listPattern(testjob)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to get pattern for list: %w", err)
+	}
+
+	listjob.DisableInitContainerLog()
+	listjob.DisableCommandLog()
+
+	var listResult string
+	if err := listjob.RunWithExecutionHandler(ctx, func(executors []*kubejob.JobExecutor) error {
+		if len(executors) != 1 {
+			return xerrors.Errorf("failed to list container num. required only one container")
 		}
-		pattern = reg
+		out, _ := executors[0].Exec()
+		listResult = string(out)
+		return nil
+	}); err != nil {
+		// output verbose log for debug
+		listjob, err := r.createListJob(testjob)
+		if err != nil {
+			return nil, xerrors.Errorf("failed to recreate listjob: %w", err)
+		}
+		listjob.RunWithExecutionHandler(ctx, func(executors []*kubejob.JobExecutor) error {
+			if len(executors) != 1 {
+				return xerrors.Errorf("failed to list container num. required only one container")
+			}
+			fmt.Println(executors[0].Exec())
+			return nil
+		})
+		return nil, xerrors.Errorf("failed to run listJob")
 	}
-
-	var b bytes.Buffer
-	listJobRunner.SetLogger(func(log *kubejob.ContainerLog) {
-		b.WriteString(log.Log)
-	})
-	if err := listJobRunner.Run(ctx, listjob); err != nil {
-		listJobRunner.disabledPrepareLog = false
-		listJobRunner.disabledCommandLog = false
-		b.Reset()
-		listJobRunner.Run(ctx, listjob)
-		return nil, xerrors.Errorf("failed to run listJob %s: %w", b.String(), err)
-	}
-	delim := distributedTest.List.Delimiter
+	delim := testjob.Spec.DistributedTest.List.Delimiter
 	if delim == "" {
 		delim = "\n"
 	}
 	tests := []string{}
-	result := b.String()
-	list := strings.Split(result, delim)
+	list := strings.Split(listResult, delim)
 	if pattern != nil {
 		for _, name := range list {
 			if pattern.MatchString(name) {
