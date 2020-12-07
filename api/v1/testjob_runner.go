@@ -33,6 +33,9 @@ const (
 	oauthTokenEnv        = "OAUTH_TOKEN"
 	sharedVolumeName     = "repo"
 	defaultListDelimiter = "\n"
+	listJobLabel         = "kubetest.io/listjob"
+	testJobLabel         = "kubetest.io/testjob"
+	testsAnnotation      = "kubetest.io/tests"
 )
 
 var (
@@ -634,6 +637,16 @@ func (r *TestJobRunner) runTests(ctx context.Context, testjob TestJob, testConta
 	if err != nil {
 		return nil, err
 	}
+	delete(job.Spec.Template.ObjectMeta.Labels, listJobLabel)
+	job.Spec.Template.ObjectMeta.Labels[testJobLabel] = fmt.Sprint(true)
+	if job.Spec.Template.ObjectMeta.Annotations == nil {
+		job.Spec.Template.ObjectMeta.Annotations = map[string]string{}
+	}
+	encodedTests, err := json.Marshal(tests)
+	if err != nil {
+		return nil, err
+	}
+	job.Spec.Template.ObjectMeta.Annotations[testsAnnotation] = string(encodedTests)
 	for _, cache := range testjob.Spec.DistributedTest.Cache {
 		cmd, args := r.command(cache.Command)
 		volumeMounts := append(testContainer.VolumeMounts, r.sharedVolumeMount(testjob), apiv1.VolumeMount{
@@ -760,6 +773,10 @@ func (r *TestJobRunner) createListJob(testjob TestJob) (*kubejob.Job, error) {
 	container.Command = distributedTest.List.Command
 	container.Args = distributedTest.List.Args
 
+	if listjob.Spec.Template.ObjectMeta.Labels == nil {
+		listjob.Spec.Template.ObjectMeta.Labels = map[string]string{}
+	}
+	listjob.Spec.Template.ObjectMeta.Labels[listJobLabel] = fmt.Sprint(true)
 	listjob.Spec.Template.Spec.Containers = []apiv1.Container{*container}
 	listjob.Spec.Prepare.Steps = []PrepareStepSpec{}
 	listjob.Spec.DistributedTest = nil
