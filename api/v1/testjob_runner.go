@@ -633,20 +633,27 @@ func (r *TestJobRunner) runTests(ctx context.Context, testjob TestJob, testConta
 		})
 		containers = append(containers, *container)
 	}
+	labels := map[string]string{}
+	for k, v := range testjob.Spec.Template.ObjectMeta.Labels {
+		labels[k] = v
+	}
+	labels[testJobLabel] = fmt.Sprint(true)
+	testjob.Spec.Template.ObjectMeta.Labels = labels
+
+	annotations := map[string]string{}
+	for k, v := range testjob.Spec.Template.ObjectMeta.Annotations {
+		annotations[k] = v
+	}
+	encodedTests, err := json.Marshal(tests)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to encode tests: %w", err)
+	}
+	annotations[testsAnnotation] = string(encodedTests)
+	testjob.Spec.Template.ObjectMeta.Annotations = annotations
 	job, err := r.newJobForTesting(testjob, containers...)
 	if err != nil {
 		return nil, err
 	}
-	delete(job.Spec.Template.ObjectMeta.Labels, listJobLabel)
-	job.Spec.Template.ObjectMeta.Labels[testJobLabel] = fmt.Sprint(true)
-	if job.Spec.Template.ObjectMeta.Annotations == nil {
-		job.Spec.Template.ObjectMeta.Annotations = map[string]string{}
-	}
-	encodedTests, err := json.Marshal(tests)
-	if err != nil {
-		return nil, err
-	}
-	job.Spec.Template.ObjectMeta.Annotations[testsAnnotation] = string(encodedTests)
 	for _, cache := range testjob.Spec.DistributedTest.Cache {
 		cmd, args := r.command(cache.Command)
 		volumeMounts := append(testContainer.VolumeMounts, r.sharedVolumeMount(testjob), apiv1.VolumeMount{
@@ -773,10 +780,12 @@ func (r *TestJobRunner) createListJob(testjob TestJob) (*kubejob.Job, error) {
 	container.Command = distributedTest.List.Command
 	container.Args = distributedTest.List.Args
 
-	if listjob.Spec.Template.ObjectMeta.Labels == nil {
-		listjob.Spec.Template.ObjectMeta.Labels = map[string]string{}
+	labels := map[string]string{}
+	for k, v := range listjob.Spec.Template.ObjectMeta.Labels {
+		labels[k] = v
 	}
-	listjob.Spec.Template.ObjectMeta.Labels[listJobLabel] = fmt.Sprint(true)
+	labels[listJobLabel] = fmt.Sprint(true)
+	listjob.Spec.Template.ObjectMeta.Labels = labels
 	listjob.Spec.Template.Spec.Containers = []apiv1.Container{*container}
 	listjob.Spec.Prepare.Steps = []PrepareStepSpec{}
 	listjob.Spec.DistributedTest = nil
