@@ -49,7 +49,7 @@ deploy: test-cluster
 	kubectl apply -f https://docs.projectcalico.org/v3.8/manifests/calico.yaml
 
 test:
-	kubectl exec -it $(POD_NAME) -- go test -v ./ -count=1
+	kubectl exec -it $(POD_NAME) -- go test -race -v ./ -count=1
 
 # Build manager binary
 manager: generate fmt vet
