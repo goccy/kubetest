@@ -37,10 +37,18 @@ type option struct {
 	ListDelimiter       string `description:"specify delimiter for list command" long:"list-delimiter"`
 	Pattern             string `description:"specify test name patter" long:"pattern"`
 	Retest              *bool  `description:"specify enabled retest if exists failed tests" long:"retest"`
+	Verbose             bool   `description:"specify enabled debug log" short:"v" long:"versbose"`
 
 	File     string            `description:"specify yaml file path" short:"f" long:"file"`
 	Template map[string]string `description:"specify template parameter for file specified with --file option" long:"template"`
 }
+
+const (
+	ExitSuccess            int = 0
+	ExitWithFailureTestJob     = 1
+	ExitWithOtherError         = 2
+	ExitWithFatalError         = 3
+)
 
 func loadConfig(opt option) (*rest.Config, error) {
 	if opt.InCluster {
@@ -212,6 +220,9 @@ func _main(args []string, opt option) error {
 	if err != nil {
 		return err
 	}
+	if opt.Verbose {
+		kubetest.EnableVerboseLog()
+	}
 	if err := kubetest.Run(context.Background(), job); err != nil {
 		return err
 	}
@@ -227,6 +238,11 @@ func main() {
 	}
 	if err := _main(args, opt); err != nil {
 		fmt.Println(err)
-		os.Exit(1)
+		if xerrors.Is(err, kubetestv1.ErrFailedTestJob) {
+			os.Exit(ExitWithFailureTestJob)
+		} else if xerrors.Is(err, kubetestv1.ErrFatal) {
+			os.Exit(ExitWithFatalError)
+		}
+		os.Exit(ExitWithOtherError)
 	}
 }

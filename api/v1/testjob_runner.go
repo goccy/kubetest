@@ -40,6 +40,7 @@ const (
 
 var (
 	ErrFailedTestJob = xerrors.New("failed test job")
+	ErrFatal         = xerrors.New("fatal error")
 )
 
 type TestResult string
@@ -73,6 +74,7 @@ type TestJobRunner struct {
 	disabledPrepareLog bool
 	disabledCommandLog bool
 	disabledResultLog  bool
+	verboseLog         bool
 	logger             func(*kubejob.ContainerLog)
 	config             *rest.Config
 	clientSet          *kubernetes.Clientset
@@ -224,6 +226,10 @@ func (r *TestJobRunner) command(cmd Command) ([]string, []string) {
 func (r *TestJobRunner) commandText(cmd Command) string {
 	c, args := r.command(cmd)
 	return strings.Join(append(c, args...), " ")
+}
+
+func (r *TestJobRunner) EnableVerboseLog() {
+	r.verboseLog = true
 }
 
 func (r *TestJobRunner) DisablePrepareLog() {
@@ -400,9 +406,15 @@ func (r *TestJobRunner) prepare(ctx context.Context, testjob TestJob) error {
 	if err != nil {
 		return err
 	}
+	if r.verboseLog {
+		job.SetLogger(func(log string) {
+			r.printDebugLog(log)
+		})
+		job.SetVerboseLog(true)
+	}
 	job.DisableCommandLog()
 	if r.logger != nil {
-		job.SetLogger(r.logger)
+		job.SetContainerLogger(r.logger)
 	}
 	return job.Run(ctx)
 }
@@ -433,7 +445,7 @@ func (r *TestJobRunner) newJobForTesting(testjob TestJob, containers ...apiv1.Co
 	}
 	template.Spec.Containers = testContainers
 	template.Spec.Volumes = append(template.Spec.Volumes, r.sharedVolume())
-	return kubejob.NewJobBuilder(r.config, testjob.Namespace).
+	job, err := kubejob.NewJobBuilder(r.config, testjob.Namespace).
 		BuildWithJob(&batchv1.Job{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: r.generateName(testjob.ObjectMeta.Name),
@@ -442,6 +454,16 @@ func (r *TestJobRunner) newJobForTesting(testjob TestJob, containers ...apiv1.Co
 				Template: template,
 			},
 		})
+	if err != nil {
+		return nil, xerrors.Errorf("failed to create job: %w", err)
+	}
+	if r.verboseLog {
+		job.SetLogger(func(log string) {
+			r.printDebugLog(log)
+		})
+		job.SetVerboseLog(true)
+	}
+	return job, nil
 }
 
 func (r *TestJobRunner) runTest(ctx context.Context, testjob TestJob) ([]TestLog, error) {
@@ -450,7 +472,7 @@ func (r *TestJobRunner) runTest(ctx context.Context, testjob TestJob) ([]TestLog
 		return nil, err
 	}
 	if r.logger != nil {
-		job.SetLogger(r.logger)
+		job.SetContainerLogger(r.logger)
 	}
 	if r.disabledPrepareLog {
 		job.DisableInitContainerLog()
@@ -486,6 +508,24 @@ func (r *TestJobRunner) commandString(c *apiv1.Container) string {
 	return strings.Join(s, " ")
 }
 
+func (r *TestJobRunner) validateTestLogs(tests []string, testlogs []TestLog) error {
+	testLogMap := map[string]struct{}{}
+	for _, log := range testlogs {
+		testLogMap[log.Name] = struct{}{}
+	}
+	invalidTests := []string{}
+	for _, test := range tests {
+		if _, exists := testLogMap[test]; exists {
+			continue
+		}
+		invalidTests = append(invalidTests, test)
+	}
+	if len(invalidTests) > 0 {
+		return xerrors.Errorf("failed to find [ %s ] test logs: %w", strings.Join(invalidTests, ","), ErrFatal)
+	}
+	return nil
+}
+
 func (r *TestJobRunner) runDistributedTest(ctx context.Context, testjob TestJob) ([]TestLog, error) {
 	testContainer, err := r.testContainer(testjob)
 	if err != nil {
@@ -499,6 +539,7 @@ func (r *TestJobRunner) runDistributedTest(ctx context.Context, testjob TestJob)
 	if len(list) == 0 {
 		return nil, nil
 	}
+
 	plan := r.plan(testjob, list)
 
 	defer func(start time.Time) {
@@ -525,6 +566,10 @@ func (r *TestJobRunner) runDistributedTest(ctx context.Context, testjob TestJob)
 	}
 	if err := eg.Wait(); err != nil {
 		return nil, xerrors.Errorf("failed to distributed test job: %w", err)
+	}
+
+	if err := r.validateTestLogs(list, testLogs); err != nil {
+		return nil, xerrors.Errorf("invalid testlogs: %w", err)
 	}
 
 	failedTestLogs := []TestLog{}
@@ -606,6 +651,12 @@ func (r *TestJobRunner) testContainerWorkingDir(testContainer *apiv1.Container, 
 		return r.sharedVolumeMount(testjob).MountPath
 	}
 	return workingDir
+}
+
+func (r *TestJobRunner) printDebugLog(log string) {
+	r.printMu.Lock()
+	defer r.printMu.Unlock()
+	fmt.Printf("[DEBUG] %s\n", log)
 }
 
 func (r *TestJobRunner) printTestLog(idx int, log string) {
@@ -831,6 +882,7 @@ func (r *TestJobRunner) testList(ctx context.Context, testjob TestJob) ([]string
 		listResult = string(out)
 		return nil
 	}); err != nil {
+		log.Printf("failed to list job: %s", err)
 		// output verbose log for debug
 		listjob, err := r.createListJob(testjob)
 		if err != nil {
@@ -840,10 +892,11 @@ func (r *TestJobRunner) testList(ctx context.Context, testjob TestJob) ([]string
 			if len(executors) != 1 {
 				return xerrors.Errorf("failed to list container num. required only one container")
 			}
-			fmt.Println(executors[0].Exec())
+			out, err := executors[0].Exec()
+			log.Printf("detailed reason: %s, %s", string(out), err)
 			return nil
 		})
-		return nil, xerrors.Errorf("failed to run listJob")
+		return nil, xerrors.Errorf("failed to run listJob: %w", ErrFailedTestJob)
 	}
 	delim := testjob.Spec.DistributedTest.List.Delimiter
 	if delim == "" {
