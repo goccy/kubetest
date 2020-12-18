@@ -756,6 +756,16 @@ func (r *TestJobRunner) runTests(ctx context.Context, testjob TestJob, testConta
 		for _, sidecar := range sidecarExecutors {
 			sidecar.ExecAsync()
 		}
+		if len(testExecutors) > 0 {
+			r.printTestLog(
+				podIdx,
+				fmt.Sprintf(
+					"run pod: %s job-id: %s\n",
+					testExecutors[0].Pod.Name,
+					testExecutors[0].Pod.Labels[kubejob.KubejobLabel],
+				),
+			)
+		}
 		concurrent := testjob.Spec.DistributedTest.MaxConcurrentNumPerPod
 		testExecutorNum := len(testExecutors)
 		if concurrent <= 0 {
@@ -789,20 +799,37 @@ func (r *TestJobRunner) runTests(ctx context.Context, testjob TestJob, testConta
 							break
 						}
 					}
-					testResult := TestResultSuccess
-					if err != nil {
-						testResult = TestResultFailure
+					if err == nil {
+						testLogs = append(testLogs, TestLog{
+							Name:           testName,
+							TestResult:     TestResultSuccess,
+							ElapsedTimeSec: elapsedTime,
+							Message:        string(out),
+						})
+						r.printTestLog(
+							podIdx,
+							fmt.Sprintf("TEST=%s; %s\n%s", testName, r.commandString(testContainer), string(out)),
+						)
+					} else {
+						testLogs = append(testLogs, TestLog{
+							Name:           testName,
+							TestResult:     TestResultFailure,
+							ElapsedTimeSec: elapsedTime,
+							Message:        string(out),
+						})
+						r.printTestLog(
+							podIdx,
+							fmt.Sprintf(
+								"TEST=%s; %s\n%s\n%s\nerror pod: %s container: %s\n",
+								testName,
+								r.commandString(testContainer),
+								string(out),
+								err,
+								executor.Pod.Name,
+								executor.Container.Name,
+							),
+						)
 					}
-					testLogs = append(testLogs, TestLog{
-						Name:           testName,
-						TestResult:     testResult,
-						ElapsedTimeSec: elapsedTime,
-						Message:        string(out),
-					})
-					r.printTestLog(
-						podIdx,
-						fmt.Sprintf("TEST=%s; %s\n%s", testName, r.commandString(testContainer), string(out)),
-					)
 					return nil
 				})
 			}
