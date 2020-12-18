@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"text/template"
 
 	kubetestv1 "github.com/goccy/kubetest/api/v1"
@@ -48,6 +50,7 @@ const (
 	ExitWithFailureTestJob     = 1
 	ExitWithOtherError         = 2
 	ExitWithFatalError         = 3
+	ExitWithSignal             = 4
 )
 
 func loadConfig(opt option) (*rest.Config, error) {
@@ -223,7 +226,25 @@ func _main(args []string, opt option) error {
 	if opt.Verbose {
 		kubetest.EnableVerboseLog()
 	}
-	if err := kubetest.Run(context.Background(), job); err != nil {
+
+	ctx, cancel := context.WithCancel(context.Background())
+	interrupt := make(chan os.Signal, 1)
+	signal.Notify(interrupt, os.Interrupt, syscall.SIGTERM)
+	receiveSignal := false
+	go func() {
+		select {
+		case s := <-interrupt:
+			fmt.Printf("receive %s. try to graceful stop\n", s)
+			receiveSignal = true
+			cancel()
+		}
+	}()
+
+	if err := kubetest.Run(ctx, job); err != nil {
+		if receiveSignal {
+			fmt.Println(err)
+			os.Exit(ExitWithSignal)
+		}
 		return err
 	}
 	return nil

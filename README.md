@@ -1,5 +1,10 @@
 # kubetest
 
+[![PkgGoDev](https://pkg.go.dev/badge/github.com/goccy/kubetest)](https://pkg.go.dev/github.com/goccy/kubetest)
+![Go](https://github.com/goccy/kubetest/workflows/test/badge.svg)
+[![codecov](https://codecov.io/gh/goccy/kubetest/branch/master/graph/badge.svg)](https://codecov.io/gh/goccy/kubetest)
+
+
 CLI and Go library with Custom Resource for ( distributed ) testing on Kubernetes
 
 # Status
@@ -462,6 +467,14 @@ rules:
       - ""
     resources:
       - pods
+    verbs:
+      - get
+      - list
+      - watch
+      - delete
+  - apiGroups:
+      - ""
+    resources:
       - pods/log
     verbs:
       - get
