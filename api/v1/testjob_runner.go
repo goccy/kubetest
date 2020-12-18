@@ -596,15 +596,22 @@ func (r *TestJobRunner) runDistributedTest(ctx context.Context, testjob TestJob)
 		for _, log := range retestLogs {
 			retestLogMap[log.Name] = log
 		}
+		var existsFailedTest bool
 		for idx := range testLogs {
 			name := testLogs[idx].Name
 			retestLog, exists := retestLogMap[name]
 			if exists {
 				testLogs[idx] = retestLog
 			}
+			if retestLog.TestResult == TestResultFailure {
+				existsFailedTest = true
+			}
+		}
+		if existsFailedTest {
+			return testLogs, ErrFailedTestJob
 		}
 		if err != nil {
-			return testLogs, ErrFailedTestJob
+			return testLogs, xerrors.Errorf("%s: %w", err, ErrFailedTestJob)
 		}
 	}
 	return testLogs, nil
@@ -735,7 +742,6 @@ func (r *TestJobRunner) runTests(ctx context.Context, testjob TestJob, testConta
 	job.DisableInitContainerLog()
 	job.DisableCommandLog()
 	testLogs := []TestLog{}
-	var failedJob *kubejob.FailedJob
 	if err := job.RunWithExecutionHandler(ctx, func(executors []*kubejob.JobExecutor) error {
 		testExecutors := []*kubejob.JobExecutor{}
 		sidecarExecutors := []*kubejob.JobExecutor{}
@@ -836,6 +842,7 @@ func (r *TestJobRunner) runTests(ctx context.Context, testjob TestJob, testConta
 		}
 		return nil
 	}); err != nil {
+		var failedJob *kubejob.FailedJob
 		if !xerrors.As(err, &failedJob) {
 			return nil, err
 		}
