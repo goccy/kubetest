@@ -491,17 +491,17 @@ func (r *TestJobRunner) runTest(ctx context.Context, testjob TestJob) ([]TestLog
 	return nil, nil
 }
 
-func (r *TestJobRunner) testContainer(testjob TestJob) (*apiv1.Container, error) {
+func (r *TestJobRunner) testContainer(testjob TestJob) (apiv1.Container, error) {
 	testContainerName := testjob.Spec.DistributedTest.ContainerName
 	for _, container := range testjob.Spec.Template.Spec.Containers {
 		if container.Name == testContainerName {
-			return &container, nil
+			return container, nil
 		}
 	}
-	return nil, xerrors.Errorf("cannot find container for running test by name")
+	return apiv1.Container{}, xerrors.Errorf("cannot find container for running test by name")
 }
 
-func (r *TestJobRunner) commandString(c *apiv1.Container) string {
+func (r *TestJobRunner) commandString(c apiv1.Container) string {
 	s := []string{}
 	s = append(s, c.Command...)
 	s = append(s, c.Args...)
@@ -636,7 +636,7 @@ func (r *TestJobRunner) testCommand(cmd []string, args []string, test string) *c
 	}
 }
 
-func (r *TestJobRunner) testsToCommands(c *apiv1.Container, tests []string) commands {
+func (r *TestJobRunner) testsToCommands(c apiv1.Container, tests []string) commands {
 	commands := []*command{}
 	for _, test := range tests {
 		cmd := r.testCommand(c.Command, c.Args, test)
@@ -645,7 +645,7 @@ func (r *TestJobRunner) testsToCommands(c *apiv1.Container, tests []string) comm
 	return commands
 }
 
-func (r *TestJobRunner) testContainerWorkingDir(testContainer *apiv1.Container, testjob TestJob) string {
+func (r *TestJobRunner) testContainerWorkingDir(testContainer apiv1.Container, testjob TestJob) string {
 	workingDir := testContainer.WorkingDir
 	if workingDir == "" {
 		return r.sharedVolumeMount(testjob).MountPath
@@ -668,7 +668,7 @@ func (r *TestJobRunner) printTestLog(idx int, log string) {
 	//	}
 }
 
-func (r *TestJobRunner) runTests(ctx context.Context, testjob TestJob, testContainer *apiv1.Container, podIdx int, tests []string) ([]TestLog, error) {
+func (r *TestJobRunner) runTests(ctx context.Context, testjob TestJob, testContainer apiv1.Container, podIdx int, tests []string) ([]TestLog, error) {
 	testCommands := r.testsToCommands(testContainer, tests)
 
 	testContainerWorkingDir := r.testContainerWorkingDir(testContainer, testjob)
@@ -863,7 +863,7 @@ func (r *TestJobRunner) createListJob(testjob TestJob) (*kubejob.Job, error) {
 	}
 	labels[listJobLabel] = fmt.Sprint(true)
 	listjob.Spec.Template.ObjectMeta.Labels = labels
-	listjob.Spec.Template.Spec.Containers = []apiv1.Container{*container}
+	listjob.Spec.Template.Spec.Containers = []apiv1.Container{container}
 	listjob.Spec.Prepare.Steps = []PrepareStepSpec{}
 	listjob.Spec.DistributedTest = nil
 
