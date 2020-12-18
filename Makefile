@@ -50,7 +50,7 @@ test:
 	{ \
 	set -e ;\
 	while true; do \
-		POD_NAME=$$(KUBECONFIG=$(KUBECONFIG) kubectl get pod | grep Running | grep kubejob-deployment | awk '{print $$1}'); \
+		POD_NAME=$$(KUBECONFIG=$(KUBECONFIG) kubectl get pod | grep Running | grep kubetest-deployment | awk '{print $$1}'); \
 		if [ "$$POD_NAME" != "" ]; then \
 			kubectl exec -it $$POD_NAME -- go test -race -v -coverprofile=coverage.out ./ -count=1; \
 			exit $$?; \
