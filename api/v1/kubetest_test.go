@@ -1,4 +1,4 @@
-package kubetest_test
+package v1_test
 
 import (
 	"context"
