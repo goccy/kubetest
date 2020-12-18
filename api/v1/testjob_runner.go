@@ -757,10 +757,9 @@ func (r *TestJobRunner) runTests(ctx context.Context, testjob TestJob, testConta
 			sidecar.ExecAsync()
 		}
 		if len(testExecutors) > 0 {
-			r.printTestLog(
-				podIdx,
+			r.printDebugLog(
 				fmt.Sprintf(
-					"run pod: %s job-id: %s\n",
+					"run pod: %s job-id: %s",
 					testExecutors[0].Pod.Name,
 					testExecutors[0].Pod.Labels[kubejob.KubejobLabel],
 				),
