@@ -85,8 +85,8 @@ metadata:
 spec:
   git:
     repo: github.com/goccy/kubetest
-    base: master
-    branch: master
+    merge:
+      base: master
     checkoutDir: /go/src/kubetest
   template:
     spec:
