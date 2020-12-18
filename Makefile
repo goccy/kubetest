@@ -29,8 +29,6 @@ CLUSTER_NAME ?= kubetest-cluster
 KUBECONFIG ?= $(CURDIR)/.kube/config
 export KUBECONFIG
 
-POD_NAME := $(shell KUBECONFIG=$(KUBECONFIG) kubectl get pod | grep Running | grep kubetest-deployment | awk '{print $$1}' )
-
 all: manager
 
 test-cluster: $(KIND)
@@ -49,7 +47,17 @@ deploy: test-cluster
 	kubectl apply -f https://docs.projectcalico.org/v3.8/manifests/calico.yaml
 
 test:
-	kubectl exec -it $(POD_NAME) -- go test -race -v ./ -count=1
+	{ \
+	set -e ;\
+	while true; do \
+		POD_NAME=$$(KUBECONFIG=$(KUBECONFIG) kubectl get pod | grep Running | grep kubejob-deployment | awk '{print $$1}'); \
+		if [ "$$POD_NAME" != "" ]; then \
+			kubectl exec -it $$POD_NAME -- go test -race -v -coverprofile=coverage.out ./ -count=1; \
+			exit $$?; \
+		fi; \
+		sleep 1; \
+	done; \
+	}
 
 # Build manager binary
 manager: generate fmt vet
