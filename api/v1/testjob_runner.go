@@ -277,7 +277,7 @@ func (r *TestJobRunner) Run(ctx context.Context, testjob TestJob) error {
 		Tests: testLogs,
 	}
 	if err != nil {
-		if xerrors.Is(err, kubetestv1.ErrFatal) {
+		if xerrors.Is(err, ErrFatal) {
 			testLog.TestResult = TestResultError
 		} else {
 			testLog.TestResult = TestResultFailure
