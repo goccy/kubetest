@@ -46,8 +46,12 @@ var (
 type TestResult string
 
 const (
+	// TestResultSuccess represents that all test cases have passed.
 	TestResultSuccess TestResult = "success"
+	// TestResultFailure represents failed test case exists.
 	TestResultFailure TestResult = "failure"
+	// TestResultError is unexpected internal error.
+	TestResultError TestResult = "error"
 )
 
 type TestResultLog struct {
@@ -273,7 +277,11 @@ func (r *TestJobRunner) Run(ctx context.Context, testjob TestJob) error {
 		Tests: testLogs,
 	}
 	if err != nil {
-		testLog.TestResult = TestResultFailure
+		if xerrors.Is(err, ErrFatal) {
+			testLog.TestResult = TestResultError
+		} else {
+			testLog.TestResult = TestResultFailure
+		}
 		return err
 	}
 	testLog.TestResult = TestResultSuccess
