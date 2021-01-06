@@ -23,7 +23,95 @@ func init() {
 	cfg = c
 }
 
-func Test_Run(t *testing.T) {
+func Test_RunTest(t *testing.T) {
+	t.Run("checkout branch", func(t *testing.T) {
+		crd := `
+apiVersion: kubetest.io/v1
+kind: TestJob
+metadata:
+  name: testjob
+  namespace: default
+spec:
+  git:
+    repo: github.com/goccy/kubetest
+    branch: master
+    checkoutDir: /go/src/kubetest
+  template:
+    spec:
+      containers:
+        - name: test
+          image: golang:1.15
+          command:
+            - go
+          args:
+            - test
+            - -v
+            - ./
+          workingDir: /go/src/kubetest/_examples
+`
+		runner, err := kubetestv1.NewTestJobRunner(cfg)
+		if err != nil {
+			t.Fatalf("%+v", err)
+		}
+		var job kubetestv1.TestJob
+		if err := yaml.NewYAMLOrJSONDecoder(strings.NewReader(crd), 1024).Decode(&job); err != nil {
+			t.Fatalf("%+v", err)
+		}
+		if err := runner.Run(context.Background(), job); err != nil {
+			t.Fatalf("%+v", err)
+		}
+	})
+	t.Run("with prepare", func(t *testing.T) {
+		crd := `
+apiVersion: kubetest.io/v1
+kind: TestJob
+metadata:
+  name: testjob
+  namespace: default
+spec:
+  git:
+    repo: github.com/goccy/kubetest
+    branch: master
+    checkoutDir: /go/src/kubetest
+  prepare:
+    image: golang:1.15
+    steps:
+      - name: "pwd"
+        image: golang:1.15
+        command: |
+          pwd
+        workdir: /go/src/kubetest
+        env:
+          - name: PREPARE
+            value: true
+  template:
+    spec:
+      containers:
+        - name: test
+          image: golang:1.15
+          command:
+            - go
+          args:
+            - test
+            - -v
+            - ./
+          workingDir: /go/src/kubetest/_examples
+`
+		runner, err := kubetestv1.NewTestJobRunner(cfg)
+		if err != nil {
+			t.Fatalf("%+v", err)
+		}
+		var job kubetestv1.TestJob
+		if err := yaml.NewYAMLOrJSONDecoder(strings.NewReader(crd), 1024).Decode(&job); err != nil {
+			t.Fatalf("%+v", err)
+		}
+		if err := runner.Run(context.Background(), job); err != nil {
+			t.Fatalf("%+v", err)
+		}
+	})
+}
+
+func Test_RunDistributedTest(t *testing.T) {
 	t.Run("checkout branch", func(t *testing.T) {
 		crd := `
 apiVersion: kubetest.io/v1
