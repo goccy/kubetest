@@ -975,7 +975,7 @@ func (r *TestJobRunner) untarAll(src string, reader io.Reader, destDir, prefix s
 		// For the case where prefix is empty we need to ensure that the path
 		// is not absolute, which also indicates the tar file was tempered with.
 		if !strings.HasPrefix(header.Name, prefix) {
-			return fmt.Errorf("tar contents corrupted")
+			return xerrors.Errorf("tar contents corrupted")
 		}
 		// basic file information
 		mode := header.FileInfo().Mode()
@@ -990,14 +990,13 @@ func (r *TestJobRunner) untarAll(src string, reader io.Reader, destDir, prefix s
 		}
 		outFile, err := os.Create(destFileName)
 		if err != nil {
-			return err
+			return xerrors.Errorf("failed to create dst file: %w", err)
 		}
-		defer outFile.Close()
 		if _, err := io.Copy(outFile, tarReader); err != nil {
-			return err
+			return xerrors.Errorf("failed to copy: %w", err)
 		}
 		if err := outFile.Close(); err != nil {
-			return err
+			return xerrors.Errorf("failed to close file: %w", err)
 		}
 	}
 
