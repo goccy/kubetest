@@ -379,8 +379,8 @@ spec:
 	if err := yaml.NewYAMLOrJSONDecoder(strings.NewReader(crd), 1024).Decode(&job); err != nil {
 		t.Fatalf("%+v", err)
 	}
-	if err := runner.Run(ctx, job); err != nil {
-		t.Fatalf("%+v", err)
+	if err := runner.Run(ctx, job); err == nil {
+		t.Fatal("expected error but got nil")
 	}
 }
 
