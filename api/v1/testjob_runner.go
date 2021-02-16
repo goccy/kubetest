@@ -3,12 +3,16 @@
 package v1
 
 import (
+	"archive/tar"
 	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
+	"io/ioutil"
 	"log"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -25,7 +29,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/remotecommand"
 )
 
 const (
@@ -296,7 +302,7 @@ func (r *TestJobRunner) run(ctx context.Context, testjob TestJob) ([]TestLog, er
 	if token != nil {
 		secret, err := r.clientSet.CoreV1().
 			Secrets(testjob.Namespace).
-			Get(token.SecretKeyRef.Name, metav1.GetOptions{})
+			Get(ctx, token.SecretKeyRef.Name, metav1.GetOptions{})
 		if err != nil {
 			return nil, err
 		}
@@ -500,6 +506,9 @@ func (r *TestJobRunner) runTest(ctx context.Context, testjob TestJob) ([]TestLog
 }
 
 func (r *TestJobRunner) testContainer(testjob TestJob) (apiv1.Container, error) {
+	if err := r.validateArtifacts(testjob); err != nil {
+		return apiv1.Container{}, xerrors.Errorf("validation error: %w", err)
+	}
 	testContainerName := testjob.Spec.DistributedTest.ContainerName
 	for _, container := range testjob.Spec.Template.Spec.Containers {
 		if container.Name == testContainerName {
@@ -530,6 +539,23 @@ func (r *TestJobRunner) validateTestLogs(tests []string, testlogs []TestLog) err
 	}
 	if len(invalidTests) > 0 {
 		return xerrors.Errorf("failed to find [ %s ] test logs: %w", strings.Join(invalidTests, ","), ErrFatal)
+	}
+	return nil
+}
+
+func (r *TestJobRunner) validateArtifacts(testjob TestJob) error {
+	if testjob.Spec.DistributedTest == nil {
+		return nil
+	}
+	if testjob.Spec.DistributedTest.Artifacts == nil {
+		return nil
+	}
+	artifacts := testjob.Spec.DistributedTest.Artifacts
+	if len(artifacts.Paths) == 0 {
+		return xerrors.Errorf("failed to find any paths in artifacts")
+	}
+	if artifacts.Output.Path == "" {
+		return xerrors.Errorf("failed to find output path in artifacts")
 	}
 	return nil
 }
@@ -843,6 +869,10 @@ func (r *TestJobRunner) runTests(ctx context.Context, testjob TestJob, testConta
 							),
 						)
 					}
+
+					if err := r.syncArtifactsIfNeeded(testjob, executor, testName); err != nil {
+						return err
+					}
 					return nil
 				})
 			}
@@ -856,6 +886,148 @@ func (r *TestJobRunner) runTests(ctx context.Context, testjob TestJob, testConta
 		}
 	}
 	return testLogs, nil
+}
+
+func (r *TestJobRunner) syncArtifactsIfNeeded(testjob TestJob, executor *kubejob.JobExecutor, testName string) error {
+	if testjob.Spec.DistributedTest.Artifacts == nil {
+		return nil
+	}
+	artifacts := testjob.Spec.DistributedTest.Artifacts
+
+	var intermediateDir string
+	switch artifacts.Output.PathType {
+	case ArtifactOutputPathContainer:
+		intermediateDir = executor.Container.Name
+	case ArtifactOutputPathTest:
+		intermediateDir = testName
+	default:
+		intermediateDir = executor.Container.Name
+	}
+	outputDir := filepath.Join(artifacts.Output.Path, intermediateDir)
+	if err := os.MkdirAll(outputDir, 0755); err != nil {
+		return xerrors.Errorf("failed to create directory %s: %w", outputDir, err)
+	}
+
+	for _, path := range artifacts.Paths {
+		var src string
+		if filepath.IsAbs(path) {
+			src = path
+		} else {
+			src = filepath.Join(executor.Container.WorkingDir, path)
+		}
+		if err := r.copyFile(executor, src, outputDir); err != nil {
+			return xerrors.Errorf("failed to copy from %s to %s: %w", src, outputDir, err)
+		}
+	}
+	return nil
+}
+
+func (r *TestJobRunner) copyFile(executor *kubejob.JobExecutor, src, outputDir string) (e error) {
+	pod := executor.Pod
+	restClient := r.clientSet.CoreV1().RESTClient()
+	req := restClient.Post().
+		Namespace(pod.Namespace).
+		Resource("pods").
+		Name(pod.Name).
+		SubResource("exec").
+		VersionedParams(&apiv1.PodExecOptions{
+			Container: executor.Container.Name,
+			Command:   []string{"tar", "cf", "-", src},
+			Stdin:     false,
+			Stdout:    true,
+			Stderr:    true,
+		}, scheme.ParameterCodec)
+	url := req.URL()
+	exec, err := remotecommand.NewSPDYExecutor(r.config, "POST", url)
+	if err != nil {
+		return xerrors.Errorf("failed to create spdy executor: %w", err)
+	}
+	reader, writer := io.Pipe()
+	go func() {
+		e = exec.Stream(remotecommand.StreamOptions{
+			Stdin:  nil,
+			Stdout: writer,
+			Stderr: ioutil.Discard,
+			Tty:    false,
+		})
+		writer.Close()
+	}()
+	prefix := getPrefix(src)
+	prefix = path.Clean(prefix)
+	prefix = stripPathShortcuts(prefix)
+	return r.untarAll(src, reader, outputDir, prefix)
+}
+
+func (r *TestJobRunner) untarAll(src string, reader io.Reader, destDir, prefix string) error {
+	tarReader := tar.NewReader(reader)
+	for {
+		header, err := tarReader.Next()
+		if err != nil {
+			if err != io.EOF {
+				return err
+			}
+			break
+		}
+
+		// All the files will start with the prefix, which is the directory where
+		// they were located on the pod, we need to strip down that prefix, but
+		// if the prefix is missing it means the tar was tempered with.
+		// For the case where prefix is empty we need to ensure that the path
+		// is not absolute, which also indicates the tar file was tempered with.
+		if !strings.HasPrefix(header.Name, prefix) {
+			return fmt.Errorf("tar contents corrupted")
+		}
+		// basic file information
+		mode := header.FileInfo().Mode()
+		destFileName := filepath.Join(destDir, filepath.Base(src))
+		if header.FileInfo().IsDir() {
+			continue
+		}
+
+		if mode&os.ModeSymlink != 0 {
+			fmt.Fprintf(os.Stderr, "warning: skipping symlink: %q -> %q\n", destFileName, header.Linkname)
+			continue
+		}
+		outFile, err := os.Create(destFileName)
+		if err != nil {
+			return err
+		}
+		defer outFile.Close()
+		if _, err := io.Copy(outFile, tarReader); err != nil {
+			return err
+		}
+		if err := outFile.Close(); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func stripPathShortcuts(p string) string {
+	newPath := path.Clean(p)
+	trimmed := strings.TrimPrefix(newPath, "../")
+
+	for trimmed != newPath {
+		newPath = trimmed
+		trimmed = strings.TrimPrefix(newPath, "../")
+	}
+
+	// trim leftover {".", ".."}
+	if newPath == "." || newPath == ".." {
+		newPath = ""
+	}
+
+	if len(newPath) > 0 && string(newPath[0]) == "/" {
+		return newPath[1:]
+	}
+
+	return newPath
+}
+
+func getPrefix(file string) string {
+	// tar strips the leading '/' if it's there, so we will too
+	return strings.TrimLeft(file, "/")
 }
 
 func (r *TestJobRunner) createListJob(testjob TestJob) (*kubejob.Job, error) {

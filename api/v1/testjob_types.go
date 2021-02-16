@@ -107,6 +107,8 @@ type DistributedTestSpec struct {
 	Retest bool `json:"retest,omitempty"`
 	// CacheSpec for making cache before testing
 	Cache []CacheSpec `json:"cache,omitempty"`
+	// Artifacts for manipulating test artifacts.
+	Artifacts *ArtifactsSpec `json:"artifacts,omitempty"`
 }
 
 type DistributedTestListSpec struct {
@@ -116,6 +118,27 @@ type DistributedTestListSpec struct {
 	Delimiter string `json:"delimiter,omitempty"`
 	// Test name pattern ( enable use regular expression )
 	Pattern string `json:"pattern,omitempty"`
+}
+
+type ArtifactsSpec struct {
+	// Paths all paths to the artifact.
+	Paths []string `json:"paths"`
+	// Output define output path for artifact.
+	Output ArtifactOutputSpec `json:"output"`
+}
+
+type ArtifactOutputPathType string
+
+const (
+	ArtifactOutputPathContainer ArtifactOutputPathType = "container"
+	ArtifactOutputPathTest      ArtifactOutputPathType = "test"
+)
+
+type ArtifactOutputSpec struct {
+	// Path path to the output artifact.
+	Path string `json:"path"`
+	// PathType type of intermediate directory name for output path. default type is container.
+	PathType ArtifactOutputPathType `json:"pathType"`
 }
 
 type CacheSpec struct {
