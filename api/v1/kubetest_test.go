@@ -2,6 +2,8 @@ package v1_test
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -266,6 +268,61 @@ spec:
 			t.Fatal("expected error")
 		}
 	})
+	t.Run("use shared cache", func(t *testing.T) {
+		crd := `
+apiVersion: kubetest.io/v1
+kind: TestJob
+metadata:
+  name: testjob
+  namespace: default
+spec:
+  git:
+    repo: github.com/goccy/kubetest
+    branch: master
+    checkoutDir: /go/src/kubetest
+  template:
+    spec:
+      containers:
+        - name: test
+          image: golang:1.15
+          command:
+            - go
+          args:
+            - test
+            - -v
+            - ./
+            - -run
+            - $TEST
+          workingDir: /go/src/kubetest/_examples
+  distributedTest:
+    containerName: test
+    maxContainersPerPod: 18
+    list:
+      command:
+        - go
+      args:
+        - test
+        - -list
+        - .
+      pattern: ^Test
+    cache:
+      - name: cache-test
+        command: |
+          touch shared-cache.txt
+        path: ./cache
+`
+		runner, err := kubetestv1.NewTestJobRunner(cfg)
+		if err != nil {
+			t.Fatalf("%+v", err)
+		}
+		var job kubetestv1.TestJob
+		if err := yaml.NewYAMLOrJSONDecoder(strings.NewReader(crd), 1024).Decode(&job); err != nil {
+			t.Fatalf("%+v", err)
+		}
+		if err := runner.Run(context.Background(), job); err != nil {
+			t.Fatalf("%+v", err)
+		}
+	})
 }
 
 func Test_RunWithDebugLog(t *testing.T) {
@@ -377,8 +434,8 @@ spec:
 	if err := yaml.NewYAMLOrJSONDecoder(strings.NewReader(crd), 1024).Decode(&job); err != nil {
 		t.Fatalf("%+v", err)
 	}
-	if err := runner.Run(ctx, job); err != nil {
-		t.Fatalf("%+v", err)
+	if err := runner.Run(ctx, job); err == nil {
+		t.Fatal("expected error but got nil")
 	}
 }
 
@@ -435,5 +492,81 @@ spec:
 	}
 	if err := runner.Run(context.Background(), job); err != nil {
 		t.Fatalf("%+v", err)
+	}
+}
+
+func Test_Artifacts(t *testing.T) {
+	crd := `
+apiVersion: kubetest.io/v1
+kind: TestJob
+metadata:
+  name: testjob
+  namespace: default
+spec:
+  git:
+    repo: github.com/goccy/kubetest
+    branch: master
+    checkoutDir: /go/src/kubetest
+  template:
+    spec:
+      containers:
+        - name: test
+          image: golang:1.15
+          command:
+            - go
+          args:
+            - test
+            - -coverprofile
+            - cover.out
+            - -v
+            - ./
+            - -run
+            - $TEST
+          workingDir: /go/src/kubetest/_examples
+  distributedTest:
+    containerName: test
+    maxContainersPerPod: 18
+    maxConcurrentNumPerPod: 2
+    list:
+      command:
+        - go
+      args:
+        - test
+        - -list
+        - .
+      pattern: ^Test
+    artifacts:
+      paths:
+        - cover.out
+      output:
+        path: artifacts
+`
+	runner, err := kubetestv1.NewTestJobRunner(cfg)
+	if err != nil {
+		t.Fatalf("%+v", err)
+	}
+	var job kubetestv1.TestJob
+	if err := yaml.NewYAMLOrJSONDecoder(strings.NewReader(crd), 1024).Decode(&job); err != nil {
+		t.Fatalf("%+v", err)
+	}
+	os.RemoveAll("artifacts")
+	if err := runner.Run(context.Background(), job); err != nil {
+		t.Fatalf("%+v", err)
+	}
+	var foundArtifacts bool
+	if err := filepath.Walk("artifacts", func(path string, info os.FileInfo, err error) error {
+		if info.IsDir() {
+			return nil
+		}
+		if info.Name() != "cover.out" {
+			t.Fatalf("unexpected file name %s", info.Name())
+		}
+		foundArtifacts = true
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if !foundArtifacts {
+		t.Fatal("cannot find artifacts")
 	}
 }
