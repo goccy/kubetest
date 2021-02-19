@@ -186,6 +186,8 @@ github.com/go-openapi/validate v0.19.5/go.mod h1:8DJv2CVJQ6kGNpFW6eV9N3JviE1C85n
 github.com/go-stack/stack v1.8.0/go.mod h1:v0f6uXyyMGvRgIKkXu+yp6POWl0qKG85gN/melR3HDY=
 github.com/goccy/kubejob v0.2.0 h1:oUunotejN0dc2fhbLvXlI6jYXPve+BkDuF14WGcd1H0=
 github.com/goccy/kubejob v0.2.0/go.mod h1:u8pBGV3XWjnW4k38Q6rXtYLrCCvFkaL2dvzj+8/pJZI=
+github.com/goccy/kubejob v0.2.1 h1:UEADD6aQxKX2JuXvlt6NXSpDdEvXOjfVzvkJM4MNWnQ=
+github.com/goccy/kubejob v0.2.1/go.mod h1:u8pBGV3XWjnW4k38Q6rXtYLrCCvFkaL2dvzj+8/pJZI=
 github.com/gogo/protobuf v1.1.1/go.mod h1:r8qH/GZQm5c6nD/R0oafs1akxWv10x8SbQlK7atdtwQ=
 github.com/gogo/protobuf v1.2.1/go.mod h1:hp+jE20tsWTFYpLwKvXlhS1hjn+gTNwPg2I6zVXpSg4=
 github.com/gogo/protobuf v1.2.2-0.20190723190241-65acae22fc9d/go.mod h1:SlYgWuQ5SjCEi6WLHjHCa1yvBfUnHcTbrrZtXPKa29o=
