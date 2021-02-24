@@ -565,6 +565,15 @@ func (r *TestJobRunner) findExecutorByContainerName(executors []*kubejob.JobExec
 	return nil
 }
 
+func (r *TestJobRunner) isInitContainer(job *kubejob.Job, c apiv1.Container) bool {
+	for _, container := range job.Spec.Template.Spec.InitContainers {
+		if container.Name == c.Name {
+			return true
+		}
+	}
+	return false
+}
+
 func (r *TestJobRunner) testList(ctx context.Context, testjob TestJob) ([]string, error) {
 	defer func(start time.Time) {
 		fmt.Fprintf(os.Stderr, "list: elapsed time %f sec\n", time.Since(start).Seconds())
@@ -573,8 +582,20 @@ func (r *TestJobRunner) testList(ctx context.Context, testjob TestJob) ([]string
 	if err != nil {
 		return nil, xerrors.Errorf("failed to create list job: %w", err)
 	}
-
-	listjob.DisableInitContainerLog()
+	var (
+		initContainersLog string
+		containerLog      string
+		logMu             sync.Mutex
+	)
+	listjob.SetContainerLogger(func(log *kubejob.ContainerLog) {
+		logMu.Lock()
+		defer logMu.Unlock()
+		if r.isInitContainer(listjob, log.Container) {
+			initContainersLog += log.Log
+		} else {
+			containerLog += log.Log
+		}
+	})
 	listjob.DisableCommandLog()
 
 	var listResult string
@@ -591,27 +612,22 @@ func (r *TestJobRunner) testList(ctx context.Context, testjob TestJob) ([]string
 			executor.ExecAsync()
 		}
 		out, err := listExecutor.Exec()
+		listResult = string(out)
 		if err != nil {
 			return xerrors.Errorf("failed to list command: %w", err)
 		}
-		listResult = string(out)
 		return nil
 	}); err != nil {
-		log.Printf("failed to list job: %s", err)
-		// output verbose log for debug
-		listjob, err := r.createListJob(testjob)
-		if err != nil {
-			return nil, xerrors.Errorf("failed to recreate listjob: %w", err)
-		}
-		listjob.RunWithExecutionHandler(ctx, func(executors []*kubejob.JobExecutor) error {
-			if len(executors) != 1 {
-				return xerrors.Errorf("failed to list container num. required only one container")
-			}
-			out, err := executors[0].Exec()
-			log.Printf("detailed reason: %s, %s", string(out), err)
-			return nil
-		})
-		return nil, xerrors.Errorf("failed to run listJob: %w", ErrFailedTestJob)
+		logMu.Lock()
+		initContainersLog := initContainersLog
+		logMu.Unlock()
+		return nil, xerrors.Errorf(
+			"initContainersLog:[%s]. commandLog:[%s] error detail:[%s]: %w",
+			initContainersLog,
+			listResult,
+			err,
+			ErrFailedTestJob,
+		)
 	}
 	tests, err := testjob.splitTest(listResult)
 	if err != nil {

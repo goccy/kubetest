@@ -331,6 +331,57 @@ spec:
 			t.Fatalf("%+v", err)
 		}
 	})
+	t.Run("fail list", func(t *testing.T) {
+		t.Parallel()
+		crd := `
+apiVersion: kubetest.io/v1
+kind: TestJob
+metadata:
+  name: testjob
+  namespace: default
+spec:
+  git:
+    repo: github.com/goccy/kubetest
+    branch: master
+    checkoutDir: /go/src/kubetest
+  template:
+    spec:
+      containers:
+        - name: test
+          image: golang:1.15
+          command:
+            - go
+          args:
+            - test
+            - -v
+            - ./
+            - -run
+            - $TEST
+          workingDir: /go/src/kubetest/_examples/failure
+  distributedTest:
+    containerName: test
+    maxContainersPerPod: 2
+    retest: true
+    list:
+      command:
+        - invalid
+      pattern: ^Test
+`
+		runner, err := kubetestv1.NewTestJobRunner(cfg)
+		if err != nil {
+			t.Fatalf("%+v", err)
+		}
+		var job kubetestv1.TestJob
+		if err := yaml.NewYAMLOrJSONDecoder(strings.NewReader(crd), 1024).Decode(&job); err != nil {
+			t.Fatalf("%+v", err)
+		}
+		runErr := runner.Run(context.Background(), job)
+		if runErr == nil {
+			t.Fatal("expected error")
+		}
+		t.Logf("%+v", runErr)
+	})
+
 }
 
 func Test_RunWithDebugLog(t *testing.T) {
