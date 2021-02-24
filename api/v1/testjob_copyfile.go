@@ -39,18 +39,23 @@ func (r *TestJobRunner) copyFile(executor *kubejob.JobExecutor, src, outputDir s
 	}
 	reader, writer := io.Pipe()
 	go func() {
+		defer func() {
+			writer.Close()
+		}()
 		e = exec.Stream(remotecommand.StreamOptions{
 			Stdin:  nil,
 			Stdout: writer,
 			Stderr: ioutil.Discard,
 			Tty:    false,
 		})
-		writer.Close()
 	}()
 	prefix := getPrefix(src)
 	prefix = path.Clean(prefix)
 	prefix = stripPathShortcuts(prefix)
-	return r.untarAll(src, reader, outputDir, prefix)
+	if err := r.untarAll(src, reader, outputDir, prefix); err != nil {
+		return xerrors.Errorf("failed to untar: %w", err)
+	}
+	return nil
 }
 
 func (r *TestJobRunner) untarAll(src string, reader io.Reader, destDir, prefix string) error {

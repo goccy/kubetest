@@ -13,14 +13,15 @@ import (
 )
 
 const (
-	sharedVolumeName = "repo"
-	oauthTokenEnv    = "OAUTH_TOKEN"
-	defaultGitImage  = "alpine/git"
-	defaultBranch    = "master"
-	defaultListDelim = "\n"
-	listJobLabel     = "kubetest.io/listjob"
-	testJobLabel     = "kubetest.io/testjob"
-	testsAnnotation  = "kubetest.io/tests"
+	sharedVolumeName  = "repo"
+	oauthTokenEnv     = "OAUTH_TOKEN"
+	defaultGitImage   = "alpine/git"
+	defaultBranch     = "master"
+	defaultListDelim  = "\n"
+	listContainerName = "list"
+	listJobLabel      = "kubetest.io/listjob"
+	testJobLabel      = "kubetest.io/testjob"
+	testsAnnotation   = "kubetest.io/tests"
 )
 
 var (
@@ -366,6 +367,7 @@ func (j TestJob) createListJobTemplate(token string) (apiv1.PodTemplateSpec, err
 		return apiv1.PodTemplateSpec{}, xerrors.Errorf("failed to create default test container: %w", err)
 	}
 	listSpec := j.Spec.DistributedTest.List
+	c.Name = listContainerName
 	c.Command = listSpec.Command
 	c.Args = listSpec.Args
 	c.WorkingDir = j.workingDir(c)

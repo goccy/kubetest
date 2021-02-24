@@ -228,7 +228,7 @@ func (r *TestJobRunner) generateName(name string) string {
 }
 
 func (r *TestJobRunner) runTest(ctx context.Context, testjob TestJob) ([]TestLog, error) {
-	job, err := r.createKubeJob(testjob, testjob.Spec.Template)
+	job, err := r.createKubeJob(testjob, testjob.createJobTemplate(r.token))
 	if err != nil {
 		return nil, err
 	}
@@ -492,7 +492,9 @@ func (r *TestJobRunner) runTests(ctx context.Context, testjob TestJob, podIdx in
 					return nil
 				})
 			}
-			eg.Wait()
+			if err := eg.Wait(); err != nil {
+				return xerrors.Errorf("failed to run tests: %w", err)
+			}
 		}
 		return nil
 	}); err != nil {
@@ -554,6 +556,15 @@ func (r *TestJobRunner) createListJob(testjob TestJob) (*kubejob.Job, error) {
 	return listjob, nil
 }
 
+func (r *TestJobRunner) findExecutorByContainerName(executors []*kubejob.JobExecutor, name string) *kubejob.JobExecutor {
+	for _, executor := range executors {
+		if executor.Container.Name == name {
+			return executor
+		}
+	}
+	return nil
+}
+
 func (r *TestJobRunner) testList(ctx context.Context, testjob TestJob) ([]string, error) {
 	defer func(start time.Time) {
 		fmt.Fprintf(os.Stderr, "list: elapsed time %f sec\n", time.Since(start).Seconds())
@@ -568,10 +579,21 @@ func (r *TestJobRunner) testList(ctx context.Context, testjob TestJob) ([]string
 
 	var listResult string
 	if err := listjob.RunWithExecutionHandler(ctx, func(executors []*kubejob.JobExecutor) error {
-		if len(executors) != 1 {
-			return xerrors.Errorf("failed to list container num. required only one container")
+		listExecutor := r.findExecutorByContainerName(executors, listContainerName)
+		if listExecutor == nil {
+			return xerrors.Errorf("failed to find list container")
 		}
-		out, _ := executors[0].Exec()
+		for _, executor := range executors {
+			if executor == listExecutor {
+				continue
+			}
+			// sidecar executor
+			executor.ExecAsync()
+		}
+		out, err := listExecutor.Exec()
+		if err != nil {
+			return xerrors.Errorf("failed to list command: %w", err)
+		}
 		listResult = string(out)
 		return nil
 	}); err != nil {
