@@ -348,9 +348,10 @@ func (r *TestJobRunner) retest(ctx context.Context, testjob TestJob, testLogs, f
 	for idx := range testLogs {
 		name := testLogs[idx].Name
 		retestLog, exists := retestLogMap[name]
-		if exists {
-			testLogs[idx] = retestLog
+		if !exists {
+			continue
 		}
+		testLogs[idx] = retestLog
 		if retestLog.TestResult == TestResultFailure {
 			existsFailedTest = true
 		}

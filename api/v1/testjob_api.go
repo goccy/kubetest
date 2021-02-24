@@ -439,10 +439,9 @@ func (j TestJob) createTestJobTemplate(token string, tests []string) (apiv1.PodT
 }
 
 func (j TestJob) filterTestExecutors(executors []*kubejob.JobExecutor) []*kubejob.JobExecutor {
-	name := j.Spec.DistributedTest.ContainerName
 	testExecutors := []*kubejob.JobExecutor{}
 	for _, executor := range executors {
-		if executor.Container.Name == name {
+		if j.testNameByExecutor(executor) != "" {
 			testExecutors = append(testExecutors, executor)
 		}
 	}
@@ -450,10 +449,9 @@ func (j TestJob) filterTestExecutors(executors []*kubejob.JobExecutor) []*kubejo
 }
 
 func (j TestJob) filterSidecarExecutors(executors []*kubejob.JobExecutor) []*kubejob.JobExecutor {
-	name := j.Spec.DistributedTest.ContainerName
 	sidecarExecutors := []*kubejob.JobExecutor{}
 	for _, executor := range executors {
-		if executor.Container.Name != name {
+		if j.testNameByExecutor(executor) == "" {
 			sidecarExecutors = append(sidecarExecutors, executor)
 		}
 	}
