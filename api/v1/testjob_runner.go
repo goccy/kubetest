@@ -49,7 +49,7 @@ type TestResultLog struct {
 }
 
 type TestResultLogDetail struct {
-	Tests []TestLog `json:"tests"`
+	Tests []*TestLog `json:"tests"`
 }
 
 type TestLog struct {
@@ -145,14 +145,14 @@ func (r *TestJobRunner) Run(ctx context.Context, testjob TestJob) error {
 	return nil
 }
 
-func (r *TestJobRunner) run(ctx context.Context, testjob TestJob) ([]TestLog, error) {
+func (r *TestJobRunner) run(ctx context.Context, testjob TestJob) ([]*TestLog, error) {
 	if err := r.setGitToken(ctx, testjob); err != nil {
 		return nil, xerrors.Errorf("failed to set git token: %w", err)
 	}
 	if err := r.prepare(ctx, testjob); err != nil {
 		return nil, err
 	}
-	if testjob.Spec.DistributedTest != nil {
+	if testjob.enabledDistributedTest() {
 		return r.runDistributedTest(ctx, testjob)
 	}
 	return r.runTest(ctx, testjob)
@@ -230,7 +230,7 @@ func (r *TestJobRunner) generateName(name string) string {
 	return fmt.Sprintf("%s-%s", name, xid.New())
 }
 
-func (r *TestJobRunner) runTest(ctx context.Context, testjob TestJob) ([]TestLog, error) {
+func (r *TestJobRunner) runTest(ctx context.Context, testjob TestJob) ([]*TestLog, error) {
 	job, err := r.createKubeJob(testjob, testjob.createJobTemplate(r.token))
 	if err != nil {
 		return nil, err
@@ -255,14 +255,7 @@ func (r *TestJobRunner) runTest(ctx context.Context, testjob TestJob) ([]TestLog
 	return nil, nil
 }
 
-func (r *TestJobRunner) commandString(c apiv1.Container) string {
-	s := []string{}
-	s = append(s, c.Command...)
-	s = append(s, c.Args...)
-	return strings.Join(s, " ")
-}
-
-func (r *TestJobRunner) validateTestLogs(tests []string, testlogs []TestLog) error {
+func (r *TestJobRunner) validateTestLogs(tests []string, testlogs []*TestLog) error {
 	testLogMap := map[string]struct{}{}
 	for _, log := range testlogs {
 		testLogMap[log.Name] = struct{}{}
@@ -280,7 +273,7 @@ func (r *TestJobRunner) validateTestLogs(tests []string, testlogs []TestLog) err
 	return nil
 }
 
-func (r *TestJobRunner) runDistributedTest(ctx context.Context, testjob TestJob) ([]TestLog, error) {
+func (r *TestJobRunner) runDistributedTest(ctx context.Context, testjob TestJob) ([]*TestLog, error) {
 	fmt.Println("get listing of tests...")
 	list, err := r.testList(ctx, testjob)
 	if err != nil {
@@ -296,15 +289,14 @@ func (r *TestJobRunner) runDistributedTest(ctx context.Context, testjob TestJob)
 		fmt.Fprintf(os.Stderr, "test: elapsed time %f sec\n", time.Since(start).Seconds())
 	}(time.Now())
 
-	testLogs := []TestLog{}
+	testLogs := []*TestLog{}
 	testLogMu := sync.Mutex{}
 
 	var eg errgroup.Group
-	for podIdx, tests := range plan {
-		podIdx := podIdx
+	for _, tests := range plan {
 		tests := tests
 		eg.Go(func() error {
-			logs, err := r.runTests(ctx, testjob, podIdx, tests)
+			logs, err := r.runTests(ctx, testjob, tests)
 			if err != nil {
 				return xerrors.Errorf("failed to runTests: %w", err)
 			}
@@ -322,47 +314,52 @@ func (r *TestJobRunner) runDistributedTest(ctx context.Context, testjob TestJob)
 		return nil, xerrors.Errorf("invalid testlogs: %w", err)
 	}
 
-	failedTestLogs := []TestLog{}
+	failedTestLogs := []*TestLog{}
 	for _, testLog := range testLogs {
 		if testLog.TestResult == TestResultFailure {
 			failedTestLogs = append(failedTestLogs, testLog)
 		}
 	}
 	if len(failedTestLogs) > 0 {
-		if !testjob.Spec.DistributedTest.Retest {
+		if !testjob.enabledRetest() {
 			return testLogs, ErrFailedTestJob
 		}
-		fmt.Println("start retest....")
-		tests := []string{}
-		for _, log := range failedTestLogs {
-			tests = append(tests, log.Name)
-		}
+		return r.retest(ctx, testjob, testLogs, failedTestLogs)
+	}
+	return testLogs, nil
+}
 
-		// force sequential running
-		testjob.Spec.DistributedTest.MaxConcurrentNumPerPod = 1
+func (r *TestJobRunner) retest(ctx context.Context, testjob TestJob, testLogs, failedTestLogs []*TestLog) ([]*TestLog, error) {
+	fmt.Println("start retest....")
+	tests := []string{}
+	for _, log := range failedTestLogs {
+		tests = append(tests, log.Name)
+	}
 
-		retestLogs, err := r.runTests(ctx, testjob, 0, tests)
-		retestLogMap := map[string]TestLog{}
-		for _, log := range retestLogs {
-			retestLogMap[log.Name] = log
+	// force sequential running
+	testjob.Spec.DistributedTest.MaxConcurrentNumPerPod = 1
+
+	retestLogs, err := r.runTests(ctx, testjob, tests)
+	retestLogMap := map[string]*TestLog{}
+	for _, log := range retestLogs {
+		retestLogMap[log.Name] = log
+	}
+	var existsFailedTest bool
+	for idx := range testLogs {
+		name := testLogs[idx].Name
+		retestLog, exists := retestLogMap[name]
+		if exists {
+			testLogs[idx] = retestLog
 		}
-		var existsFailedTest bool
-		for idx := range testLogs {
-			name := testLogs[idx].Name
-			retestLog, exists := retestLogMap[name]
-			if exists {
-				testLogs[idx] = retestLog
-			}
-			if retestLog.TestResult == TestResultFailure {
-				existsFailedTest = true
-			}
+		if retestLog.TestResult == TestResultFailure {
+			existsFailedTest = true
 		}
-		if existsFailedTest {
-			return testLogs, ErrFailedTestJob
-		}
-		if err != nil {
-			return testLogs, xerrors.Errorf("%s: %w", err, ErrFailedTestJob)
-		}
+	}
+	if err != nil {
+		return testLogs, xerrors.Errorf("%s: %w", err, ErrFailedTestJob)
+	}
+	if existsFailedTest {
+		return testLogs, ErrFailedTestJob
 	}
 	return testLogs, nil
 }
@@ -373,13 +370,73 @@ func (r *TestJobRunner) printDebugLog(log string) {
 	fmt.Printf("[DEBUG] %s\n", log)
 }
 
-func (r *TestJobRunner) printTestLog(idx int, log string) {
+func (r *TestJobRunner) printTestLog(log string) {
 	r.printMu.Lock()
 	defer r.printMu.Unlock()
 	fmt.Print(log)
 }
 
-func (r *TestJobRunner) runTests(ctx context.Context, testjob TestJob, podIdx int, tests []string) ([]TestLog, error) {
+func (r *TestJobRunner) execTests(testjob TestJob, executors []*kubejob.JobExecutor) ([]*TestLog, error) {
+	var (
+		eg       errgroup.Group
+		logMu    sync.Mutex
+		testLogs []*TestLog
+	)
+	for _, executor := range executors {
+		executor := executor
+		eg.Go(func() error {
+			testLog, err := r.execTest(testjob, executor)
+			if err != nil {
+				return xerrors.Errorf("failed to exec test: %w", err)
+			}
+			logMu.Lock()
+			testLogs = append(testLogs, testLog)
+			logMu.Unlock()
+			return nil
+		})
+	}
+	if err := eg.Wait(); err != nil {
+		return nil, xerrors.Errorf("failed to run tests: %w", err)
+	}
+	return testLogs, nil
+}
+
+func (r *TestJobRunner) execTest(testjob TestJob, executor *kubejob.JobExecutor) (*TestLog, error) {
+	testName := testjob.testNameByExecutor(executor)
+	testCommand, err := testjob.testCommand(testName)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to get test command: %w", err)
+	}
+	start := time.Now()
+	out, err := executor.Exec()
+	testLog := &TestLog{
+		Name:           testName,
+		ElapsedTimeSec: int(time.Since(start).Seconds()),
+		Message:        string(out),
+	}
+	if err == nil {
+		testLog.TestResult = TestResultSuccess
+		r.printTestLog(fmt.Sprintf("%s\n%s", testCommand, string(out)))
+	} else {
+		testLog.TestResult = TestResultFailure
+		r.printTestLog(
+			fmt.Sprintf(
+				"%s\n%s\n%s\nerror pod: %s container: %s\n",
+				testCommand,
+				string(out),
+				err,
+				executor.Pod.Name,
+				executor.Container.Name,
+			),
+		)
+	}
+	if err := r.syncArtifactsIfNeeded(testjob, executor, testName); err != nil {
+		return nil, xerrors.Errorf("failed to sync artifacts: %w", err)
+	}
+	return testLog, nil
+}
+
+func (r *TestJobRunner) runTests(ctx context.Context, testjob TestJob, tests []string) ([]*TestLog, error) {
 	template, err := testjob.createTestJobTemplate(r.token, tests)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to create testjob template: %w", err)
@@ -388,33 +445,24 @@ func (r *TestJobRunner) runTests(ctx context.Context, testjob TestJob, podIdx in
 	if err != nil {
 		return nil, xerrors.Errorf("failed to create kubejob for test: %w", err)
 	}
-	testContainer, err := testjob.defaultTestContainer()
-	if err != nil {
-		return nil, xerrors.Errorf("failed to create default test container: %w", err)
-	}
-	job.DisableInitContainerLog()
-	job.DisableCommandLog()
-	testLogs := []TestLog{}
-	if err := job.RunWithExecutionHandler(ctx, func(executors []*kubejob.JobExecutor) error {
-		testExecutors := []*kubejob.JobExecutor{}
-		sidecarExecutors := []*kubejob.JobExecutor{}
-		for _, executor := range executors {
-			isTestContainer := false
-			for _, env := range executor.Container.Env {
-				if env.Name == "TEST" {
-					isTestContainer = true
-					break
-				}
-			}
-			if isTestContainer {
-				testExecutors = append(testExecutors, executor)
-			} else {
-				sidecarExecutors = append(sidecarExecutors, executor)
-			}
+	var (
+		logMu             sync.Mutex
+		initContainersLog string
+	)
+	job.SetContainerLogger(func(log *kubejob.ContainerLog) {
+		logMu.Lock()
+		defer logMu.Unlock()
+		if r.isInitContainer(job, log.Container) {
+			initContainersLog += log.Log
 		}
-		for _, sidecar := range sidecarExecutors {
+	})
+	job.DisableCommandLog()
+	testLogs := []*TestLog{}
+	if err := job.RunWithExecutionHandler(ctx, func(executors []*kubejob.JobExecutor) error {
+		for _, sidecar := range testjob.filterSidecarExecutors(executors) {
 			sidecar.ExecAsync()
 		}
+		testExecutors := testjob.filterTestExecutors(executors)
 		if len(testExecutors) > 0 {
 			r.printDebugLog(
 				fmt.Sprintf(
@@ -424,86 +472,27 @@ func (r *TestJobRunner) runTests(ctx context.Context, testjob TestJob, podIdx in
 				),
 			)
 		}
-		concurrent := testjob.Spec.DistributedTest.MaxConcurrentNumPerPod
-		testExecutorNum := len(testExecutors)
-		if concurrent <= 0 {
-			concurrent = testExecutorNum
-		} else if concurrent > testExecutorNum {
-			concurrent = testExecutorNum
-		}
-		for i := 0; i < testExecutorNum; i += concurrent {
-			start := i
-			end := i + concurrent
-			if end > testExecutorNum {
-				end = testExecutorNum
+		for _, executors := range testjob.schedule(testExecutors) {
+			logs, err := r.execTests(testjob, executors)
+			if err != nil {
+				return xerrors.Errorf("failed to exec tests: %w", err)
 			}
-			executors := testExecutors[start:end]
-			var (
-				eg errgroup.Group
-				mu sync.Mutex
-			)
-			for _, executor := range executors {
-				executor := executor
-				eg.Go(func() error {
-					start := time.Now()
-					out, err := executor.Exec()
-					elapsedTime := int(time.Since(start).Seconds())
-					mu.Lock()
-					defer mu.Unlock()
-					var testName string
-					for _, env := range executor.Container.Env {
-						if env.Name == "TEST" {
-							testName = env.Value
-							break
-						}
-					}
-					if err == nil {
-						testLogs = append(testLogs, TestLog{
-							Name:           testName,
-							TestResult:     TestResultSuccess,
-							ElapsedTimeSec: elapsedTime,
-							Message:        string(out),
-						})
-						r.printTestLog(
-							podIdx,
-							fmt.Sprintf("TEST=%s; %s\n%s", testName, r.commandString(testContainer), string(out)),
-						)
-					} else {
-						testLogs = append(testLogs, TestLog{
-							Name:           testName,
-							TestResult:     TestResultFailure,
-							ElapsedTimeSec: elapsedTime,
-							Message:        string(out),
-						})
-						r.printTestLog(
-							podIdx,
-							fmt.Sprintf(
-								"TEST=%s; %s\n%s\n%s\nerror pod: %s container: %s\n",
-								testName,
-								r.commandString(testContainer),
-								string(out),
-								err,
-								executor.Pod.Name,
-								executor.Container.Name,
-							),
-						)
-					}
-
-					if err := r.syncArtifactsIfNeeded(testjob, executor, testName); err != nil {
-						return err
-					}
-					return nil
-				})
-			}
-			if err := eg.Wait(); err != nil {
-				return xerrors.Errorf("failed to run tests: %w", err)
-			}
+			testLogs = append(testLogs, logs...)
 		}
 		return nil
 	}); err != nil {
 		var failedJob *kubejob.FailedJob
 		if !xerrors.As(err, &failedJob) {
-			return nil, err
+			logMu.Lock()
+			initContainersLog := initContainersLog
+			logMu.Unlock()
+
+			return nil, xerrors.Errorf(
+				"initContainersLog:[%s]. error detail:[%s]: %w",
+				initContainersLog,
+				err,
+				ErrFailedTestJob,
+			)
 		}
 	}
 	return testLogs, nil

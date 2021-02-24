@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/goccy/kubejob"
 	"golang.org/x/xerrors"
 	apiv1 "k8s.io/api/core/v1"
 )
@@ -67,6 +68,14 @@ func (j TestJob) enabledPrepareCheckout() bool {
 		return false
 	}
 	return true
+}
+
+func (j TestJob) enabledDistributedTest() bool {
+	return j.Spec.DistributedTest != nil
+}
+
+func (j TestJob) enabledRetest() bool {
+	return j.Spec.DistributedTest.Retest
 }
 
 func (j TestJob) gitToken() *TestJobToken {
@@ -427,6 +436,75 @@ func (j TestJob) createTestJobTemplate(token string, tests []string) (apiv1.PodT
 		template.Spec.InitContainers = append(template.Spec.InitContainers, cacheContainer)
 	}
 	return template, nil
+}
+
+func (j TestJob) filterTestExecutors(executors []*kubejob.JobExecutor) []*kubejob.JobExecutor {
+	name := j.Spec.DistributedTest.ContainerName
+	testExecutors := []*kubejob.JobExecutor{}
+	for _, executor := range executors {
+		if executor.Container.Name == name {
+			testExecutors = append(testExecutors, executor)
+		}
+	}
+	return testExecutors
+}
+
+func (j TestJob) filterSidecarExecutors(executors []*kubejob.JobExecutor) []*kubejob.JobExecutor {
+	name := j.Spec.DistributedTest.ContainerName
+	sidecarExecutors := []*kubejob.JobExecutor{}
+	for _, executor := range executors {
+		if executor.Container.Name != name {
+			sidecarExecutors = append(sidecarExecutors, executor)
+		}
+	}
+	return sidecarExecutors
+}
+
+func (j TestJob) concurrentNum(executorNum int) int {
+	concurrent := j.Spec.DistributedTest.MaxConcurrentNumPerPod
+	if concurrent <= 0 {
+		return executorNum
+	}
+	if concurrent > executorNum {
+		return executorNum
+	}
+	return concurrent
+}
+
+func (j TestJob) testNameByExecutor(executor *kubejob.JobExecutor) string {
+	for _, env := range executor.Container.Env {
+		if env.Name == "TEST" {
+			return env.Value
+		}
+	}
+	return ""
+}
+
+func (j TestJob) testCommand(testName string) (string, error) {
+	c, err := j.defaultTestContainer()
+	if err != nil {
+		return "", xerrors.Errorf("failed to create default test container: %w", err)
+	}
+	cmd := []string{}
+	cmd = append(cmd, c.Command...)
+	cmd = append(cmd, c.Args...)
+	return fmt.Sprintf("TEST=%s: %s", testName, strings.Join(cmd, " ")), nil
+}
+
+func (j TestJob) schedule(executors []*kubejob.JobExecutor) [][]*kubejob.JobExecutor {
+	executorNum := len(executors)
+	concurrent := j.concurrentNum(executorNum)
+
+	scheduledExecutors := [][]*kubejob.JobExecutor{}
+	for i := 0; i < executorNum; i += concurrent {
+		start := i
+		end := i + concurrent
+		if end > executorNum {
+			end = executorNum
+		}
+		scheduledExecutors = append(scheduledExecutors, executors[start:end])
+	}
+	return scheduledExecutors
 }
 
 func (j TestJob) listPattern() (*regexp.Regexp, error) {
