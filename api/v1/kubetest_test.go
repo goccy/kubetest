@@ -26,7 +26,9 @@ func init() {
 }
 
 func Test_RunTest(t *testing.T) {
+	t.Parallel()
 	t.Run("checkout branch", func(t *testing.T) {
+		t.Parallel()
 		crd := `
 apiVersion: kubetest.io/v1
 kind: TestJob
@@ -64,6 +66,7 @@ spec:
 		}
 	})
 	t.Run("with prepare", func(t *testing.T) {
+		t.Parallel()
 		crd := `
 apiVersion: kubetest.io/v1
 kind: TestJob
@@ -114,7 +117,9 @@ spec:
 }
 
 func Test_RunDistributedTest(t *testing.T) {
+	t.Parallel()
 	t.Run("checkout branch", func(t *testing.T) {
+		t.Parallel()
 		crd := `
 apiVersion: kubetest.io/v1
 kind: TestJob
@@ -166,6 +171,7 @@ spec:
 		}
 	})
 	t.Run("merge base branch", func(t *testing.T) {
+		t.Parallel()
 		crd := `
 apiVersion: kubetest.io/v1
 kind: TestJob
@@ -218,6 +224,7 @@ spec:
 		}
 	})
 	t.Run("retest", func(t *testing.T) {
+		t.Parallel()
 		crd := `
 apiVersion: kubetest.io/v1
 kind: TestJob
@@ -269,6 +276,7 @@ spec:
 		}
 	})
 	t.Run("use shared cache", func(t *testing.T) {
+		t.Parallel()
 		crd := `
 apiVersion: kubetest.io/v1
 kind: TestJob
@@ -326,6 +334,7 @@ spec:
 }
 
 func Test_RunWithDebugLog(t *testing.T) {
+	t.Parallel()
 	crd := `
 apiVersion: kubetest.io/v1
 kind: TestJob
@@ -379,6 +388,7 @@ spec:
 }
 
 func Test_ForceStop(t *testing.T) {
+	t.Parallel()
 	crd := `
 apiVersion: kubetest.io/v1
 kind: TestJob
@@ -434,12 +444,13 @@ spec:
 	if err := yaml.NewYAMLOrJSONDecoder(strings.NewReader(crd), 1024).Decode(&job); err != nil {
 		t.Fatalf("%+v", err)
 	}
-	if err := runner.Run(ctx, job); err == nil {
-		t.Fatal("expected error but got nil")
+	if err := runner.Run(ctx, job); err != nil {
+		t.Fatalf("%+v", err)
 	}
 }
 
 func Test_RunWithSideCar(t *testing.T) {
+	t.Parallel()
 	crd := `
 apiVersion: kubetest.io/v1
 kind: TestJob
@@ -496,6 +507,7 @@ spec:
 }
 
 func Test_Artifacts(t *testing.T) {
+	t.Parallel()
 	crd := `
 apiVersion: kubetest.io/v1
 kind: TestJob
