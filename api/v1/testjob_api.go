@@ -488,6 +488,13 @@ func (j TestJob) plan(tests []string) [][]string {
 	return plan
 }
 
+func (j TestJob) validate() error {
+	if err := j.validateArtifacts(); err != nil {
+		return xerrors.Errorf("invalid artifacts: %w", err)
+	}
+	return nil
+}
+
 func (j TestJob) validateArtifacts() error {
 	if j.Spec.DistributedTest == nil {
 		return nil

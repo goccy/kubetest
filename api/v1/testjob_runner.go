@@ -107,6 +107,9 @@ func (r *TestJobRunner) SetLogger(logger func(*kubejob.ContainerLog)) {
 }
 
 func (r *TestJobRunner) Run(ctx context.Context, testjob TestJob) error {
+	if err := testjob.validate(); err != nil {
+		return xerrors.Errorf("validate error: %w", err)
+	}
 	testLog := TestResultLog{Job: testjob.ObjectMeta.Name, StartedAt: time.Now()}
 
 	defer func(start time.Time) {
