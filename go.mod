@@ -6,7 +6,7 @@ require (
 	cloud.google.com/go v0.56.0 // indirect
 	github.com/go-logr/logr v0.2.0
 	github.com/go-logr/zapr v0.1.1 // indirect
-	github.com/goccy/kubejob v0.2.2
+	github.com/goccy/kubejob v0.2.3
 	github.com/hashicorp/golang-lru v0.5.4 // indirect
 	github.com/jessevdk/go-flags v1.4.0
 	github.com/matttproud/golang_protobuf_extensions v1.0.2-0.20181231171920-c182affec369 // indirect
