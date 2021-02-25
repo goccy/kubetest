@@ -278,6 +278,7 @@ func (j TestJob) testContainers(extraContainers ...apiv1.Container) []apiv1.Cont
 	testContainers := []apiv1.Container{}
 	isDistributedTest := len(extraContainers) > 0
 	for _, container := range j.Spec.Template.Spec.Containers {
+		container := container
 		if isDistributedTest && container.Name == j.testContainerName() {
 			// skip default test container
 			continue
@@ -286,6 +287,7 @@ func (j TestJob) testContainers(extraContainers ...apiv1.Container) []apiv1.Cont
 		testContainers = append(testContainers, container)
 	}
 	for _, container := range extraContainers {
+		container := container
 		container.VolumeMounts = append(container.VolumeMounts, j.sharedVolumeMount())
 		testContainers = append(testContainers, container)
 	}
@@ -295,8 +297,10 @@ func (j TestJob) testContainers(extraContainers ...apiv1.Container) []apiv1.Cont
 func (j TestJob) defaultTestContainer() (apiv1.Container, error) {
 	name := j.testContainerName()
 	for _, container := range j.Spec.Template.Spec.Containers {
+		container := container
 		if container.Name == name {
-			return container, nil
+			c := container.DeepCopy()
+			return *c, nil
 		}
 	}
 	return apiv1.Container{}, xerrors.Errorf("cannot find container for running test by name: %s", name)
@@ -393,6 +397,7 @@ func (j TestJob) escapedCommand(cmd Command) ([]string, []string) {
 func (j TestJob) createTestJobTemplate(token string, tests []string) (apiv1.PodTemplateSpec, error) {
 	containers := []apiv1.Container{}
 	for _, test := range tests {
+		test := test
 		container, err := j.testContainerByName(test)
 		if err != nil {
 			return apiv1.PodTemplateSpec{}, xerrors.Errorf("failed to create test container by name: %w", err)
@@ -441,6 +446,7 @@ func (j TestJob) createTestJobTemplate(token string, tests []string) (apiv1.PodT
 func (j TestJob) filterTestExecutors(executors []*kubejob.JobExecutor) []*kubejob.JobExecutor {
 	testExecutors := []*kubejob.JobExecutor{}
 	for _, executor := range executors {
+		executor := executor
 		if j.testNameByExecutor(executor) != "" {
 			testExecutors = append(testExecutors, executor)
 		}
@@ -451,6 +457,7 @@ func (j TestJob) filterTestExecutors(executors []*kubejob.JobExecutor) []*kubejo
 func (j TestJob) filterSidecarExecutors(executors []*kubejob.JobExecutor) []*kubejob.JobExecutor {
 	sidecarExecutors := []*kubejob.JobExecutor{}
 	for _, executor := range executors {
+		executor := executor
 		if j.testNameByExecutor(executor) == "" {
 			sidecarExecutors = append(sidecarExecutors, executor)
 		}
