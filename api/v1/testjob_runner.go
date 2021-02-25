@@ -404,12 +404,19 @@ func (r *TestJobRunner) execTests(testjob TestJob, executors []*kubejob.JobExecu
 
 func (r *TestJobRunner) execTest(testjob TestJob, executor *kubejob.JobExecutor) (*TestLog, error) {
 	testName := testjob.testNameByExecutor(executor)
+
+	defer func() {
+		if err := executor.Stop(); err != nil {
+			r.printDebugLog(fmt.Sprintf("failed to stop %s container", testName))
+		}
+	}()
 	testCommand, err := testjob.testCommand(testName)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to get test command: %w", err)
 	}
+
 	start := time.Now()
-	out, err := executor.Exec()
+	out, err := executor.ExecOnly()
 	testLog := &TestLog{
 		Name:           testName,
 		ElapsedTimeSec: int(time.Since(start).Seconds()),
