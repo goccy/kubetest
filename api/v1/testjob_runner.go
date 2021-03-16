@@ -69,6 +69,9 @@ type TestJobRunner struct {
 	config             *rest.Config
 	clientSet          *kubernetes.Clientset
 	printMu            sync.Mutex
+	testCountMu        sync.Mutex
+	testCount          uint
+	totalTestNum       uint
 }
 
 func NewTestJobRunner(config *rest.Config) (*TestJobRunner, error) {
@@ -282,6 +285,7 @@ func (r *TestJobRunner) runDistributedTest(ctx context.Context, testjob TestJob)
 	if len(list) == 0 {
 		return nil, nil
 	}
+	r.totalTestNum = uint(len(list))
 
 	plan := testjob.plan(list)
 
@@ -338,6 +342,8 @@ func (r *TestJobRunner) retest(ctx context.Context, testjob TestJob, testLogs, f
 
 	// force sequential running
 	testjob.Spec.DistributedTest.MaxConcurrentNumPerPod = 1
+	r.totalTestNum = uint(len(tests))
+	r.testCount = 0
 
 	retestLogs, err := r.runTests(ctx, testjob, tests)
 	retestLogMap := map[string]*TestLog{}
@@ -417,31 +423,42 @@ func (r *TestJobRunner) execTest(testjob TestJob, executor *kubejob.JobExecutor)
 
 	start := time.Now()
 	out, err := executor.ExecOnly()
+	r.addTestCount()
 	testLog := &TestLog{
 		Name:           testName,
 		ElapsedTimeSec: int(time.Since(start).Seconds()),
 		Message:        string(out),
 	}
+
+	var testReport string
 	if err == nil {
 		testLog.TestResult = TestResultSuccess
-		r.printTestLog(fmt.Sprintf("%s\n%s", testCommand, string(out)))
+		testReport = fmt.Sprintf("%s\n%s", testCommand, string(out))
 	} else {
 		testLog.TestResult = TestResultFailure
-		r.printTestLog(
-			fmt.Sprintf(
-				"%s\n%s\n%s\nerror pod: %s container: %s\n",
-				testCommand,
-				string(out),
-				err,
-				executor.Pod.Name,
-				executor.Container.Name,
-			),
+		testReport = fmt.Sprintf(
+			"%s\n%s\n%s\nerror pod: %s container: %s",
+			testCommand,
+			string(out),
+			err,
+			executor.Pod.Name,
+			executor.Container.Name,
 		)
 	}
+	timeReport := fmt.Sprintf("elapsed time: %dsec (current time: %s)", testLog.ElapsedTimeSec, time.Now().Format(time.RFC3339))
+	progressReport := fmt.Sprintf("%d/%d (%f%%) finished.", r.testCount, r.totalTestNum, (float32(r.testCount)/float32(r.totalTestNum))*100)
+	r.printTestLog(strings.Join([]string{testReport, timeReport, progressReport}, "\n") + "\n")
+
 	if err := r.syncArtifactsIfNeeded(testjob, executor, testName); err != nil {
 		return nil, xerrors.Errorf("failed to sync artifacts: %w", err)
 	}
 	return testLog, nil
+}
+
+func (r *TestJobRunner) addTestCount() {
+	r.testCountMu.Lock()
+	r.testCount++
+	r.testCountMu.Unlock()
 }
 
 func (r *TestJobRunner) runTests(ctx context.Context, testjob TestJob, tests []string) ([]*TestLog, error) {
