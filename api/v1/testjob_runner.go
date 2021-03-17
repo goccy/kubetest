@@ -423,7 +423,7 @@ func (r *TestJobRunner) execTest(testjob TestJob, executor *kubejob.JobExecutor)
 
 	start := time.Now()
 	out, err := executor.ExecOnly()
-	r.addTestCount()
+	testCount := r.addTestCount()
 	testLog := &TestLog{
 		Name:           testName,
 		ElapsedTimeSec: int(time.Since(start).Seconds()),
@@ -446,7 +446,7 @@ func (r *TestJobRunner) execTest(testjob TestJob, executor *kubejob.JobExecutor)
 		)
 	}
 	timeReport := fmt.Sprintf("elapsed time: %dsec (current time: %s)", testLog.ElapsedTimeSec, time.Now().Format(time.RFC3339))
-	progressReport := fmt.Sprintf("%d/%d (%f%%) finished.", r.testCount, r.totalTestNum, (float32(r.testCount)/float32(r.totalTestNum))*100)
+	progressReport := fmt.Sprintf("%d/%d (%f%%) finished.", testCount, r.totalTestNum, (float32(testCount)/float32(r.totalTestNum))*100)
 	r.printTestLog(strings.Join([]string{testReport, timeReport, progressReport}, "\n") + "\n")
 
 	if err := r.syncArtifactsIfNeeded(testjob, executor, testName); err != nil {
@@ -455,10 +455,11 @@ func (r *TestJobRunner) execTest(testjob TestJob, executor *kubejob.JobExecutor)
 	return testLog, nil
 }
 
-func (r *TestJobRunner) addTestCount() {
+func (r *TestJobRunner) addTestCount() uint {
 	r.testCountMu.Lock()
+	defer r.testCountMu.Unlock()
 	r.testCount++
-	r.testCountMu.Unlock()
+	return r.testCount
 }
 
 func (r *TestJobRunner) runTests(ctx context.Context, testjob TestJob, tests []string) ([]*TestLog, error) {
