@@ -112,8 +112,12 @@ type DistributedTestSpec struct {
 }
 
 type DistributedTestListSpec struct {
+	// Static test names
+	Names []string `json:"names"`
+	// Command to get a list of tests dynamically
 	Command []string `json:"command"`
-	Args    []string `json:"args"`
+	// Command arguments to get a list of tests dynamically
+	Args []string `json:"args"`
 	// Delimiter for testing list ( default: new line character ( \n ) )
 	Delimiter string `json:"delimiter,omitempty"`
 	// Test name pattern ( enable use regular expression )

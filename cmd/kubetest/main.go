@@ -35,9 +35,7 @@ type option struct {
 
 	// Distributed Testing Parameters
 	MaxContainersPerPod int    `description:"specify max number of container per pod" long:"max-containers-per-pod"`
-	List                string `description:"specify command for listing test" long:"list"`
-	ListDelimiter       string `description:"specify delimiter for list command" long:"list-delimiter"`
-	Pattern             string `description:"specify test name patter" long:"pattern"`
+	List                string `description:"specify path to get the list for test" long:"list"`
 	Retest              *bool  `description:"specify enabled retest if exists failed tests" long:"retest"`
 	Verbose             bool   `description:"specify enabled debug log" short:"v" long:"versbose"`
 
@@ -80,12 +78,6 @@ func hasDistributedParam(job kubetestv1.TestJob, opt option) bool {
 		return true
 	}
 	if opt.List != "" {
-		return true
-	}
-	if opt.ListDelimiter != "" {
-		return true
-	}
-	if opt.Pattern != "" {
 		return true
 	}
 	if opt.Retest != nil {
@@ -195,19 +187,12 @@ func _main(args []string, opt option) error {
 			job.Spec.DistributedTest.MaxContainersPerPod = opt.MaxContainersPerPod
 		}
 		if opt.List != "" {
-			list := strings.Split(opt.List, " ")
-			if len(list) > 0 {
-				job.Spec.DistributedTest.List.Command = []string{list[0]}
-				if len(list) > 1 {
-					job.Spec.DistributedTest.List.Args = list[1:]
-				}
+			list, err := ioutil.ReadFile(opt.List)
+			if err != nil {
+				return xerrors.Errorf("failed to read list for test from %s: %w", opt.List, err)
 			}
-		}
-		if opt.ListDelimiter != "" {
-			job.Spec.DistributedTest.List.Delimiter = opt.ListDelimiter
-		}
-		if opt.Pattern != "" {
-			job.Spec.DistributedTest.List.Pattern = opt.Pattern
+			testNames := strings.Split(string(list), "\n")
+			job.Spec.DistributedTest.List.Names = testNames
 		}
 		if opt.Retest != nil {
 			job.Spec.DistributedTest.Retest = *opt.Retest

@@ -121,6 +121,13 @@ func (j TestJob) listDelim() string {
 	return defaultListDelim
 }
 
+func (j TestJob) listNames() []string {
+	if j.Spec.DistributedTest == nil {
+		return nil
+	}
+	return j.Spec.DistributedTest.List.Names
+}
+
 func (j TestJob) workingDir(c apiv1.Container) string {
 	if c.WorkingDir != "" {
 		return c.WorkingDir
