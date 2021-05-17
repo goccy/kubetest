@@ -87,10 +87,11 @@ func hasDistributedParam(job kubetestv1.TestJob, opt option) bool {
 }
 
 func validateDistributedTestParam(job kubetestv1.TestJob) error {
-	if job.Spec.DistributedTest.MaxContainersPerPod == 0 {
+	distributedTest := job.Spec.DistributedTest
+	if distributedTest.MaxContainersPerPod == 0 {
 		return xerrors.New("the required flag '--max-containers-per-pod' was not specified")
 	}
-	if len(job.Spec.DistributedTest.List.Command) == 0 {
+	if len(distributedTest.List.Command) == 0 && len(distributedTest.List.Names) == 0 {
 		return xerrors.New("the required flag '--list' was not specified")
 	}
 	return nil
