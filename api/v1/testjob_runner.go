@@ -596,6 +596,11 @@ func (r *TestJobRunner) testList(ctx context.Context, testjob TestJob) ([]string
 	defer func(start time.Time) {
 		fmt.Fprintf(os.Stderr, "list: elapsed time %f sec\n", time.Since(start).Seconds())
 	}(time.Now())
+	names := testjob.listNames()
+	if len(names) > 0 {
+		return names, nil
+	}
+
 	listjob, err := r.createListJob(testjob)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to create list job: %w", err)
