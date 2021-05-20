@@ -113,6 +113,29 @@ func validateTestJobParam(job kubetestv1.TestJob) error {
 	return nil
 }
 
+func assignListNames(job *kubetestv1.TestJob, opt option) error {
+	if opt.List == "" {
+		return nil
+	}
+
+	list, err := ioutil.ReadFile(opt.List)
+	if err != nil {
+		return xerrors.Errorf("failed to read list for test from %s: %w", opt.List, err)
+	}
+	testNames := []string{}
+	for _, testName := range strings.Split(string(list), "\n") {
+		if strings.TrimSpace(testName) == "" {
+			continue
+		}
+		testNames = append(testNames, testName)
+	}
+	if len(testNames) == 0 {
+		return xerrors.New("invalid list file. test list is empty")
+	}
+	job.Spec.DistributedTest.List.Names = testNames
+	return nil
+}
+
 func _main(args []string, opt option) error {
 	cfg, err := loadConfig(opt)
 	if err != nil {
@@ -187,13 +210,8 @@ func _main(args []string, opt option) error {
 		if opt.MaxContainersPerPod > 0 {
 			job.Spec.DistributedTest.MaxContainersPerPod = opt.MaxContainersPerPod
 		}
-		if opt.List != "" {
-			list, err := ioutil.ReadFile(opt.List)
-			if err != nil {
-				return xerrors.Errorf("failed to read list for test from %s: %w", opt.List, err)
-			}
-			testNames := strings.Split(string(list), "\n")
-			job.Spec.DistributedTest.List.Names = testNames
+		if err := assignListNames(&job, opt); err != nil {
+			return err
 		}
 		if opt.Retest != nil {
 			job.Spec.DistributedTest.Retest = *opt.Retest
@@ -236,12 +254,25 @@ func _main(args []string, opt option) error {
 	return nil
 }
 
-func main() {
+func parseOpt() ([]string, option, error) {
 	var opt option
 	parser := flags.NewParser(&opt, flags.Default)
 	args, err := parser.Parse()
+	return args, opt, err
+}
+
+func main() {
+	args, opt, err := parseOpt()
 	if err != nil {
-		return
+		flagsErr, ok := err.(*flags.Error)
+		if !ok {
+			fmt.Printf("unknown error instance: %T", err)
+			os.Exit(ExitWithOtherError)
+		}
+		if flagsErr.Type == flags.ErrHelp {
+			return
+		}
+		os.Exit(ExitWithOtherError)
 	}
 	if err := _main(args, opt); err != nil {
 		fmt.Println(err)
