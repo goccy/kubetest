@@ -52,6 +52,7 @@ test:
 	while true; do \
 		POD_NAME=$$(KUBECONFIG=$(KUBECONFIG) kubectl get pod | grep Running | grep kubetest-deployment | awk '{print $$1}'); \
 		if [ "$$POD_NAME" != "" ]; then \
+			go test -race -v ./cmd/kubetest; \
 			kubectl exec -it $$POD_NAME -- go test -race -v -coverprofile=coverage.out -covermode=atomic ./api/v1 -count=1; \
 			exit $$?; \
 		fi; \
