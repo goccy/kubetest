@@ -503,12 +503,9 @@ spec:
     maxContainersPerPod: 18
     maxConcurrentNumPerPod: 2
     list:
-      command:
-        - go
-      args:
-        - test
-        - -list
-        - .
+      names:
+        - Test_A
+        - Test_B
       pattern: ^Test
 `
 	runner, err := kubetestv1.NewTestJobRunner(cfg)
@@ -557,12 +554,11 @@ spec:
     maxContainersPerPod: 18
     maxConcurrentNumPerPod: 2
     list:
-      command:
-        - go
-      args:
-        - test
-        - -list
-        - .
+      names:
+        - Test_A
+        - Test_B
+        - Test_C
+        - Test_D
       pattern: ^Test
 `
 	runner, err := kubetestv1.NewTestJobRunner(cfg)
@@ -623,12 +619,11 @@ spec:
     maxContainersPerPod: 18
     maxConcurrentNumPerPod: 2
     list:
-      command:
-        - go
-      args:
-        - test
-        - -list
-        - .
+      names:
+        - Test_A
+        - Test_B
+        - Test_C
+        - Test_D
       pattern: ^Test
 `
 	runner, err := kubetestv1.NewTestJobRunner(cfg)
@@ -680,12 +675,11 @@ spec:
     maxContainersPerPod: 18
     maxConcurrentNumPerPod: 2
     list:
-      command:
-        - go
-      args:
-        - test
-        - -list
-        - .
+      names:
+        - Test_A
+        - Test_B
+        - Test_C
+        - Test_D
       pattern: ^Test
     artifacts:
       paths:
@@ -756,12 +750,11 @@ spec:
     maxContainersPerPod: 18
     maxConcurrentNumPerPod: 2
     list:
-      command:
-        - go
-      args:
-        - test
-        - -list
-        - .
+      names:
+        - Test_A
+        - Test_B
+        - Test_C
+        - Test_D
       pattern: ^Test
     artifacts:
       paths:
