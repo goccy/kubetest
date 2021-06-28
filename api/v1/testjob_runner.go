@@ -450,6 +450,7 @@ func (r *TestJobRunner) execTest(testjob TestJob, executor *kubejob.JobExecutor)
 	r.printTestLog(strings.Join([]string{testReport, timeReport, progressReport}, "\n") + "\n")
 
 	if err := r.syncArtifactsIfNeeded(testjob, executor, testName); err != nil {
+		r.printDebugLog(fmt.Sprintf("failed to sync artifacts: %+v", err))
 		return nil, xerrors.Errorf("failed to sync artifacts: %w", err)
 	}
 	return testLog, nil
@@ -551,8 +552,9 @@ func (r *TestJobRunner) syncArtifactsIfNeeded(testjob TestJob, executor *kubejob
 		} else {
 			src = filepath.Join(executor.Container.WorkingDir, path)
 		}
-		if err := r.copyFile(executor, src, outputDir); err != nil {
-			return xerrors.Errorf("failed to copy from %s to %s: %w", src, outputDir, err)
+		r.printDebugLog(fmt.Sprintf("%s copy file to %s", testName, outputDir))
+		if err := r.copyTextFile(executor, src, outputDir); err != nil {
+			return xerrors.Errorf("failed to copy %s result from %s to %s: %w", testName, src, outputDir, err)
 		}
 	}
 	return nil

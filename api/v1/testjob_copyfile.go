@@ -2,6 +2,7 @@ package v1
 
 import (
 	"archive/tar"
+	"bytes"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -16,6 +17,62 @@ import (
 	"k8s.io/client-go/tools/remotecommand"
 	"k8s.io/kubectl/pkg/scheme"
 )
+
+func (r *TestJobRunner) copyTextFile(executor *kubejob.JobExecutor, src, outputDir string) (e error) {
+	pod := executor.Pod
+	restClient := r.clientSet.CoreV1().RESTClient()
+	req := restClient.Post().
+		Namespace(pod.Namespace).
+		Resource("pods").
+		Name(pod.Name).
+		SubResource("exec").
+		VersionedParams(&apiv1.PodExecOptions{
+			Container: executor.Container.Name,
+			Command:   []string{"cat", src},
+			Stdin:     false,
+			Stdout:    true,
+			Stderr:    true,
+		}, scheme.ParameterCodec)
+	url := req.URL()
+	exec, err := remotecommand.NewSPDYExecutor(r.config, "POST", url)
+	if err != nil {
+		return xerrors.Errorf("failed to create spdy executor: %w", err)
+	}
+	reader, writer := io.Pipe()
+	var streamErr error
+	go func() {
+		defer func() {
+			writer.Close()
+		}()
+		streamErr = exec.Stream(remotecommand.StreamOptions{
+			Stdin:  nil,
+			Stdout: writer,
+			Stderr: ioutil.Discard,
+			Tty:    false,
+		})
+	}()
+	buf := new(bytes.Buffer)
+	if _, err := buf.ReadFrom(reader); err != nil {
+		if streamErr != nil {
+			return xerrors.Errorf("failed to read buffer %s (%s): %w", src, streamErr, err)
+		}
+		return xerrors.Errorf("failed to read buffer: %w", err)
+	}
+	destFileName := filepath.Join(outputDir, filepath.Base(src))
+	outFile, err := os.Create(destFileName)
+	if err != nil {
+		return xerrors.Errorf("failed to create dst file: %w", err)
+	}
+	defer func() {
+		if err := outFile.Close(); err != nil {
+			e = xerrors.Errorf("failed to close file: %w", err)
+		}
+	}()
+	if _, err := io.Copy(outFile, buf); err != nil {
+		return xerrors.Errorf("failed to copy: %w", err)
+	}
+	return nil
+}
 
 func (r *TestJobRunner) copyFile(executor *kubejob.JobExecutor, src, outputDir string) (e error) {
 	pod := executor.Pod
