@@ -500,7 +500,7 @@ func (j TestJob) testCommand(testName string) (string, error) {
 	cmd := []string{}
 	cmd = append(cmd, c.Command...)
 	cmd = append(cmd, c.Args...)
-	return fmt.Sprintf("TEST=%s: %s", testName, strings.Join(cmd, " ")), nil
+	return fmt.Sprintf("TEST=%s; %s", testName, strings.Join(cmd, " ")), nil
 }
 
 func (j TestJob) schedule(executors []*kubejob.JobExecutor) [][]*kubejob.JobExecutor {

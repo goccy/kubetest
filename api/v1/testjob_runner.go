@@ -403,7 +403,7 @@ func (r *TestJobRunner) execTests(testjob TestJob, executors []*kubejob.JobExecu
 		})
 	}
 	if err := eg.Wait(); err != nil {
-		return nil, xerrors.Errorf("failed to run tests: %w", err)
+		return nil, xerrors.Errorf("failed to run tests. first occurred error: %w", err)
 	}
 	return testLogs, nil
 }
@@ -450,6 +450,7 @@ func (r *TestJobRunner) execTest(testjob TestJob, executor *kubejob.JobExecutor)
 	r.printTestLog(strings.Join([]string{testReport, timeReport, progressReport}, "\n") + "\n")
 
 	if err := r.syncArtifactsIfNeeded(testjob, executor, testName); err != nil {
+		r.printDebugLog(fmt.Sprintf("failed to sync artifacts: %+v", err))
 		return nil, xerrors.Errorf("failed to sync artifacts: %w", err)
 	}
 	return testLog, nil
@@ -484,7 +485,9 @@ func (r *TestJobRunner) runTests(ctx context.Context, testjob TestJob, tests []s
 	})
 	job.DisableCommandLog()
 	testLogs := []*TestLog{}
+	var calledExecutionHandler bool
 	if err := job.RunWithExecutionHandler(ctx, func(executors []*kubejob.JobExecutor) error {
+		calledExecutionHandler = true
 		for _, sidecar := range testjob.filterSidecarExecutors(executors) {
 			sidecar.ExecAsync()
 		}
@@ -498,21 +501,24 @@ func (r *TestJobRunner) runTests(ctx context.Context, testjob TestJob, tests []s
 				),
 			)
 		}
+		var errs []string
 		for _, executors := range testjob.schedule(testExecutors) {
 			logs, err := r.execTests(testjob, executors)
 			if err != nil {
-				return xerrors.Errorf("failed to exec tests: %w", err)
+				errs = append(errs, fmt.Sprintf("%+v", err))
 			}
 			testLogs = append(testLogs, logs...)
+		}
+		if len(errs) > 0 {
+			return xerrors.Errorf(strings.Join(errs, "\n"))
 		}
 		return nil
 	}); err != nil {
 		var failedJob *kubejob.FailedJob
-		if !xerrors.As(err, &failedJob) {
+		if !calledExecutionHandler || !xerrors.As(err, &failedJob) {
 			logMu.Lock()
 			initContainersLog := initContainersLog
 			logMu.Unlock()
-
 			return nil, xerrors.Errorf(
 				"initContainersLog:[%s]. error detail:[%s]: %w",
 				initContainersLog,
@@ -551,8 +557,9 @@ func (r *TestJobRunner) syncArtifactsIfNeeded(testjob TestJob, executor *kubejob
 		} else {
 			src = filepath.Join(executor.Container.WorkingDir, path)
 		}
-		if err := r.copyFile(executor, src, outputDir); err != nil {
-			return xerrors.Errorf("failed to copy from %s to %s: %w", src, outputDir, err)
+		r.printDebugLog(fmt.Sprintf("copy %s's result file to %s", testName, outputDir))
+		if err := r.copyTextFile(executor, src, outputDir); err != nil {
+			return xerrors.Errorf("failed to copy %s result from %s to %s: %w", testName, src, outputDir, err)
 		}
 	}
 	return nil

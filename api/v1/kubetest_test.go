@@ -502,12 +502,9 @@ spec:
     maxContainersPerPod: 18
     maxConcurrentNumPerPod: 2
     list:
-      command:
-        - go
-      args:
-        - test
-        - -list
-        - .
+      names:
+        - Test_A
+        - Test_B
       pattern: ^Test
 `
 	runner, err := kubetestv1.NewTestJobRunner(cfg)
@@ -622,12 +619,11 @@ spec:
     maxContainersPerPod: 18
     maxConcurrentNumPerPod: 2
     list:
-      command:
-        - go
-      args:
-        - test
-        - -list
-        - .
+      names:
+        - Test_A
+        - Test_B
+        - Test_C
+        - Test_D
       pattern: ^Test
 `
 	runner, err := kubetestv1.NewTestJobRunner(cfg)
@@ -645,7 +641,9 @@ spec:
 
 func Test_Artifacts(t *testing.T) {
 	t.Parallel()
-	crd := `
+	t.Run("success", func(t *testing.T) {
+		t.Parallel()
+		crd := `
 apiVersion: kubetest.io/v1
 kind: TestJob
 metadata:
@@ -677,12 +675,11 @@ spec:
     maxContainersPerPod: 18
     maxConcurrentNumPerPod: 2
     list:
-      command:
-        - go
-      args:
-        - test
-        - -list
-        - .
+      names:
+        - Test_A
+        - Test_B
+        - Test_C
+        - Test_D
       pattern: ^Test
     artifacts:
       paths:
@@ -690,32 +687,110 @@ spec:
       output:
         path: artifacts
 `
-	runner, err := kubetestv1.NewTestJobRunner(cfg)
-	if err != nil {
-		t.Fatalf("%+v", err)
-	}
-	var job kubetestv1.TestJob
-	if err := yaml.NewYAMLOrJSONDecoder(strings.NewReader(crd), 1024).Decode(&job); err != nil {
-		t.Fatalf("%+v", err)
-	}
-	os.RemoveAll("artifacts")
-	if err := runner.Run(context.Background(), job); err != nil {
-		t.Fatalf("%+v", err)
-	}
-	var foundArtifacts bool
-	if err := filepath.Walk("artifacts", func(path string, info os.FileInfo, err error) error {
-		if info.IsDir() {
+		runner, err := kubetestv1.NewTestJobRunner(cfg)
+		if err != nil {
+			t.Fatalf("%+v", err)
+		}
+		var job kubetestv1.TestJob
+		if err := yaml.NewYAMLOrJSONDecoder(strings.NewReader(crd), 1024).Decode(&job); err != nil {
+			t.Fatalf("%+v", err)
+		}
+		os.RemoveAll("artifacts")
+		if err := runner.Run(context.Background(), job); err != nil {
+			t.Fatalf("%+v", err)
+		}
+		var foundArtifacts bool
+		if err := filepath.Walk("artifacts", func(path string, info os.FileInfo, err error) error {
+			if info.IsDir() {
+				return nil
+			}
+			if info.Name() != "cover.out" {
+				t.Fatalf("unexpected file name %s", info.Name())
+			}
+			foundArtifacts = true
 			return nil
+		}); err != nil {
+			t.Fatal(err)
 		}
-		if info.Name() != "cover.out" {
-			t.Fatalf("unexpected file name %s", info.Name())
+		if !foundArtifacts {
+			t.Fatal("cannot find artifacts")
 		}
-		foundArtifacts = true
-		return nil
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if !foundArtifacts {
-		t.Fatal("cannot find artifacts")
-	}
+	})
+	t.Run("failure", func(t *testing.T) {
+		t.Parallel()
+		crd := `
+apiVersion: kubetest.io/v1
+kind: TestJob
+metadata:
+  name: testjob
+  namespace: default
+spec:
+  git:
+    repo: github.com/goccy/kubetest
+    branch: master
+    checkoutDir: /go/src/kubetest
+  template:
+    spec:
+      containers:
+        - name: test
+          image: golang:1.15
+          command:
+            - go
+          args:
+            - test
+            - -coverprofile
+            - cover.out
+            - -v
+            - ./
+            - -run
+            - $TEST
+          workingDir: /go/src/kubetest/_examples
+  distributedTest:
+    containerName: test
+    maxContainersPerPod: 18
+    maxConcurrentNumPerPod: 2
+    list:
+      names:
+        - Test_A
+        - Test_B
+        - Test_C
+        - Test_D
+      pattern: ^Test
+    artifacts:
+      paths:
+        - invalid.txt
+      output:
+        path: failure_artifacts
+`
+		runner, err := kubetestv1.NewTestJobRunner(cfg)
+		if err != nil {
+			t.Fatalf("%+v", err)
+		}
+		var job kubetestv1.TestJob
+		if err := yaml.NewYAMLOrJSONDecoder(strings.NewReader(crd), 1024).Decode(&job); err != nil {
+			t.Fatalf("%+v", err)
+		}
+		os.RemoveAll("failure_artifacts")
+		if err := runner.Run(context.Background(), job); err == nil {
+			t.Fatal("expected error")
+		} else {
+			t.Logf("expected error %+v", err)
+		}
+		var foundAnyFile bool
+		if err := filepath.Walk("failure_artifacts", func(path string, info os.FileInfo, err error) error {
+			if info == nil {
+				return nil
+			}
+			if info.IsDir() {
+				return nil
+			}
+			foundAnyFile = true
+			return nil
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if foundAnyFile {
+			t.Fatal("failed to handle invalid artifact")
+		}
+	})
 }
