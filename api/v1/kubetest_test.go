@@ -553,11 +553,12 @@ spec:
     maxContainersPerPod: 18
     maxConcurrentNumPerPod: 2
     list:
-      names:
-        - Test_A
-        - Test_B
-        - Test_C
-        - Test_D
+      command:
+        - go
+      args:
+        - test
+        - -list
+        - .
       pattern: ^Test
 `
 	runner, err := kubetestv1.NewTestJobRunner(cfg)
