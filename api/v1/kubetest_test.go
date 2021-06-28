@@ -2,7 +2,6 @@ package v1_test
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -776,15 +775,20 @@ spec:
 		} else {
 			t.Logf("expected error %+v", err)
 		}
-		var foundInvalidArtifact bool
+		var foundAnyFile bool
 		if err := filepath.Walk("failure_artifacts", func(path string, info os.FileInfo, err error) error {
-			fmt.Println("path = ", path)
-			foundInvalidArtifact = true
+			if info == nil {
+				return nil
+			}
+			if info.IsDir() {
+				return nil
+			}
+			foundAnyFile = true
 			return nil
 		}); err != nil {
 			t.Fatal(err)
 		}
-		if foundInvalidArtifact {
+		if foundAnyFile {
 			t.Fatal("failed to handle invalid artifact")
 		}
 	})

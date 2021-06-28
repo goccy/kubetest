@@ -403,7 +403,7 @@ func (r *TestJobRunner) execTests(testjob TestJob, executors []*kubejob.JobExecu
 		})
 	}
 	if err := eg.Wait(); err != nil {
-		return nil, xerrors.Errorf("failed to run tests: %w", err)
+		return nil, xerrors.Errorf("failed to run tests. first occurred error: %w", err)
 	}
 	return testLogs, nil
 }
@@ -501,12 +501,16 @@ func (r *TestJobRunner) runTests(ctx context.Context, testjob TestJob, tests []s
 				),
 			)
 		}
+		var errs []string
 		for _, executors := range testjob.schedule(testExecutors) {
 			logs, err := r.execTests(testjob, executors)
 			if err != nil {
-				return xerrors.Errorf("failed to exec tests: %w", err)
+				errs = append(errs, fmt.Sprintf("%+v", err))
 			}
 			testLogs = append(testLogs, logs...)
+		}
+		if len(errs) > 0 {
+			return xerrors.Errorf(strings.Join(errs, "\n"))
 		}
 		return nil
 	}); err != nil {
