@@ -2,6 +2,7 @@ package v1_test
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -777,14 +778,14 @@ spec:
 			t.Fatalf("%+v", err)
 		}
 		os.RemoveAll("failure_artifacts")
-		if err := runner.Run(context.Background(), job); err != nil {
-			t.Fatalf("%+v", err)
+		if err := runner.Run(context.Background(), job); err == nil {
+			t.Fatal("expected error")
+		} else {
+			t.Logf("expected error %+v", err)
 		}
 		var foundInvalidArtifact bool
 		if err := filepath.Walk("failure_artifacts", func(path string, info os.FileInfo, err error) error {
-			if info.IsDir() {
-				return nil
-			}
+			fmt.Println("path = ", path)
 			foundInvalidArtifact = true
 			return nil
 		}); err != nil {

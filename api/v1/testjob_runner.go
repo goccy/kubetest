@@ -485,7 +485,9 @@ func (r *TestJobRunner) runTests(ctx context.Context, testjob TestJob, tests []s
 	})
 	job.DisableCommandLog()
 	testLogs := []*TestLog{}
+	var calledExecutionHandler bool
 	if err := job.RunWithExecutionHandler(ctx, func(executors []*kubejob.JobExecutor) error {
+		calledExecutionHandler = true
 		for _, sidecar := range testjob.filterSidecarExecutors(executors) {
 			sidecar.ExecAsync()
 		}
@@ -509,11 +511,10 @@ func (r *TestJobRunner) runTests(ctx context.Context, testjob TestJob, tests []s
 		return nil
 	}); err != nil {
 		var failedJob *kubejob.FailedJob
-		if !xerrors.As(err, &failedJob) {
+		if !calledExecutionHandler || !xerrors.As(err, &failedJob) {
 			logMu.Lock()
 			initContainersLog := initContainersLog
 			logMu.Unlock()
-
 			return nil, xerrors.Errorf(
 				"initContainersLog:[%s]. error detail:[%s]: %w",
 				initContainersLog,
