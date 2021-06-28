@@ -58,6 +58,9 @@ func (r *TestJobRunner) copyTextFile(executor *kubejob.JobExecutor, src, outputD
 		}
 		return xerrors.Errorf("failed to read buffer: %w", err)
 	}
+	if streamErr != nil {
+		return xerrors.Errorf("failed to read buffer %s: %w", src, streamErr)
+	}
 	destFileName := filepath.Join(outputDir, filepath.Base(src))
 	outFile, err := os.Create(destFileName)
 	if err != nil {
