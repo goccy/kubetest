@@ -40,11 +40,13 @@ func (r *TestJobRunner) copyTextFile(executor *kubejob.JobExecutor, src, outputD
 		return xerrors.Errorf("failed to create spdy executor: %w", err)
 	}
 	reader, writer := io.Pipe()
+	r.logPrinter.DebugLog(fmt.Sprintf("exec = %p writer = %p", exec, writer))
 	var streamErr error
 	go func() {
 		defer func() {
 			writer.Close()
 		}()
+		r.logPrinter.DebugLog(fmt.Sprintf("goroutine: exec = %p writer = %p", exec, writer))
 		streamErr = exec.Stream(remotecommand.StreamOptions{
 			Stdin:  nil,
 			Stdout: writer,
