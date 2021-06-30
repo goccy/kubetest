@@ -52,11 +52,57 @@ type TestResultLogDetail struct {
 	Tests []*TestLog `json:"tests"`
 }
 
+type MaskedMessage struct {
+	msg   string
+	masks []string
+	mu    sync.Mutex
+}
+
+func newMaskedMessage(msg string, masks []string) *MaskedMessage {
+	return &MaskedMessage{msg: msg, masks: masks}
+}
+
+func (m *MaskedMessage) addMessage(msg string) {
+	m.mu.Lock()
+	m.msg += msg
+	m.mu.Unlock()
+}
+
+func (m *MaskedMessage) addMask(mask string) {
+	m.mu.Lock()
+	m.masks = append(m.masks, mask)
+	m.mu.Unlock()
+}
+
+func (m *MaskedMessage) Filter(msg string) string {
+	m.mu.Lock()
+	masks := m.masks
+	m.mu.Unlock()
+	return m.mask(msg, masks)
+}
+
+func (m *MaskedMessage) mask(msg string, masks []string) string {
+	maskedMsg := msg
+	for _, mask := range masks {
+		genMaskText := strings.Repeat("*", len(mask))
+		maskedMsg = strings.Replace(maskedMsg, mask, genMaskText, -1)
+	}
+	return maskedMsg
+}
+
+func (m *MaskedMessage) String() string {
+	m.mu.Lock()
+	msg := m.msg
+	masks := m.masks
+	m.mu.Unlock()
+	return m.mask(msg, masks)
+}
+
 type TestLog struct {
-	Name           string     `json:"name"`
-	TestResult     TestResult `json:"testResult"`
-	ElapsedTimeSec int        `json:"elapsedTimeSec"`
-	Message        string     `json:"-"`
+	Name           string         `json:"name"`
+	TestResult     TestResult     `json:"testResult"`
+	ElapsedTimeSec int            `json:"elapsedTimeSec"`
+	Message        *MaskedMessage `json:"-"`
 }
 
 type TestJobRunner struct {
@@ -68,7 +114,8 @@ type TestJobRunner struct {
 	logger             func(*kubejob.ContainerLog)
 	config             *rest.Config
 	clientSet          *kubernetes.Clientset
-	printMu            sync.Mutex
+	logPrinter         *Logger
+	masks              []string
 	testCountMu        sync.Mutex
 	testCount          uint
 	totalTestNum       uint
@@ -80,8 +127,9 @@ func NewTestJobRunner(config *rest.Config) (*TestJobRunner, error) {
 		return nil, xerrors.Errorf("failed to create clientset: %w", err)
 	}
 	return &TestJobRunner{
-		config:    config,
-		clientSet: cs,
+		config:     config,
+		clientSet:  cs,
+		logPrinter: newLogger(),
 	}, nil
 }
 
@@ -177,6 +225,8 @@ func (r *TestJobRunner) setGitToken(ctx context.Context, testjob TestJob) error 
 		return xerrors.Errorf("not found token: %s", jobToken.SecretKeyRef.Key)
 	}
 	r.token = strings.TrimSpace(string(data))
+	r.logPrinter.addMask(r.token)
+	r.masks = append(r.masks, r.token)
 	return nil
 }
 
@@ -222,7 +272,7 @@ func (r *TestJobRunner) createKubeJob(testjob TestJob, template apiv1.PodTemplat
 	}
 	if r.verboseLog {
 		job.SetLogger(func(log string) {
-			r.printDebugLog(log)
+			r.logPrinter.DebugLog(log)
 		})
 		job.SetVerboseLog(true)
 	}
@@ -371,18 +421,6 @@ func (r *TestJobRunner) retest(ctx context.Context, testjob TestJob, testLogs, f
 	return testLogs, nil
 }
 
-func (r *TestJobRunner) printDebugLog(log string) {
-	r.printMu.Lock()
-	defer r.printMu.Unlock()
-	fmt.Printf("[DEBUG] %s\n", log)
-}
-
-func (r *TestJobRunner) printTestLog(log string) {
-	r.printMu.Lock()
-	defer r.printMu.Unlock()
-	fmt.Print(log)
-}
-
 func (r *TestJobRunner) execTests(testjob TestJob, executors []*kubejob.JobExecutor) ([]*TestLog, error) {
 	var (
 		eg       errgroup.Group
@@ -413,7 +451,7 @@ func (r *TestJobRunner) execTest(testjob TestJob, executor *kubejob.JobExecutor)
 
 	defer func() {
 		if err := executor.Stop(); err != nil {
-			r.printDebugLog(fmt.Sprintf("failed to stop %s container", testName))
+			r.logPrinter.DebugLog(fmt.Sprintf("failed to stop %s container", testName))
 		}
 	}()
 	testCommand, err := testjob.testCommand(testName)
@@ -427,19 +465,19 @@ func (r *TestJobRunner) execTest(testjob TestJob, executor *kubejob.JobExecutor)
 	testLog := &TestLog{
 		Name:           testName,
 		ElapsedTimeSec: int(time.Since(start).Seconds()),
-		Message:        string(out),
+		Message:        newMaskedMessage(string(out), r.masks),
 	}
 
 	var testReport string
 	if err == nil {
 		testLog.TestResult = TestResultSuccess
-		testReport = fmt.Sprintf("%s\n%s", testCommand, string(out))
+		testReport = fmt.Sprintf("%s\n%s", testCommand, newMaskedMessage(string(out), r.masks))
 	} else {
 		testLog.TestResult = TestResultFailure
 		testReport = fmt.Sprintf(
 			"%s\n%s\n%s\nerror pod: %s container: %s",
 			testCommand,
-			string(out),
+			newMaskedMessage(string(out), r.masks),
 			err,
 			executor.Pod.Name,
 			executor.Container.Name,
@@ -447,10 +485,10 @@ func (r *TestJobRunner) execTest(testjob TestJob, executor *kubejob.JobExecutor)
 	}
 	timeReport := fmt.Sprintf("elapsed time: %dsec (current time: %s)", testLog.ElapsedTimeSec, time.Now().Format(time.RFC3339))
 	progressReport := fmt.Sprintf("%d/%d (%f%%) finished.", testCount, r.totalTestNum, (float32(testCount)/float32(r.totalTestNum))*100)
-	r.printTestLog(strings.Join([]string{testReport, timeReport, progressReport}, "\n") + "\n")
+	r.logPrinter.Log(strings.Join([]string{testReport, timeReport, progressReport}, "\n") + "\n")
 
 	if err := r.syncArtifactsIfNeeded(testjob, executor, testName); err != nil {
-		r.printDebugLog(fmt.Sprintf("failed to sync artifacts: %+v", err))
+		r.logPrinter.DebugLog(fmt.Sprintf("failed to sync artifacts: %+v", err))
 		return nil, xerrors.Errorf("failed to sync artifacts: %w", err)
 	}
 	return testLog, nil
@@ -472,15 +510,10 @@ func (r *TestJobRunner) runTests(ctx context.Context, testjob TestJob, tests []s
 	if err != nil {
 		return nil, xerrors.Errorf("failed to create kubejob for test: %w", err)
 	}
-	var (
-		logMu             sync.Mutex
-		initContainersLog string
-	)
+	initContainersLog := newMaskedMessage("", r.masks)
 	job.SetContainerLogger(func(log *kubejob.ContainerLog) {
-		logMu.Lock()
-		defer logMu.Unlock()
 		if r.isInitContainer(job, log.Container) {
-			initContainersLog += log.Log
+			initContainersLog.addMessage(log.Log)
 		}
 	})
 	job.DisableCommandLog()
@@ -493,7 +526,7 @@ func (r *TestJobRunner) runTests(ctx context.Context, testjob TestJob, tests []s
 		}
 		testExecutors := testjob.filterTestExecutors(executors)
 		if len(testExecutors) > 0 {
-			r.printDebugLog(
+			r.logPrinter.DebugLog(
 				fmt.Sprintf(
 					"run pod: %s job-id: %s",
 					testExecutors[0].Pod.Name,
@@ -516,9 +549,7 @@ func (r *TestJobRunner) runTests(ctx context.Context, testjob TestJob, tests []s
 	}); err != nil {
 		var failedJob *kubejob.FailedJob
 		if !calledExecutionHandler || !xerrors.As(err, &failedJob) {
-			logMu.Lock()
-			initContainersLog := initContainersLog
-			logMu.Unlock()
+			initContainersLog := initContainersLog.String()
 			return nil, xerrors.Errorf(
 				"initContainersLog:[%s]. error detail:[%s]: %w",
 				initContainersLog,
@@ -557,7 +588,7 @@ func (r *TestJobRunner) syncArtifactsIfNeeded(testjob TestJob, executor *kubejob
 		} else {
 			src = filepath.Join(executor.Container.WorkingDir, path)
 		}
-		r.printDebugLog(fmt.Sprintf("copy %s's result file to %s", testName, outputDir))
+		r.logPrinter.DebugLog(fmt.Sprintf("copy %s's result file to %s", testName, outputDir))
 		if err := r.copyTextFile(executor, src, outputDir); err != nil {
 			return xerrors.Errorf("failed to copy %s result from %s to %s: %w", testName, src, outputDir, err)
 		}
@@ -613,17 +644,14 @@ func (r *TestJobRunner) testList(ctx context.Context, testjob TestJob) ([]string
 		return nil, xerrors.Errorf("failed to create list job: %w", err)
 	}
 	var (
-		initContainersLog string
-		containerLog      string
-		logMu             sync.Mutex
+		initContainersLog = newMaskedMessage("", r.masks)
+		containerLog      = newMaskedMessage("", r.masks)
 	)
 	listjob.SetContainerLogger(func(log *kubejob.ContainerLog) {
-		logMu.Lock()
-		defer logMu.Unlock()
 		if r.isInitContainer(listjob, log.Container) {
-			initContainersLog += log.Log
+			initContainersLog.addMessage(log.Log)
 		} else {
-			containerLog += log.Log
+			containerLog.addMessage(log.Log)
 		}
 	})
 	listjob.DisableCommandLog()
@@ -648,12 +676,9 @@ func (r *TestJobRunner) testList(ctx context.Context, testjob TestJob) ([]string
 		}
 		return nil
 	}); err != nil {
-		logMu.Lock()
-		initContainersLog := initContainersLog
-		logMu.Unlock()
 		return nil, xerrors.Errorf(
 			"initContainersLog:[%s]. commandLog:[%s] error detail:[%s]: %w",
-			initContainersLog,
+			initContainersLog.String(),
 			listResult,
 			err,
 			ErrFailedTestJob,
