@@ -71,6 +71,7 @@ func (r *TestJobRunner) copyTextFile(executor *kubejob.JobExecutor, src, outputD
 			e = xerrors.Errorf("failed to close file: %w", err)
 		}
 	}()
+	r.logPrinter.DebugLog(buf.String())
 	if _, err := io.Copy(outFile, buf); err != nil {
 		return xerrors.Errorf("failed to copy: %w", err)
 	}
