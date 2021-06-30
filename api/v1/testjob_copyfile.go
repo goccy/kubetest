@@ -34,6 +34,7 @@ func (r *TestJobRunner) copyTextFile(executor *kubejob.JobExecutor, src, outputD
 			Stderr:    true,
 		}, scheme.ParameterCodec)
 	url := req.URL()
+	r.logPrinter.DebugLog(fmt.Sprintf("POST url is %s", url))
 	exec, err := remotecommand.NewSPDYExecutor(r.config, "POST", url)
 	if err != nil {
 		return xerrors.Errorf("failed to create spdy executor: %w", err)
