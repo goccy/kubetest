@@ -119,6 +119,7 @@ type TestJobRunner struct {
 	testCountMu        sync.Mutex
 	testCount          uint
 	totalTestNum       uint
+	copyMu             sync.Mutex
 }
 
 func NewTestJobRunner(config *rest.Config) (*TestJobRunner, error) {

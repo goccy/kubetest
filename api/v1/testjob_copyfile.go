@@ -19,6 +19,8 @@ import (
 )
 
 func (r *TestJobRunner) copyTextFile(executor *kubejob.JobExecutor, src, outputDir string) (e error) {
+	r.copyMu.Lock()
+	defer r.copyMu.Unlock()
 	pod := executor.Pod
 	restClient := r.clientSet.CoreV1().RESTClient()
 	req := restClient.Post().
