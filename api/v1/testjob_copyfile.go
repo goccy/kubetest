@@ -19,8 +19,6 @@ import (
 )
 
 func (r *TestJobRunner) copyTextFile(executor *kubejob.JobExecutor, src, outputDir string) (e error) {
-	r.copyMu.Lock()
-	defer r.copyMu.Unlock()
 	pod := executor.Pod
 	restClient := r.clientSet.CoreV1().RESTClient()
 	req := restClient.Post().
@@ -36,19 +34,16 @@ func (r *TestJobRunner) copyTextFile(executor *kubejob.JobExecutor, src, outputD
 			Stderr:    true,
 		}, scheme.ParameterCodec)
 	url := req.URL()
-	r.logPrinter.DebugLog(fmt.Sprintf("POST url is %s", url))
 	exec, err := remotecommand.NewSPDYExecutor(r.config, "POST", url)
 	if err != nil {
 		return xerrors.Errorf("failed to create spdy executor: %w", err)
 	}
 	reader, writer := io.Pipe()
-	r.logPrinter.DebugLog(fmt.Sprintf("exec = %p writer = %p", exec, writer))
 	var streamErr error
 	go func() {
 		defer func() {
 			writer.Close()
 		}()
-		r.logPrinter.DebugLog(fmt.Sprintf("goroutine: exec = %p writer = %p", exec, writer))
 		streamErr = exec.Stream(remotecommand.StreamOptions{
 			Stdin:  nil,
 			Stdout: writer,

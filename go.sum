@@ -182,6 +182,8 @@ github.com/go-task/slim-sprig v0.0.0-20210107165309-348f09dbbbc0/go.mod h1:fyg78
 github.com/gobuffalo/here v0.6.0/go.mod h1:wAG085dHOYqUpf+Ap+WOdrPTp5IYcDAs/x7PLa8Y5fM=
 github.com/goccy/kubejob v0.2.4 h1:LVQoIlDlM/Iu1s3TIz5Tr8nBip0wTiNM99dK8u9Plqc=
 github.com/goccy/kubejob v0.2.4/go.mod h1:u8pBGV3XWjnW4k38Q6rXtYLrCCvFkaL2dvzj+8/pJZI=
+github.com/goccy/kubejob v0.2.5-0.20210707094047-a96dbcd38451 h1:fnunlB06vWtScpjf7DkYS+G51h9yxNJ3gavCxkO3NH0=
+github.com/goccy/kubejob v0.2.5-0.20210707094047-a96dbcd38451/go.mod h1:u8pBGV3XWjnW4k38Q6rXtYLrCCvFkaL2dvzj+8/pJZI=
 github.com/gogo/protobuf v1.1.1/go.mod h1:r8qH/GZQm5c6nD/R0oafs1akxWv10x8SbQlK7atdtwQ=
 github.com/gogo/protobuf v1.2.1/go.mod h1:hp+jE20tsWTFYpLwKvXlhS1hjn+gTNwPg2I6zVXpSg4=
 github.com/gogo/protobuf v1.3.1/go.mod h1:SlYgWuQ5SjCEi6WLHjHCa1yvBfUnHcTbrrZtXPKa29o=
