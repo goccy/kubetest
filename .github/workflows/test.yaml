@@ -6,9 +6,12 @@ jobs:
     steps:
     - name: checkout
       uses: actions/checkout@v2
-    - name: Setup kind
+    - name: setup kind
       run: |
         make deploy
+    - name: wait for available
+      run: |
+        make wait
     - name: Run test
       run: |
         timeout 800 make test
