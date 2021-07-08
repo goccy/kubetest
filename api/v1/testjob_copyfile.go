@@ -23,7 +23,7 @@ import (
 )
 
 var (
-	copyMaxRetryCount = 8
+	copyMaxRetryCount = 5
 )
 
 func (r *TestJobRunner) copyTextFileWithRetry(executor *kubejob.JobExecutor, src, outputDir string) error {
