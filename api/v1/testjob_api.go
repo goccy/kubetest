@@ -14,7 +14,8 @@ import (
 )
 
 const (
-	sharedVolumeName  = "repo"
+	repoVolumeName    = "repo"
+	archiveVolumeName = "archive"
 	oauthTokenEnv     = "OAUTH_TOKEN"
 	defaultGitImage   = "alpine/git"
 	defaultBranch     = "master"
@@ -26,7 +27,9 @@ const (
 )
 
 var (
-	defaultVolumeMountPath = filepath.Join("/", "git", "workspace")
+	defaultWorkspacePath = filepath.Join("/", "git", "workspace")
+	repoMountPath        = filepath.Join("/", "git", "repo")
+	archiveMountPath     = filepath.Join("/", "git", "archive")
 )
 
 func (j TestJob) existsPrepareSteps() bool {
@@ -52,7 +55,7 @@ func (j TestJob) prepareWorkingDir(step int) string {
 	if dir != "" {
 		return dir
 	}
-	return j.volumeMountPath()
+	return j.workspacePath()
 }
 
 func (j TestJob) prepareEnv(step int) []apiv1.EnvVar {
@@ -132,7 +135,7 @@ func (j TestJob) workingDir(c apiv1.Container) string {
 	if c.WorkingDir != "" {
 		return c.WorkingDir
 	}
-	return j.volumeMountPath()
+	return j.workspacePath()
 }
 
 func (j TestJob) enabledCheckout() bool {
@@ -143,27 +146,50 @@ func (j TestJob) enabledCheckout() bool {
 	return true
 }
 
-func (j TestJob) volumeMountPath() string {
+func (j TestJob) workspacePath() string {
 	checkoutDir := j.checkoutDir()
 	if checkoutDir != "" {
 		return checkoutDir
 	}
-	return defaultVolumeMountPath
+	return defaultWorkspacePath
 }
 
-func (j TestJob) sharedVolume() apiv1.Volume {
+func (j TestJob) repoVolume() apiv1.Volume {
 	return apiv1.Volume{
-		Name: sharedVolumeName,
+		Name: repoVolumeName,
 		VolumeSource: apiv1.VolumeSource{
 			EmptyDir: &apiv1.EmptyDirVolumeSource{},
 		},
 	}
 }
 
-func (j TestJob) sharedVolumeMount() apiv1.VolumeMount {
+func (j TestJob) workspaceVolumeMount() apiv1.VolumeMount {
 	return apiv1.VolumeMount{
-		Name:      sharedVolumeName,
-		MountPath: j.volumeMountPath(),
+		Name:      repoVolumeName,
+		MountPath: j.workspacePath(),
+	}
+}
+
+func (j TestJob) repoVolumeMount() apiv1.VolumeMount {
+	return apiv1.VolumeMount{
+		Name:      repoVolumeName,
+		MountPath: repoMountPath,
+	}
+}
+
+func (j TestJob) archiveVolume() apiv1.Volume {
+	return apiv1.Volume{
+		Name: archiveVolumeName,
+		VolumeSource: apiv1.VolumeSource{
+			EmptyDir: &apiv1.EmptyDirVolumeSource{},
+		},
+	}
+}
+
+func (j TestJob) archiveVolumeMount() apiv1.VolumeMount {
+	return apiv1.VolumeMount{
+		Name:      archiveVolumeName,
+		MountPath: archiveMountPath,
 	}
 }
 
@@ -175,12 +201,11 @@ func (j TestJob) gitCloneURL(token string) string {
 }
 
 func (j TestJob) gitCloneCommand(cloneURL string) ([]string, []string) {
-	mountPath := j.volumeMountPath()
 	branch := j.branch()
 	if branch != "" {
-		return []string{"git"}, []string{"clone", "-b", branch, cloneURL, mountPath}
+		return []string{"git"}, []string{"clone", "-b", branch, cloneURL, j.workspacePath()}
 	}
-	return []string{"git"}, []string{"clone", cloneURL, mountPath}
+	return []string{"git"}, []string{"clone", cloneURL, j.workspacePath()}
 }
 
 func (j TestJob) gitCloneContainer(token string) apiv1.Container {
@@ -191,7 +216,7 @@ func (j TestJob) gitCloneContainer(token string) apiv1.Container {
 		Command:      cmd,
 		Args:         args,
 		Env:          []apiv1.EnvVar{{Name: oauthTokenEnv, Value: token}},
-		VolumeMounts: []apiv1.VolumeMount{j.sharedVolumeMount()},
+		VolumeMounts: []apiv1.VolumeMount{j.workspaceVolumeMount()},
 	}
 }
 
@@ -199,10 +224,10 @@ func (j TestJob) gitSwitchContainer() apiv1.Container {
 	return apiv1.Container{
 		Name:         "kubetest-init-switch",
 		Image:        j.gitImage(),
-		WorkingDir:   j.volumeMountPath(),
+		WorkingDir:   j.workspacePath(),
 		Command:      []string{"git"},
 		Args:         []string{"checkout", "--detach", j.rev()},
-		VolumeMounts: []apiv1.VolumeMount{j.sharedVolumeMount()},
+		VolumeMounts: []apiv1.VolumeMount{j.workspaceVolumeMount()},
 	}
 }
 
@@ -210,10 +235,10 @@ func (j TestJob) gitConfigUserEmailContainer() apiv1.Container {
 	return apiv1.Container{
 		Name:         "kubetest-init-git-config-user-email",
 		Image:        j.gitImage(),
-		WorkingDir:   j.volumeMountPath(),
+		WorkingDir:   j.workspacePath(),
 		Command:      []string{"git"},
 		Args:         []string{"config", "user.email", "anonymous@kubetest.com"},
-		VolumeMounts: []apiv1.VolumeMount{j.sharedVolumeMount()},
+		VolumeMounts: []apiv1.VolumeMount{j.workspaceVolumeMount()},
 	}
 }
 
@@ -221,10 +246,10 @@ func (j TestJob) gitConfigUserNameContainer() apiv1.Container {
 	return apiv1.Container{
 		Name:         "kubetest-init-git-config-user-name",
 		Image:        j.gitImage(),
-		WorkingDir:   j.volumeMountPath(),
+		WorkingDir:   j.workspacePath(),
 		Command:      []string{"git"},
 		Args:         []string{"config", "user.name", "anonymous"},
-		VolumeMounts: []apiv1.VolumeMount{j.sharedVolumeMount()},
+		VolumeMounts: []apiv1.VolumeMount{j.workspaceVolumeMount()},
 	}
 }
 
@@ -232,10 +257,40 @@ func (j TestJob) gitMergeContainer() apiv1.Container {
 	return apiv1.Container{
 		Name:         "kubetest-init-merge",
 		Image:        j.gitImage(),
-		WorkingDir:   j.volumeMountPath(),
+		WorkingDir:   j.workspacePath(),
 		Command:      []string{"git"},
 		Args:         []string{"pull", "origin", j.baseBranch()},
-		VolumeMounts: []apiv1.VolumeMount{j.sharedVolumeMount()},
+		VolumeMounts: []apiv1.VolumeMount{j.workspaceVolumeMount()},
+	}
+}
+
+func (j TestJob) packRepoContainer() apiv1.Container {
+	base, target := filepath.Split(j.workspacePath())
+	return apiv1.Container{
+		Name:       "kubetest-pack-repo",
+		Image:      j.gitImage(),
+		WorkingDir: base,
+		Command:    []string{"tar"},
+		Args: []string{
+			"-czf",
+			filepath.Join(archiveMountPath, "repo.tar.gz"),
+			target,
+		},
+		VolumeMounts: []apiv1.VolumeMount{
+			j.workspaceVolumeMount(),
+			j.archiveVolumeMount(),
+		},
+	}
+}
+
+func (j TestJob) unpackRepoCommand() []string {
+	base, _ := filepath.Split(j.workspacePath())
+	return []string{
+		"tar",
+		"-zxvf",
+		filepath.Join(archiveMountPath, "repo.tar.gz"),
+		"-C",
+		base,
 	}
 }
 
@@ -290,12 +345,18 @@ func (j TestJob) testContainers(extraContainers ...apiv1.Container) []apiv1.Cont
 			// skip default test container
 			continue
 		}
-		container.VolumeMounts = append(container.VolumeMounts, j.sharedVolumeMount())
+		container.VolumeMounts = append(container.VolumeMounts, j.archiveVolumeMount())
+		if j.Spec.DistributedTest == nil {
+			container.VolumeMounts = append(container.VolumeMounts, j.workspaceVolumeMount())
+		}
 		testContainers = append(testContainers, container)
 	}
 	for _, container := range extraContainers {
 		container := container
-		container.VolumeMounts = append(container.VolumeMounts, j.sharedVolumeMount())
+		container.VolumeMounts = append(container.VolumeMounts, j.archiveVolumeMount())
+		if j.Spec.DistributedTest == nil {
+			container.VolumeMounts = append(container.VolumeMounts, j.workspaceVolumeMount())
+		}
 		testContainers = append(testContainers, container)
 	}
 	return testContainers
@@ -331,7 +392,11 @@ func (j TestJob) createJobTemplate(token string, extraContainers ...apiv1.Contai
 	template := j.Spec.Template // copy template
 	template.Spec.InitContainers = j.testInitContainers(token)
 	template.Spec.Containers = j.testContainers(extraContainers...)
-	template.Spec.Volumes = append(template.Spec.Volumes, j.sharedVolume())
+	template.Spec.Volumes = append(
+		template.Spec.Volumes,
+		j.repoVolume(),
+		j.archiveVolume(),
+	)
 
 	newLabels := map[string]string{}
 	for k, v := range template.ObjectMeta.Labels {
@@ -362,7 +427,7 @@ func (j TestJob) createPrepareJobTemplate(token string) (apiv1.PodTemplateSpec, 
 			Args:       args,
 			WorkingDir: j.prepareWorkingDir(stepIdx),
 			VolumeMounts: []apiv1.VolumeMount{
-				j.sharedVolumeMount(),
+				j.workspaceVolumeMount(),
 			},
 			Env: j.prepareEnv(stepIdx),
 		})
@@ -372,7 +437,8 @@ func (j TestJob) createPrepareJobTemplate(token string) (apiv1.PodTemplateSpec, 
 	return apiv1.PodTemplateSpec{
 		Spec: apiv1.PodSpec{
 			Volumes: []apiv1.Volume{
-				j.sharedVolume(),
+				j.repoVolume(),
+				j.archiveVolume(),
 			},
 			InitContainers:   initContainers,
 			Containers:       []apiv1.Container{lastContainer},
@@ -392,6 +458,9 @@ func (j TestJob) createListJobTemplate(token string) (apiv1.PodTemplateSpec, err
 	c.Args = listSpec.Args
 	c.WorkingDir = j.workingDir(c)
 	template := j.createJobTemplate(token, c)
+	if j.enabledCheckout() {
+		template.Spec.InitContainers = append(template.Spec.InitContainers, j.packRepoContainer())
+	}
 	template.ObjectMeta.Labels[listJobLabel] = fmt.Sprint(true)
 	return template, nil
 }
@@ -426,7 +495,7 @@ func (j TestJob) createTestJobTemplate(token string, tests []string) (apiv1.PodT
 	}
 	for _, cache := range j.Spec.DistributedTest.Cache {
 		cmd, args := j.escapedCommand(cache.Command)
-		volumeMounts := append(c.VolumeMounts, j.sharedVolumeMount(), apiv1.VolumeMount{
+		volumeMounts := append(c.VolumeMounts, j.workspaceVolumeMount(), apiv1.VolumeMount{
 			Name:      cache.Name,
 			MountPath: cache.Path,
 		})
@@ -446,6 +515,9 @@ func (j TestJob) createTestJobTemplate(token string, tests []string) (apiv1.PodT
 			},
 		})
 		template.Spec.InitContainers = append(template.Spec.InitContainers, cacheContainer)
+	}
+	if j.Spec.DistributedTest != nil && j.enabledCheckout() {
+		template.Spec.InitContainers = append(template.Spec.InitContainers, j.packRepoContainer())
 	}
 	return template, nil
 }

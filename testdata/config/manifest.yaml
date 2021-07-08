@@ -75,7 +75,7 @@ spec:
       serviceAccountName: kubetest
       containers:
         - name: kubetest
-          image: golang:1.15
+          image: golang:1.16.5-buster
           workingDir: /go/src/kubetest
           command:
             - tail
