@@ -441,7 +441,7 @@ func (r *TestJobRunner) execTests(testjob TestJob, executors []*kubejob.JobExecu
 		})
 	}
 	if err := eg.Wait(); err != nil {
-		return nil, xerrors.Errorf("failed to run tests. first occurred error: %w", err)
+		return testLogs, xerrors.Errorf("failed to run tests. first occurred error: %w", err)
 	}
 	return testLogs, nil
 }
@@ -454,6 +454,13 @@ func (r *TestJobRunner) execTest(testjob TestJob, executor *kubejob.JobExecutor)
 			r.logPrinter.DebugLog(fmt.Sprintf("failed to stop %s container", testName))
 		}
 	}()
+
+	if testjob.enabledCheckout() {
+		if _, err := executor.ExecPrepareCommand(testjob.unpackRepoCommand()); err != nil {
+			return nil, xerrors.Errorf("failed to execute prepare command for test: %w", err)
+		}
+	}
+
 	testCommand, err := testjob.testCommand(testName)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to get test command: %w", err)
@@ -488,8 +495,10 @@ func (r *TestJobRunner) execTest(testjob TestJob, executor *kubejob.JobExecutor)
 	r.logPrinter.Log(strings.Join([]string{testReport, timeReport, progressReport}, "\n") + "\n")
 
 	if err := r.syncArtifactsIfNeeded(testjob, executor, testName); err != nil {
-		r.logPrinter.DebugLog(fmt.Sprintf("failed to sync artifacts: %+v", err))
-		return nil, xerrors.Errorf("failed to sync artifacts: %w", err)
+		msg := fmt.Sprintf("failed to sync artifacts: %+v", err)
+		r.logPrinter.DebugLog(msg)
+		testLog.TestResult = TestResultFailure
+		testLog.Message.addMessage(msg)
 	}
 	return testLog, nil
 }
@@ -589,7 +598,7 @@ func (r *TestJobRunner) syncArtifactsIfNeeded(testjob TestJob, executor *kubejob
 			src = filepath.Join(executor.Container.WorkingDir, path)
 		}
 		r.logPrinter.DebugLog(fmt.Sprintf("copy %s's result file to %s", testName, outputDir))
-		if err := r.copyTextFile(executor, src, outputDir); err != nil {
+		if err := r.copyTextFileWithRetry(executor, src, outputDir); err != nil {
 			return xerrors.Errorf("failed to copy %s result from %s to %s: %w", testName, src, outputDir, err)
 		}
 	}
@@ -668,6 +677,11 @@ func (r *TestJobRunner) testList(ctx context.Context, testjob TestJob) ([]string
 			}
 			// sidecar executor
 			executor.ExecAsync()
+		}
+		if testjob.enabledCheckout() {
+			if _, err := listExecutor.ExecPrepareCommand(testjob.unpackRepoCommand()); err != nil {
+				return xerrors.Errorf("failed to execute prepare command for test: %w", err)
+			}
 		}
 		out, err := listExecutor.Exec()
 		listResult = string(out)
