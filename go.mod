@@ -4,8 +4,9 @@ go 1.14
 
 require (
 	github.com/go-logr/logr v0.4.0
-	github.com/goccy/kubejob v0.2.5-0.20210707094047-a96dbcd38451
+	github.com/goccy/kubejob v0.2.5-0.20210708031708-23205f758f98
 	github.com/jessevdk/go-flags v1.5.0
+	github.com/lestrrat-go/backoff v1.0.1 // indirect
 	github.com/onsi/ginkgo v1.16.2
 	github.com/onsi/gomega v1.12.0
 	github.com/rs/xid v1.3.0

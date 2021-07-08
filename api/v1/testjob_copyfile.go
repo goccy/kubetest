@@ -3,6 +3,7 @@ package v1
 import (
 	"archive/tar"
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -10,13 +11,52 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/goccy/kubejob"
+	"github.com/lestrrat-go/backoff"
 	"golang.org/x/xerrors"
 	apiv1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/tools/remotecommand"
+	executil "k8s.io/client-go/util/exec"
 	"k8s.io/kubectl/pkg/scheme"
 )
+
+var (
+	copyMaxRetryCount = 8
+)
+
+func (r *TestJobRunner) copyTextFileWithRetry(executor *kubejob.JobExecutor, src, outputDir string) error {
+	var err error
+	policy := backoff.NewExponential(
+		backoff.WithInterval(1*time.Second),
+		backoff.WithMaxRetries(copyMaxRetryCount),
+	)
+	b, cancel := policy.Start(context.Background())
+	defer cancel()
+
+	retryCount := 0
+	for backoff.Continue(b) {
+		err = r.copyTextFile(executor, src, outputDir)
+		if err != nil {
+			if _, ok := err.(executil.ExitError); ok {
+				break
+			}
+			// cannot connect to Pod. retry....
+			r.logPrinter.DebugLog(fmt.Sprintf(
+				"[WARN] failed to copy at %s (%s). retry: %d/%d",
+				executor.Container.Name,
+				err,
+				retryCount,
+				copyMaxRetryCount,
+			))
+			retryCount++
+			continue
+		}
+		break
+	}
+	return err
+}
 
 func (r *TestJobRunner) copyTextFile(executor *kubejob.JobExecutor, src, outputDir string) (e error) {
 	pod := executor.Pod
@@ -71,7 +111,6 @@ func (r *TestJobRunner) copyTextFile(executor *kubejob.JobExecutor, src, outputD
 			e = xerrors.Errorf("failed to close file: %w", err)
 		}
 	}()
-	r.logPrinter.DebugLog(buf.String())
 	if _, err := io.Copy(outFile, buf); err != nil {
 		return xerrors.Errorf("failed to copy: %w", err)
 	}
