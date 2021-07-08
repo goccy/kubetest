@@ -346,11 +346,17 @@ func (j TestJob) testContainers(extraContainers ...apiv1.Container) []apiv1.Cont
 			continue
 		}
 		container.VolumeMounts = append(container.VolumeMounts, j.archiveVolumeMount())
+		if j.Spec.DistributedTest == nil {
+			container.VolumeMounts = append(container.VolumeMounts, j.workspaceVolumeMount())
+		}
 		testContainers = append(testContainers, container)
 	}
 	for _, container := range extraContainers {
 		container := container
 		container.VolumeMounts = append(container.VolumeMounts, j.archiveVolumeMount())
+		if j.Spec.DistributedTest == nil {
+			container.VolumeMounts = append(container.VolumeMounts, j.workspaceVolumeMount())
+		}
 		testContainers = append(testContainers, container)
 	}
 	return testContainers
@@ -510,7 +516,7 @@ func (j TestJob) createTestJobTemplate(token string, tests []string) (apiv1.PodT
 		})
 		template.Spec.InitContainers = append(template.Spec.InitContainers, cacheContainer)
 	}
-	if j.enabledCheckout() {
+	if j.Spec.DistributedTest != nil && j.enabledCheckout() {
 		template.Spec.InitContainers = append(template.Spec.InitContainers, j.packRepoContainer())
 	}
 	return template, nil
