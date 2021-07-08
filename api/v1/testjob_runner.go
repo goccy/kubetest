@@ -598,7 +598,7 @@ func (r *TestJobRunner) syncArtifactsIfNeeded(testjob TestJob, executor *kubejob
 			src = filepath.Join(executor.Container.WorkingDir, path)
 		}
 		r.logPrinter.DebugLog(fmt.Sprintf("copy %s's result file to %s", testName, outputDir))
-		if err := r.copyTextFile(executor, src, outputDir); err != nil {
+		if err := r.copyTextFileWithRetry(executor, src, outputDir); err != nil {
 			return xerrors.Errorf("failed to copy %s result from %s to %s: %w", testName, src, outputDir, err)
 		}
 	}
