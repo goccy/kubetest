@@ -70,7 +70,16 @@ type LogSpec struct {
 type Command string
 
 type TestJobToken struct {
-	SecretKeyRef TestJobSecretKeyRef `json:"secretKeyRef"`
+	GitHubApp   *GitHubAppTokenSpec       `json:"githubApp,omitempty"`
+	GitHubToken *corev1.SecretKeySelector `json:"githubToken,omitempty"`
+	Token       *corev1.SecretKeySelector `json:"secretKeyRef,omitempty"`
+}
+
+type GitHubAppTokenSpec struct {
+	Organization   string                    `json:"organization,omitempty"`
+	AppID          int64                     `json:"appId"`
+	InstallationID int64                     `json:"installationId,omitempty"`
+	KeyFile        *corev1.SecretKeySelector `json:"keyFile"`
 }
 
 type TestJobSecretKeyRef struct {

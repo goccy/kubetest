@@ -1,13 +1,13 @@
-package v1
+package kubetest
 
 import (
 	"testing"
 )
 
 func TestMask(t *testing.T) {
-	msg := newMaskedMessage("", []string{"awesome-secret", "awesome-password"})
-	msg.addMessage("aaaaa awesome-secret bbbb")
-	msg.addMessage("ccccc awesome-password dddd")
+	msg := NewMaskedMessage("", []string{"awesome-secret", "awesome-password"})
+	msg.AddMessage("aaaaa awesome-secret bbbb")
+	msg.AddMessage("ccccc awesome-password dddd")
 
 	expected := "aaaaa ************** bbbbccccc **************** dddd"
 	actual := msg.String()

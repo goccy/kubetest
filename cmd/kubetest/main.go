@@ -191,9 +191,11 @@ func _main(args []string, opt option) error {
 		name := splitted[0]
 		key := splitted[1]
 		job.Spec.Git.Token = &kubetestv1.TestJobToken{
-			SecretKeyRef: kubetestv1.TestJobSecretKeyRef{
-				Name: name,
-				Key:  key,
+			Token: &corev1.SecretKeySelector{
+				LocalObjectReference: corev1.LocalObjectReference{
+					Name: name,
+				},
+				Key: key,
 			},
 		}
 	}
