@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/goccy/kubejob"
+	"github.com/goccy/kubetest/internal/kubetest"
 	"github.com/rs/xid"
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/xerrors"
@@ -52,57 +53,11 @@ type TestResultLogDetail struct {
 	Tests []*TestLog `json:"tests"`
 }
 
-type MaskedMessage struct {
-	msg   string
-	masks []string
-	mu    sync.Mutex
-}
-
-func newMaskedMessage(msg string, masks []string) *MaskedMessage {
-	return &MaskedMessage{msg: msg, masks: masks}
-}
-
-func (m *MaskedMessage) addMessage(msg string) {
-	m.mu.Lock()
-	m.msg += msg
-	m.mu.Unlock()
-}
-
-func (m *MaskedMessage) addMask(mask string) {
-	m.mu.Lock()
-	m.masks = append(m.masks, mask)
-	m.mu.Unlock()
-}
-
-func (m *MaskedMessage) Filter(msg string) string {
-	m.mu.Lock()
-	masks := m.masks
-	m.mu.Unlock()
-	return m.mask(msg, masks)
-}
-
-func (m *MaskedMessage) mask(msg string, masks []string) string {
-	maskedMsg := msg
-	for _, mask := range masks {
-		genMaskText := strings.Repeat("*", len(mask))
-		maskedMsg = strings.Replace(maskedMsg, mask, genMaskText, -1)
-	}
-	return maskedMsg
-}
-
-func (m *MaskedMessage) String() string {
-	m.mu.Lock()
-	msg := m.msg
-	masks := m.masks
-	m.mu.Unlock()
-	return m.mask(msg, masks)
-}
-
 type TestLog struct {
-	Name           string         `json:"name"`
-	TestResult     TestResult     `json:"testResult"`
-	ElapsedTimeSec int            `json:"elapsedTimeSec"`
-	Message        *MaskedMessage `json:"-"`
+	Name           string                  `json:"name"`
+	TestResult     TestResult              `json:"testResult"`
+	ElapsedTimeSec int                     `json:"elapsedTimeSec"`
+	Message        *kubetest.MaskedMessage `json:"-"`
 }
 
 type TestJobRunner struct {
@@ -114,7 +69,7 @@ type TestJobRunner struct {
 	logger             func(*kubejob.ContainerLog)
 	config             *rest.Config
 	clientSet          *kubernetes.Clientset
-	logPrinter         *Logger
+	logPrinter         *kubetest.Logger
 	masks              []string
 	testCountMu        sync.Mutex
 	testCount          uint
@@ -129,7 +84,7 @@ func NewTestJobRunner(config *rest.Config) (*TestJobRunner, error) {
 	return &TestJobRunner{
 		config:     config,
 		clientSet:  cs,
-		logPrinter: newLogger(),
+		logPrinter: kubetest.NewLogger(),
 	}, nil
 }
 
@@ -210,22 +165,23 @@ func (r *TestJobRunner) run(ctx context.Context, testjob TestJob) ([]*TestLog, e
 }
 
 func (r *TestJobRunner) setGitToken(ctx context.Context, testjob TestJob) error {
-	jobToken := testjob.gitToken()
-	if jobToken == nil {
+	cli := &tokenClient{
+		clientSet: r.clientSet,
+		namespace: testjob.Namespace,
+	}
+	gitToken := testjob.gitToken()
+	if gitToken == nil {
 		return nil
 	}
-	secret, err := r.clientSet.CoreV1().
-		Secrets(testjob.Namespace).
-		Get(ctx, jobToken.SecretKeyRef.Name, metav1.GetOptions{})
+	token, err := gitToken.AccessToken(ctx, cli)
 	if err != nil {
-		return xerrors.Errorf("failed to read secret for git token: %w", err)
+		return xerrors.Errorf("failed to get token: %w", err)
 	}
-	data, exists := secret.Data[jobToken.SecretKeyRef.Key]
-	if !exists {
-		return xerrors.Errorf("not found token: %s", jobToken.SecretKeyRef.Key)
+	if token == "" {
+		return nil
 	}
-	r.token = strings.TrimSpace(string(data))
-	r.logPrinter.addMask(r.token)
+	r.token = token
+	r.logPrinter.AddMask(r.token)
 	r.masks = append(r.masks, r.token)
 	return nil
 }
@@ -472,19 +428,19 @@ func (r *TestJobRunner) execTest(testjob TestJob, executor *kubejob.JobExecutor)
 	testLog := &TestLog{
 		Name:           testName,
 		ElapsedTimeSec: int(time.Since(start).Seconds()),
-		Message:        newMaskedMessage(string(out), r.masks),
+		Message:        kubetest.NewMaskedMessage(string(out), r.masks),
 	}
 
 	var testReport string
 	if err == nil {
 		testLog.TestResult = TestResultSuccess
-		testReport = fmt.Sprintf("%s\n%s", testCommand, newMaskedMessage(string(out), r.masks))
+		testReport = fmt.Sprintf("%s\n%s", testCommand, kubetest.NewMaskedMessage(string(out), r.masks))
 	} else {
 		testLog.TestResult = TestResultFailure
 		testReport = fmt.Sprintf(
 			"%s\n%s\n%s\nerror pod: %s container: %s",
 			testCommand,
-			newMaskedMessage(string(out), r.masks),
+			kubetest.NewMaskedMessage(string(out), r.masks),
 			err,
 			executor.Pod.Name,
 			executor.Container.Name,
@@ -498,7 +454,7 @@ func (r *TestJobRunner) execTest(testjob TestJob, executor *kubejob.JobExecutor)
 		msg := fmt.Sprintf("failed to sync artifacts: %+v", err)
 		r.logPrinter.DebugLog(msg)
 		testLog.TestResult = TestResultFailure
-		testLog.Message.addMessage(msg)
+		testLog.Message.AddMessage(msg)
 	}
 	return testLog, nil
 }
@@ -519,10 +475,10 @@ func (r *TestJobRunner) runTests(ctx context.Context, testjob TestJob, tests []s
 	if err != nil {
 		return nil, xerrors.Errorf("failed to create kubejob for test: %w", err)
 	}
-	initContainersLog := newMaskedMessage("", r.masks)
+	initContainersLog := kubetest.NewMaskedMessage("", r.masks)
 	job.SetContainerLogger(func(log *kubejob.ContainerLog) {
 		if r.isInitContainer(job, log.Container) {
-			initContainersLog.addMessage(log.Log)
+			initContainersLog.AddMessage(log.Log)
 		}
 	})
 	job.DisableCommandLog()
@@ -653,14 +609,14 @@ func (r *TestJobRunner) testList(ctx context.Context, testjob TestJob) ([]string
 		return nil, xerrors.Errorf("failed to create list job: %w", err)
 	}
 	var (
-		initContainersLog = newMaskedMessage("", r.masks)
-		containerLog      = newMaskedMessage("", r.masks)
+		initContainersLog = kubetest.NewMaskedMessage("", r.masks)
+		containerLog      = kubetest.NewMaskedMessage("", r.masks)
 	)
 	listjob.SetContainerLogger(func(log *kubejob.ContainerLog) {
 		if r.isInitContainer(listjob, log.Container) {
-			initContainersLog.addMessage(log.Log)
+			initContainersLog.AddMessage(log.Log)
 		} else {
-			containerLog.addMessage(log.Log)
+			containerLog.AddMessage(log.Log)
 		}
 	})
 	listjob.DisableCommandLog()
