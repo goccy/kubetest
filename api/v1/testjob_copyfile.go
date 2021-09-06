@@ -79,7 +79,10 @@ func (r *TestJobRunner) copyTextFile(executor *kubejob.JobExecutor, src, outputD
 		return xerrors.Errorf("failed to create spdy executor: %w", err)
 	}
 	reader, writer := io.Pipe()
-	var streamErr error
+	var (
+		streamErr   error
+		errCapturer bytes.Buffer
+	)
 	go func() {
 		defer func() {
 			writer.Close()
@@ -87,19 +90,20 @@ func (r *TestJobRunner) copyTextFile(executor *kubejob.JobExecutor, src, outputD
 		streamErr = exec.Stream(remotecommand.StreamOptions{
 			Stdin:  nil,
 			Stdout: writer,
-			Stderr: ioutil.Discard,
+			Stderr: &errCapturer,
 			Tty:    false,
 		})
 	}()
 	buf := new(bytes.Buffer)
 	if _, err := buf.ReadFrom(reader); err != nil {
+		cmdErrText := errCapturer.String()
 		if streamErr != nil {
-			return xerrors.Errorf("failed to read buffer %s (%s): %w", src, streamErr, err)
+			return xerrors.Errorf("failed to read content %s (%s %s): %w", src, cmdErrText, streamErr, err)
 		}
-		return xerrors.Errorf("failed to read buffer: %w", err)
+		return xerrors.Errorf("failed to read content %s: %w", cmdErrText, err)
 	}
 	if streamErr != nil {
-		return xerrors.Errorf("failed to read buffer %s: %w", src, streamErr)
+		return xerrors.Errorf("failed to read content %s %s: %w", errCapturer.String(), src, streamErr)
 	}
 	destFileName := filepath.Join(outputDir, filepath.Base(src))
 	outFile, err := os.Create(destFileName)
