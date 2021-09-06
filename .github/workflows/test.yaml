@@ -20,6 +20,6 @@ jobs:
       run: |
         timeout 800 make test
     - uses: codecov/codecov-action@v2
-        with:
-          fail_ci_if_error: true
-          verbose: true
+      with:
+        fail_ci_if_error: true
+        verbose: true
