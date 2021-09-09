@@ -412,8 +412,9 @@ func (r *TestJobRunner) execTest(testjob TestJob, executor *kubejob.JobExecutor)
 	}()
 
 	if testjob.enabledCheckout() {
-		if _, err := executor.ExecPrepareCommand(testjob.unpackRepoCommand()); err != nil {
-			return nil, xerrors.Errorf("failed to execute prepare command for test: %w", err)
+		out, err := executor.ExecPrepareCommand(testjob.unpackRepoCommand())
+		if err != nil {
+			return nil, xerrors.Errorf("failed to execute prepare command for test. command log [%s]: %w", string(out), err)
 		}
 	}
 
