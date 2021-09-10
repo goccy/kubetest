@@ -636,8 +636,9 @@ func (r *TestJobRunner) testList(ctx context.Context, testjob TestJob) ([]string
 			executor.ExecAsync()
 		}
 		if testjob.enabledCheckout() {
-			if _, err := listExecutor.ExecPrepareCommand(testjob.unpackRepoCommand()); err != nil {
-				return xerrors.Errorf("failed to execute prepare command for test: %w", err)
+			out, err := listExecutor.ExecPrepareCommand(testjob.unpackRepoCommand())
+			if err != nil {
+				return xerrors.Errorf("failed to execute prepare command for test. command log [%s]: %w", string(out), err)
 			}
 		}
 		out, err := listExecutor.Exec()
