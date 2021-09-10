@@ -614,15 +614,19 @@ func (j TestJob) splitTest(src string) ([]string, error) {
 
 	delim := j.listDelim()
 	list := strings.Split(src, delim)
-	if pattern == nil {
-		return list, nil
-	}
-
-	tests := []string{}
+	filteredList := make([]string, 0, len(list))
 	for _, name := range list {
 		if strings.TrimSpace(name) == "" {
 			continue
 		}
+		filteredList = append(filteredList, name)
+	}
+	if pattern == nil {
+		return filteredList, nil
+	}
+
+	tests := make([]string, 0, len(filteredList))
+	for _, name := range filteredList {
 		if pattern.MatchString(name) {
 			tests = append(tests, name)
 		}

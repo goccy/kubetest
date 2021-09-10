@@ -291,6 +291,7 @@ func (r *TestJobRunner) runDistributedTest(ctx context.Context, testjob TestJob)
 	if len(list) == 0 {
 		return nil, nil
 	}
+	fmt.Printf("found %d tests\n", len(list))
 	r.totalTestNum = uint(len(list))
 
 	plan := testjob.plan(list)
