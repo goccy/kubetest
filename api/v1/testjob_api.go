@@ -620,6 +620,9 @@ func (j TestJob) splitTest(src string) ([]string, error) {
 
 	tests := []string{}
 	for _, name := range list {
+		if strings.TrimSpace(name) == "" {
+			continue
+		}
 		if pattern.MatchString(name) {
 			tests = append(tests, name)
 		}
