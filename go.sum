@@ -183,8 +183,8 @@ github.com/go-openapi/validate v0.19.8/go.mod h1:8DJv2CVJQ6kGNpFW6eV9N3JviE1C85n
 github.com/go-stack/stack v1.8.0/go.mod h1:v0f6uXyyMGvRgIKkXu+yp6POWl0qKG85gN/melR3HDY=
 github.com/go-task/slim-sprig v0.0.0-20210107165309-348f09dbbbc0/go.mod h1:fyg7847qk6SyHyPtNmDHnmrv/HOrqktSC+C9fM+CJOE=
 github.com/gobuffalo/here v0.6.0/go.mod h1:wAG085dHOYqUpf+Ap+WOdrPTp5IYcDAs/x7PLa8Y5fM=
-github.com/goccy/kubejob v0.2.7 h1:ZEEgkbFGAHq6d1fWPKf/nFQY0VCv+1GsHywNBq0u4dA=
-github.com/goccy/kubejob v0.2.7/go.mod h1:u8pBGV3XWjnW4k38Q6rXtYLrCCvFkaL2dvzj+8/pJZI=
+github.com/goccy/kubejob v0.2.8 h1:ncWig84Tu2kb9irzarwar1xCgj6o3zYpnEXdpp6J49M=
+github.com/goccy/kubejob v0.2.8/go.mod h1:u8pBGV3XWjnW4k38Q6rXtYLrCCvFkaL2dvzj+8/pJZI=
 github.com/gogo/protobuf v1.1.1/go.mod h1:r8qH/GZQm5c6nD/R0oafs1akxWv10x8SbQlK7atdtwQ=
 github.com/gogo/protobuf v1.2.1/go.mod h1:hp+jE20tsWTFYpLwKvXlhS1hjn+gTNwPg2I6zVXpSg4=
 github.com/gogo/protobuf v1.3.1/go.mod h1:SlYgWuQ5SjCEi6WLHjHCa1yvBfUnHcTbrrZtXPKa29o=
