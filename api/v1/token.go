@@ -13,9 +13,62 @@ import (
 	"k8s.io/client-go/kubernetes"
 )
 
+const (
+	tokenSecretName = "kubetest-git-token-"
+	tokenSecretKey  = "kubetest-git-token-secret"
+)
+
 type tokenClient struct {
 	clientSet *kubernetes.Clientset
 	namespace string
+}
+
+func (t *TestJobToken) canUseSecretDirectly() bool {
+	return t.GitHubToken != nil || t.Token != nil
+}
+
+func (t *TestJobToken) getTokenSecret() *corev1.SecretKeySelector {
+	if t.GitHubToken != nil {
+		return t.GitHubToken
+	}
+	if t.Token != nil {
+		return t.Token
+	}
+	return nil
+}
+
+func boolptr(v bool) *bool {
+	return &v
+}
+
+func (t *TestJobToken) createSecret(ctx context.Context, cli *tokenClient, token string) (*corev1.SecretKeySelector, error) {
+	secret, err := cli.clientSet.CoreV1().
+		Secrets(cli.namespace).
+		Create(ctx, &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: tokenSecretName,
+			},
+			Immutable: boolptr(true),
+			Data: map[string][]byte{
+				tokenSecretKey: []byte(token),
+			},
+		}, metav1.CreateOptions{})
+	if err != nil {
+		return nil, xerrors.Errorf("failed to create secret for token: %w", err)
+	}
+	return &corev1.SecretKeySelector{
+		LocalObjectReference: corev1.LocalObjectReference{Name: secret.Name},
+		Key:                  tokenSecretKey,
+	}, nil
+}
+
+func (t *TestJobToken) deleteSecretBySelector(ctx context.Context, cli *tokenClient, secret *corev1.SecretKeySelector) error {
+	if err := cli.clientSet.CoreV1().
+		Secrets(cli.namespace).
+		Delete(ctx, secret.Name, metav1.DeleteOptions{}); err != nil {
+		return xerrors.Errorf("failed to delete secret for token: %w", err)
+	}
+	return nil
 }
 
 func (t *TestJobToken) AccessToken(ctx context.Context, cli *tokenClient) (string, error) {
