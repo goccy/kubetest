@@ -27,7 +27,51 @@ func init() {
 
 func Test_RunWithToken(t *testing.T) {
 	t.Parallel()
-	crd := `
+	t.Run("github token", func(t *testing.T) {
+		t.Parallel()
+		crd := `
+apiVersion: kubetest.io/v1
+kind: TestJob
+metadata:
+  name: testjob
+  namespace: default
+spec:
+  git:
+    repo: github.com/goccy/kubetest
+    branch: master
+    checkoutDir: /go/src/kubetest
+    token:
+      githubToken:
+        name: github-token
+        key: token
+  template:
+    spec:
+      containers:
+        - name: test
+          image: golang:1.15
+          command:
+            - go
+          args:
+            - test
+            - -v
+            - ./
+          workingDir: /go/src/kubetest/_examples
+`
+		runner, err := kubetestv1.NewTestJobRunner(cfg)
+		if err != nil {
+			t.Fatalf("%+v", err)
+		}
+		var job kubetestv1.TestJob
+		if err := yaml.NewYAMLOrJSONDecoder(strings.NewReader(crd), 1024).Decode(&job); err != nil {
+			t.Fatalf("%+v", err)
+		}
+		if err := runner.Run(context.Background(), job); err != nil {
+			t.Fatalf("%+v", err)
+		}
+	})
+	t.Run("github app", func(t *testing.T) {
+		t.Parallel()
+		crd := `
 apiVersion: kubetest.io/v1
 kind: TestJob
 metadata:
@@ -58,17 +102,18 @@ spec:
             - ./
           workingDir: /go/src/kubetest/_examples
 `
-	runner, err := kubetestv1.NewTestJobRunner(cfg)
-	if err != nil {
-		t.Fatalf("%+v", err)
-	}
-	var job kubetestv1.TestJob
-	if err := yaml.NewYAMLOrJSONDecoder(strings.NewReader(crd), 1024).Decode(&job); err != nil {
-		t.Fatalf("%+v", err)
-	}
-	if err := runner.Run(context.Background(), job); err != nil {
-		t.Fatalf("%+v", err)
-	}
+		runner, err := kubetestv1.NewTestJobRunner(cfg)
+		if err != nil {
+			t.Fatalf("%+v", err)
+		}
+		var job kubetestv1.TestJob
+		if err := yaml.NewYAMLOrJSONDecoder(strings.NewReader(crd), 1024).Decode(&job); err != nil {
+			t.Fatalf("%+v", err)
+		}
+		if err := runner.Run(context.Background(), job); err != nil {
+			t.Fatalf("%+v", err)
+		}
+	})
 }
 
 func Test_RunTest(t *testing.T) {
