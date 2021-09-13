@@ -16,7 +16,7 @@ import (
 const (
 	repoVolumeName    = "repo"
 	archiveVolumeName = "archive"
-	oauthTokenEnv     = "OAUTH_TOKEN"
+	accessTokenEnv    = "ACCESS_TOKEN"
 	defaultGitImage   = "alpine/git"
 	defaultBranch     = "master"
 	defaultListDelim  = "\n"
@@ -193,9 +193,9 @@ func (j TestJob) archiveVolumeMount() apiv1.VolumeMount {
 	}
 }
 
-func (j TestJob) gitCloneURL(token string) string {
-	if token != "" {
-		return fmt.Sprintf("https://$(%s)@%s.git", oauthTokenEnv, j.repo())
+func (j TestJob) gitCloneURL(requiredToken bool) string {
+	if requiredToken {
+		return fmt.Sprintf("https://x-access-token:$(%s)@%s.git", accessTokenEnv, j.repo())
 	}
 	return fmt.Sprintf("https://%s.git", j.repo())
 }
@@ -208,14 +208,20 @@ func (j TestJob) gitCloneCommand(cloneURL string) ([]string, []string) {
 	return []string{"git"}, []string{"clone", cloneURL, j.workspacePath()}
 }
 
-func (j TestJob) gitCloneContainer(token string) apiv1.Container {
-	cmd, args := j.gitCloneCommand(j.gitCloneURL(token))
+func (j TestJob) gitCloneContainer(tokenSecret *apiv1.SecretKeySelector) apiv1.Container {
+	cmd, args := j.gitCloneCommand(j.gitCloneURL(tokenSecret != nil))
+	env := []apiv1.EnvVar{}
+	if tokenSecret != nil {
+		env = append(env, apiv1.EnvVar{
+			Name: accessTokenEnv, ValueFrom: &apiv1.EnvVarSource{SecretKeyRef: tokenSecret},
+		})
+	}
 	return apiv1.Container{
 		Name:         "kubetest-init-clone",
 		Image:        j.gitImage(),
 		Command:      cmd,
 		Args:         args,
-		Env:          []apiv1.EnvVar{{Name: oauthTokenEnv, Value: token}},
+		Env:          env,
 		VolumeMounts: []apiv1.VolumeMount{j.workspaceVolumeMount()},
 	}
 }
@@ -294,16 +300,16 @@ func (j TestJob) unpackRepoCommand() []string {
 	}
 }
 
-func (j TestJob) initContainers(token string) []apiv1.Container {
+func (j TestJob) initContainers(tokenSecret *apiv1.SecretKeySelector) []apiv1.Container {
 	containers := []apiv1.Container{}
 	branch := j.branch()
 	if branch == "" && j.rev() == "" {
 		branch = defaultBranch
 	}
 	if branch != "" {
-		containers = append(containers, j.gitCloneContainer(token))
+		containers = append(containers, j.gitCloneContainer(tokenSecret))
 	} else {
-		containers = append(containers, j.gitCloneContainer(token), j.gitSwitchContainer())
+		containers = append(containers, j.gitCloneContainer(tokenSecret), j.gitSwitchContainer())
 	}
 	if j.baseBranch() != "" {
 		containers = append(containers,
@@ -315,16 +321,16 @@ func (j TestJob) initContainers(token string) []apiv1.Container {
 	return containers
 }
 
-func (j TestJob) testInitContainers(token string) []apiv1.Container {
+func (j TestJob) testInitContainers(tokenSecret *apiv1.SecretKeySelector) []apiv1.Container {
 	if j.enabledCheckout() {
-		return append(j.initContainers(token), j.Spec.Template.Spec.InitContainers...)
+		return append(j.initContainers(tokenSecret), j.Spec.Template.Spec.InitContainers...)
 	}
 	return j.Spec.Template.Spec.InitContainers
 }
 
-func (j TestJob) prepareInitContainers(token string) []apiv1.Container {
+func (j TestJob) prepareInitContainers(tokenSecret *apiv1.SecretKeySelector) []apiv1.Container {
 	if j.enabledPrepareCheckout() {
-		return j.initContainers(token)
+		return j.initContainers(tokenSecret)
 	}
 	return nil
 }
@@ -388,9 +394,9 @@ func (j TestJob) testContainerByName(name string) (apiv1.Container, error) {
 	return c, nil
 }
 
-func (j TestJob) createJobTemplate(token string, extraContainers ...apiv1.Container) apiv1.PodTemplateSpec {
+func (j TestJob) createJobTemplate(tokenSecret *apiv1.SecretKeySelector, extraContainers ...apiv1.Container) apiv1.PodTemplateSpec {
 	template := j.Spec.Template // copy template
-	template.Spec.InitContainers = j.testInitContainers(token)
+	template.Spec.InitContainers = j.testInitContainers(tokenSecret)
 	template.Spec.Containers = j.testContainers(extraContainers...)
 	template.Spec.Volumes = append(
 		template.Spec.Volumes,
@@ -413,11 +419,11 @@ func (j TestJob) createJobTemplate(token string, extraContainers ...apiv1.Contai
 	return template
 }
 
-func (j TestJob) createPrepareJobTemplate(token string) (apiv1.PodTemplateSpec, error) {
+func (j TestJob) createPrepareJobTemplate(tokenSecret *apiv1.SecretKeySelector) (apiv1.PodTemplateSpec, error) {
 	if len(j.Spec.Prepare.Steps) == 0 {
 		return apiv1.PodTemplateSpec{}, nil
 	}
-	containers := j.prepareInitContainers(token)
+	containers := j.prepareInitContainers(tokenSecret)
 	for stepIdx, step := range j.Spec.Prepare.Steps {
 		cmd, args := j.escapedCommand(step.Command)
 		containers = append(containers, apiv1.Container{
@@ -447,7 +453,7 @@ func (j TestJob) createPrepareJobTemplate(token string) (apiv1.PodTemplateSpec, 
 	}, nil
 }
 
-func (j TestJob) createListJobTemplate(token string) (apiv1.PodTemplateSpec, error) {
+func (j TestJob) createListJobTemplate(tokenSecret *apiv1.SecretKeySelector) (apiv1.PodTemplateSpec, error) {
 	c, err := j.defaultTestContainer()
 	if err != nil {
 		return apiv1.PodTemplateSpec{}, xerrors.Errorf("failed to create default test container: %w", err)
@@ -457,7 +463,7 @@ func (j TestJob) createListJobTemplate(token string) (apiv1.PodTemplateSpec, err
 	c.Command = listSpec.Command
 	c.Args = listSpec.Args
 	c.WorkingDir = j.workingDir(c)
-	template := j.createJobTemplate(token, c)
+	template := j.createJobTemplate(tokenSecret, c)
 	if j.enabledCheckout() {
 		template.Spec.InitContainers = append(template.Spec.InitContainers, j.packRepoContainer())
 	}
@@ -470,7 +476,7 @@ func (j TestJob) escapedCommand(cmd Command) ([]string, []string) {
 	return []string{"sh"}, []string{"-c", fmt.Sprintf("echo %s | base64 -d | sh", e)}
 }
 
-func (j TestJob) createTestJobTemplate(token string, tests []string) (apiv1.PodTemplateSpec, error) {
+func (j TestJob) createTestJobTemplate(tokenSecret *apiv1.SecretKeySelector, tests []string) (apiv1.PodTemplateSpec, error) {
 	containers := []apiv1.Container{}
 	for _, test := range tests {
 		test := test
@@ -480,7 +486,7 @@ func (j TestJob) createTestJobTemplate(token string, tests []string) (apiv1.PodT
 		}
 		containers = append(containers, container)
 	}
-	template := j.createJobTemplate(token, containers...)
+	template := j.createJobTemplate(tokenSecret, containers...)
 	template.ObjectMeta.Labels[testJobLabel] = fmt.Sprint(true)
 
 	encodedTests, err := json.Marshal(tests)
