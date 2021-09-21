@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/goccy/kubejob"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/rest"
@@ -18,13 +17,15 @@ type TaskBuilder struct {
 	cfg       *rest.Config
 	mgr       *ResourceManager
 	namespace string
+	dryRun    bool
 }
 
-func NewTaskBuilder(cfg *rest.Config, mgr *ResourceManager, namespace string) *TaskBuilder {
+func NewTaskBuilder(cfg *rest.Config, mgr *ResourceManager, namespace string, dryRun bool) *TaskBuilder {
 	return &TaskBuilder{
 		cfg:       cfg,
 		mgr:       mgr,
 		namespace: namespace,
+		dryRun:    dryRun,
 	}
 }
 
@@ -60,7 +61,8 @@ func (b *TaskBuilder) BuildWithKey(tmpl TestJobTemplateSpec, strategyKey *Strate
 		}
 		podSpec.Containers = append(sideCarContainers, containers...)
 	}
-	job, err := kubejob.NewJobBuilder(b.cfg, b.namespace).BuildWithJob(&batchv1.Job{
+	job, err := NewJobBuilder(b.cfg, b.namespace, b.dryRun).BuildWithJob(&batchv1.Job{
+		ObjectMeta: tmpl.ObjectMeta,
 		Spec: batchv1.JobSpec{
 			Template: corev1.PodTemplateSpec{
 				Spec: podSpec,
@@ -79,8 +81,8 @@ func (b *TaskBuilder) BuildWithKey(tmpl TestJobTemplateSpec, strategyKey *Strate
 	for _, artifact := range spec.Artifacts {
 		artifactMap[artifact.Container.Name] = artifact
 	}
-	copyArtifact := func(exec *kubejob.JobExecutor) error {
-		artifact, exists := artifactMap[exec.Container.Name]
+	copyArtifact := func(exec JobExecutor) error {
+		artifact, exists := artifactMap[exec.Container().Name]
 		if !exists {
 			return nil
 		}
@@ -113,14 +115,12 @@ func (b *TaskBuilder) getContainerSpecByName(spec TestJobPodSpec, name string) (
 func (b *TaskBuilder) preInitContainer(ctx *TaskBuildContext) corev1.Container {
 	return corev1.Container{
 		Name:         "preinit",
-		Image:        ctx.image,
+		Image:        ctx.preInitImage,
 		Command:      []string{"echo"},
 		Args:         []string{"-n", "preinit"},
 		VolumeMounts: ctx.preInitVolumeMounts,
 	}
 }
-
-type PreInitCallback func(*kubejob.JobExecutor) error
 
 func (b *TaskBuilder) preInitCallback(ctx *TaskBuildContext) (PreInitCallback, error) {
 	type copyPath struct {
@@ -144,7 +144,7 @@ func (b *TaskBuilder) preInitCallback(ctx *TaskBuildContext) (PreInitCallback, e
 	}); err != nil {
 		return nil, err
 	}
-	return func(exec *kubejob.JobExecutor) error {
+	return func(exec JobExecutor) error {
 		for _, path := range copyPaths {
 			if err := exec.CopyToPod(path.src, path.dst); err != nil {
 				return err
@@ -156,7 +156,7 @@ func (b *TaskBuilder) preInitCallback(ctx *TaskBuildContext) (PreInitCallback, e
 
 func (b *TaskBuilder) getCopyPathForRepository(ctx *TaskBuildContext, cb func(src, dst string)) error {
 	for name, dst := range ctx.repoToPath {
-		src, err := b.mgr.repoMgr.ClonedPathByRepoName(name)
+		src, err := b.mgr.RepositoryPathByName(name)
 		if err != nil {
 			return err
 		}
@@ -167,18 +167,18 @@ func (b *TaskBuilder) getCopyPathForRepository(ctx *TaskBuildContext, cb func(sr
 
 func (b *TaskBuilder) getCopyPathForToken(ctx *TaskBuildContext, cb func(src, dst string)) error {
 	for name, dst := range ctx.tokenToPath {
-		token, err := b.mgr.tokenMgr.TokenByName(context.Background(), name)
+		src, err := b.mgr.TokenPathByName(context.Background(), name)
 		if err != nil {
 			return err
 		}
-		cb(token.File, dst)
+		cb(src, dst)
 	}
 	return nil
 }
 
 func (b *TaskBuilder) getCopyPathForArtifact(ctx *TaskBuildContext, cb func(src, dst string)) error {
 	for name, dst := range ctx.artifactToPath {
-		src, err := b.mgr.artifactMgr.LocalPathByName(name)
+		src, err := b.mgr.ArtifactPathByName(name)
 		if err != nil {
 			return err
 		}
@@ -189,7 +189,7 @@ func (b *TaskBuilder) getCopyPathForArtifact(ctx *TaskBuildContext, cb func(src,
 
 type TaskBuildContext struct {
 	spec                corev1.PodSpec
-	image               string
+	preInitImage        string
 	preInitVolumeMounts []corev1.VolumeMount
 	repoToPath          map[string]string
 	artifactToPath      map[string]string
@@ -246,26 +246,31 @@ func NewTaskBuildContextWithSpec(spec TestJobPodSpec) *TaskBuildContext {
 			})
 		}
 	}
+	setPreInitImage(ctx, spec)
 	ctx.spec = spec.PodSpec
+	return ctx
+}
+
+func setPreInitImage(ctx *TaskBuildContext, spec TestJobPodSpec) {
 	if len(ctx.preInitVolumeMounts) == 0 {
-		return ctx
+		// no pre-initialization process required
+		return
 	}
 	mountName := ctx.preInitVolumeMounts[0].Name
 	for _, container := range spec.InitContainers {
 		for _, volumeMount := range container.VolumeMounts {
 			if volumeMount.Name == mountName {
-				ctx.image = container.Image
-				return ctx
+				ctx.preInitImage = container.Image
+				return
 			}
 		}
 	}
 	for _, container := range spec.Containers {
 		for _, volumeMount := range container.VolumeMounts {
 			if volumeMount.Name == mountName {
-				ctx.image = container.Image
-				return ctx
+				ctx.preInitImage = container.Image
+				return
 			}
 		}
 	}
-	return ctx
 }

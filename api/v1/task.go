@@ -5,48 +5,67 @@ package v1
 
 import (
 	"context"
+	"sync"
 
-	"github.com/goccy/kubejob"
 	"golang.org/x/sync/errgroup"
 	corev1 "k8s.io/api/core/v1"
 )
 
 type Task struct {
-	job                    *kubejob.Job
+	job                    Job
 	artifactContainerNames map[string]ArtifactSpec
-	copyArtifact           func(*kubejob.JobExecutor) error
+	copyArtifact           func(JobExecutor) error
 	strategyKey            *StrategyKey
 }
 
-func (t *Task) Run(ctx context.Context) error {
-	return t.job.RunWithExecutionHandler(ctx, func(executors []*kubejob.JobExecutor) error {
+func (t *Task) Run(ctx context.Context) (*TaskResult, error) {
+	var result TaskResult
+	if err := t.job.RunWithExecutionHandler(ctx, func(executors []JobExecutor) error {
 		for _, sidecar := range t.sideCarExecutors(executors) {
 			sidecar.ExecAsync()
 		}
 		subTasks := t.getSubTasks(t.mainExecutors(executors))
-		for _, subTaskGroup := range t.strategyKey.SubTaskScheduler.Schedule(subTasks) {
-			if err := subTaskGroup.Run(ctx); err != nil {
+		if t.strategyKey == nil {
+			group, err := NewSubTaskGroup(subTasks).Run(ctx)
+			if err != nil {
 				return err
 			}
+			result.add(group)
+			return nil
+		}
+		for _, subTaskGroup := range t.strategyKey.SubTaskScheduler.Schedule(subTasks) {
+			group, err := subTaskGroup.Run(ctx)
+			if err != nil {
+				return err
+			}
+			result.add(group)
 		}
 		return nil
-	})
+	}); err != nil {
+		return nil, err
+	}
+	return &result, nil
 }
 
-func (t *Task) getSubTasks(execs []*kubejob.JobExecutor) []*SubTask {
+func (t *Task) getSubTasks(execs []JobExecutor) []*SubTask {
 	tasks := make([]*SubTask, 0, len(execs))
 	for _, exec := range execs {
+		container := exec.Container()
 		tasks = append(tasks, &SubTask{
+			Name:         t.getKeyName(container),
 			exec:         exec,
-			hasArtifact:  t.hasArtifact(exec.Container),
+			hasArtifact:  t.hasArtifact(container),
 			copyArtifact: t.copyArtifact,
 		})
 	}
 	return tasks
 }
 
-func (t *Task) mainExecutors(executors []*kubejob.JobExecutor) []*kubejob.JobExecutor {
-	mainExecs := make([]*kubejob.JobExecutor, 0, len(executors))
+func (t *Task) mainExecutors(executors []JobExecutor) []JobExecutor {
+	if len(executors) == 1 {
+		return executors
+	}
+	mainExecs := make([]JobExecutor, 0, len(executors))
 	for _, exec := range executors {
 		if t.isMainExecutor(exec) {
 			mainExecs = append(mainExecs, exec)
@@ -55,8 +74,11 @@ func (t *Task) mainExecutors(executors []*kubejob.JobExecutor) []*kubejob.JobExe
 	return mainExecs
 }
 
-func (t *Task) sideCarExecutors(executors []*kubejob.JobExecutor) []*kubejob.JobExecutor {
-	sideCarExecs := make([]*kubejob.JobExecutor, 0, len(executors))
+func (t *Task) sideCarExecutors(executors []JobExecutor) []JobExecutor {
+	if len(executors) == 1 {
+		return nil
+	}
+	sideCarExecs := make([]JobExecutor, 0, len(executors))
 	for _, exec := range executors {
 		if !t.isMainExecutor(exec) {
 			sideCarExecs = append(sideCarExecs, exec)
@@ -65,8 +87,8 @@ func (t *Task) sideCarExecutors(executors []*kubejob.JobExecutor) []*kubejob.Job
 	return sideCarExecs
 }
 
-func (t *Task) isMainExecutor(exec *kubejob.JobExecutor) bool {
-	return t.mainContainer(exec.Container)
+func (t *Task) isMainExecutor(exec JobExecutor) bool {
+	return t.mainContainer(exec.Container())
 }
 
 func (t *Task) mainContainer(container corev1.Container) bool {
@@ -76,6 +98,19 @@ func (t *Task) mainContainer(container corev1.Container) bool {
 func (t *Task) hasArtifact(container corev1.Container) bool {
 	_, exists := t.artifactContainerNames[container.Name]
 	return exists
+}
+
+func (t *Task) getKeyName(container corev1.Container) string {
+	if t.strategyKey == nil {
+		return container.Name
+	}
+	envName := t.strategyKey.Env
+	for _, env := range container.Env {
+		if env.Name == envName {
+			return env.Value
+		}
+	}
+	return container.Name
 }
 
 func (t *Task) hasKeyEnv(container corev1.Container) bool {
@@ -101,13 +136,43 @@ func NewTaskGroup(tasks []*Task) *TaskGroup {
 	}
 }
 
-func (g *TaskGroup) Run(ctx context.Context) error {
-	var eg errgroup.Group
+func (g *TaskGroup) Run(ctx context.Context) (*TaskResultGroup, error) {
+	var (
+		eg errgroup.Group
+		rg TaskResultGroup
+	)
 	for _, task := range g.tasks {
 		task := task
 		eg.Go(func() error {
-			return task.Run(ctx)
+			result, err := task.Run(ctx)
+			if err != nil {
+				return err
+			}
+			rg.add(result)
+			return nil
 		})
 	}
-	return eg.Wait()
+	if err := eg.Wait(); err != nil {
+		return nil, err
+	}
+	return &rg, nil
+}
+
+type TaskResult struct {
+	groups []*SubTaskResultGroup
+}
+
+func (r *TaskResult) add(group *SubTaskResultGroup) {
+	r.groups = append(r.groups, group)
+}
+
+type TaskResultGroup struct {
+	results []*TaskResult
+	mu      sync.Mutex
+}
+
+func (g *TaskResultGroup) add(result *TaskResult) {
+	g.mu.Lock()
+	g.results = append(g.results, result)
+	g.mu.Unlock()
 }

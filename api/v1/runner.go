@@ -13,29 +13,54 @@ import (
 type Runner struct {
 	cfg       *rest.Config
 	clientset *kubernetes.Clientset
+	dryRun    bool
 }
 
-func (r *Runner) Run(ctx context.Context, testjob TestJob) error {
-	resourceMgr := NewResourceManager(r.clientset, testjob)
+func NewRunner(cfg *rest.Config, dryRun bool) *Runner {
+	return &Runner{
+		cfg:    cfg,
+		dryRun: dryRun,
+	}
+}
+
+func (r *Runner) Run(ctx context.Context, testjob TestJob) (*Result, error) {
+	clientset, err := kubernetes.NewForConfig(r.cfg)
+	if err != nil {
+		return nil, err
+	}
+	resourceMgr := NewResourceManager(clientset, testjob)
+	if err := resourceMgr.Setup(ctx); err != nil {
+		return nil, err
+	}
 	defer resourceMgr.Cleanup()
-	builder := NewTaskBuilder(r.cfg, resourceMgr, testjob.Namespace)
+	builder := NewTaskBuilder(r.cfg, resourceMgr, testjob.Namespace, r.dryRun)
+	var result Result
 	for _, step := range testjob.Spec.PreSteps {
 		task, err := builder.Build(step.Template)
 		if err != nil {
-			return err
+			return nil, err
 		}
-		if err := task.Run(ctx); err != nil {
-			return err
+		preStepResult, err := task.Run(ctx)
+		if err != nil {
+			return nil, err
 		}
+		result.preStepResults = append(result.preStepResults, preStepResult)
 	}
 	scheduler := NewTaskScheduler(testjob.Spec.Strategy, builder)
 	taskGroup, err := scheduler.Schedule(ctx, testjob.Spec.Template)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	if err := taskGroup.Run(ctx); err != nil {
-		return err
+	taskResult, err := taskGroup.Run(ctx)
+	if err != nil {
+		return nil, err
 	}
+	result.taskResult = taskResult
 	// copy final artifact
-	return nil
+	return &result, nil
+}
+
+type Result struct {
+	preStepResults []*TaskResult
+	taskResult     *TaskResultGroup
 }

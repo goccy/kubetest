@@ -23,7 +23,7 @@ func (e *RepositoryError) Error() string {
 }
 
 func errInvalidRepoName(name string) error {
-	return &RepositoryError{Msg: fmt.Sprintf("specified undefined repository name %s", name)}
+	return &RepositoryError{Msg: fmt.Sprintf("%s is undefined repository name", name)}
 }
 
 type ArtifactError struct {

@@ -96,9 +96,11 @@ func (s *TaskScheduler) dynamicKeys(ctx context.Context, source *StrategyDynamic
 	if err != nil {
 		return nil, err
 	}
-	if err := keyTask.Run(ctx); err != nil {
+	result, err := keyTask.Run(ctx)
+	if err != nil {
 		return nil, err
 	}
+	_ = result
 	var out []byte // TODO assign output
 	filter, err := s.sourceFilter(source.Filter)
 	if err != nil {

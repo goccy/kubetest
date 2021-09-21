@@ -6,26 +6,17 @@ package v1
 import (
 	"context"
 	"fmt"
+	"sync"
 
-	"github.com/goccy/kubejob"
 	"golang.org/x/sync/errgroup"
+	corev1 "k8s.io/api/core/v1"
 )
 
 type SubTask struct {
-	exec         *kubejob.JobExecutor
+	Name         string
+	exec         JobExecutor
 	hasArtifact  bool
-	copyArtifact func(*kubejob.JobExecutor) error
-}
-
-type TaskResultStatus int
-
-const (
-	TaskResultSuccess TaskResultStatus = iota
-	TaskResultFailure
-)
-
-type SubTaskResult struct {
-	Status TaskResultStatus
+	copyArtifact func(JobExecutor) error
 }
 
 func (t *SubTask) Run(ctx context.Context) (*SubTaskResult, error) {
@@ -34,9 +25,14 @@ func (t *SubTask) Run(ctx context.Context) (*SubTaskResult, error) {
 			fmt.Printf("failed to stop %s", err)
 		}
 	}()
-	result := &SubTaskResult{}
 	out, err := t.exec.ExecOnly()
-	fmt.Println("out = ", string(out))
+	result := &SubTaskResult{
+		Out:       out,
+		Err:       err,
+		Name:      t.Name,
+		Container: t.exec.Container(),
+		Pod:       t.exec.Pod(),
+	}
 	if err == nil {
 		result.Status = TaskResultSuccess
 	} else {
@@ -45,6 +41,7 @@ func (t *SubTask) Run(ctx context.Context) (*SubTaskResult, error) {
 	if t.hasArtifact {
 		if err := t.copyArtifact(t.exec); err != nil {
 			result.Status = TaskResultFailure
+			result.ArtifactErr = err
 		}
 	}
 	return result, nil
@@ -60,8 +57,11 @@ func NewSubTaskGroup(tasks []*SubTask) *SubTaskGroup {
 	}
 }
 
-func (g *SubTaskGroup) Run(ctx context.Context) error {
-	var eg errgroup.Group
+func (g *SubTaskGroup) Run(ctx context.Context) (*SubTaskResultGroup, error) {
+	var (
+		eg errgroup.Group
+		rg SubTaskResultGroup
+	)
 	for _, task := range g.tasks {
 		task := task
 		eg.Go(func() error {
@@ -69,9 +69,40 @@ func (g *SubTaskGroup) Run(ctx context.Context) error {
 			if err != nil {
 				return err
 			}
-			fmt.Println("subtask result = ", result)
+			rg.add(result)
 			return nil
 		})
 	}
-	return eg.Wait()
+	if err := eg.Wait(); err != nil {
+		return nil, err
+	}
+	return &rg, nil
+}
+
+type TaskResultStatus int
+
+const (
+	TaskResultSuccess TaskResultStatus = iota
+	TaskResultFailure
+)
+
+type SubTaskResult struct {
+	Status      TaskResultStatus
+	Out         []byte
+	Err         error
+	ArtifactErr error
+	Name        string
+	Container   corev1.Container
+	Pod         *corev1.Pod
+}
+
+type SubTaskResultGroup struct {
+	results []*SubTaskResult
+	mu      sync.Mutex
+}
+
+func (g *SubTaskResultGroup) add(result *SubTaskResult) {
+	g.mu.Lock()
+	g.results = append(g.results, result)
+	g.mu.Unlock()
 }
