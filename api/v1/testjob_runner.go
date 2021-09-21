@@ -3,6 +3,7 @@
 
 package v1
 
+/*
 import (
 	"context"
 	"encoding/json"
@@ -113,7 +114,6 @@ func (r *TestJobRunner) Run(ctx context.Context, testjob TestJob) error {
 	if err := testjob.validate(); err != nil {
 		return xerrors.Errorf("validate error: %w", err)
 	}
-	defer r.cleanupSecret(ctx, testjob)
 	testLog := TestResultLog{Job: testjob.ObjectMeta.Name, StartedAt: time.Now()}
 
 	defer func(start time.Time) {
@@ -149,28 +149,6 @@ func (r *TestJobRunner) Run(ctx context.Context, testjob TestJob) error {
 	return nil
 }
 
-func (r *TestJobRunner) cleanupSecret(ctx context.Context, testjob TestJob) error {
-	gitToken := testjob.gitToken()
-	if gitToken == nil {
-		return nil
-	}
-	if r.tokenSecret == nil {
-		return nil
-	}
-	if gitToken.canUseSecretDirectly() {
-		return nil
-	}
-	cli := &tokenClient{
-		clientSet: r.clientSet,
-		namespace: testjob.Namespace,
-	}
-	fmt.Println("delete secret")
-	if err := gitToken.deleteSecretBySelector(ctx, cli, r.tokenSecret); err != nil {
-		return xerrors.Errorf("failed to delete secret by selector")
-	}
-	return nil
-}
-
 func (r *TestJobRunner) setGitToken(ctx context.Context, testjob TestJob) error {
 	cli := &tokenClient{
 		clientSet: r.clientSet,
@@ -192,10 +170,6 @@ func (r *TestJobRunner) setGitToken(ctx context.Context, testjob TestJob) error 
 	if gitToken.canUseSecretDirectly() {
 		r.tokenSecret = gitToken.getTokenSecret()
 	} else {
-		tokenSecret, err := gitToken.createSecret(ctx, cli, token)
-		if err != nil {
-			return xerrors.Errorf("failed to create secret: %w", err)
-		}
 		r.tokenSecret = tokenSecret
 	}
 	return nil
@@ -212,33 +186,6 @@ func (r *TestJobRunner) run(ctx context.Context, testjob TestJob) ([]*TestLog, e
 		return r.runDistributedTest(ctx, testjob)
 	}
 	return r.runTest(ctx, testjob)
-}
-
-func (r *TestJobRunner) prepare(ctx context.Context, testjob TestJob) error {
-	if !testjob.existsPrepareSteps() {
-		return nil
-	}
-	template, err := testjob.createPrepareJobTemplate(r.tokenSecret)
-	if err != nil {
-		return xerrors.Errorf("failed to create prepare job template: %w", err)
-	}
-	job, err := r.createKubeJob(testjob, template)
-	if err != nil {
-		return xerrors.Errorf("failed to create kubejob instance for prepare steps: %w", err)
-	}
-	job.DisableCommandLog()
-	if r.logger != nil {
-		job.SetContainerLogger(r.logger)
-	}
-
-	defer func(start time.Time) {
-		fmt.Fprintf(os.Stderr, "prepare: elapsed time %f sec\n", time.Since(start).Seconds())
-	}(time.Now())
-
-	if err := job.Run(ctx); err != nil {
-		return xerrors.Errorf("failed to run prepare steps: %w", err)
-	}
-	return nil
 }
 
 func (r *TestJobRunner) createKubeJob(testjob TestJob, template apiv1.PodTemplateSpec) (*kubejob.Job, error) {
@@ -691,3 +638,4 @@ func (r *TestJobRunner) testList(ctx context.Context, testjob TestJob) ([]string
 	}
 	return tests, nil
 }
+*/

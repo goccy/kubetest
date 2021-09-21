@@ -1,7 +1,7 @@
 package v1
 
+/*
 import (
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"path/filepath"
@@ -33,44 +33,7 @@ var (
 )
 
 func (j TestJob) existsPrepareSteps() bool {
-	return len(j.Spec.Prepare.Steps) > 0
-}
-
-func (j TestJob) prepareImage(step int) string {
-	if len(j.Spec.Prepare.Steps) <= step {
-		return ""
-	}
-	image := j.Spec.Prepare.Steps[step].Image
-	if image != "" {
-		return image
-	}
-	return j.Spec.Prepare.Image
-}
-
-func (j TestJob) prepareWorkingDir(step int) string {
-	if len(j.Spec.Prepare.Steps) <= step {
-		return ""
-	}
-	dir := j.Spec.Prepare.Steps[step].Workdir
-	if dir != "" {
-		return dir
-	}
-	return j.workspacePath()
-}
-
-func (j TestJob) prepareEnv(step int) []apiv1.EnvVar {
-	if len(j.Spec.Prepare.Steps) <= step {
-		return nil
-	}
-	return j.Spec.Prepare.Steps[step].Env
-}
-
-func (j TestJob) enabledPrepareCheckout() bool {
-	checkout := j.Spec.Prepare.Checkout
-	if checkout != nil && !(*checkout) {
-		return false
-	}
-	return true
+	return len(j.Spec.PreSteps) > 0
 }
 
 func (j TestJob) enabledDistributedTest() bool {
@@ -79,38 +42,6 @@ func (j TestJob) enabledDistributedTest() bool {
 
 func (j TestJob) enabledRetest() bool {
 	return j.Spec.DistributedTest.Retest
-}
-
-func (j TestJob) gitToken() *TestJobToken {
-	return j.Spec.Git.Token
-}
-
-func (j TestJob) checkoutDir() string {
-	return j.Spec.Git.CheckoutDir
-}
-
-func (j TestJob) repo() string {
-	return j.Spec.Git.Repo
-}
-
-func (j TestJob) branch() string {
-	return j.Spec.Git.Branch
-}
-
-func (j TestJob) baseBranch() string {
-	return j.Spec.Git.Merge.Base
-}
-
-func (j TestJob) rev() string {
-	return j.Spec.Git.Rev
-}
-
-func (j TestJob) gitImage() string {
-	image := j.Spec.Git.Image
-	if image != "" {
-		return image
-	}
-	return defaultGitImage
 }
 
 func (j TestJob) listDelim() string {
@@ -328,13 +259,6 @@ func (j TestJob) testInitContainers(tokenSecret *apiv1.SecretKeySelector) []apiv
 	return j.Spec.Template.Spec.InitContainers
 }
 
-func (j TestJob) prepareInitContainers(tokenSecret *apiv1.SecretKeySelector) []apiv1.Container {
-	if j.enabledPrepareCheckout() {
-		return j.initContainers(tokenSecret)
-	}
-	return nil
-}
-
 func (j TestJob) testContainerName() string {
 	if j.Spec.DistributedTest == nil {
 		return ""
@@ -419,40 +343,6 @@ func (j TestJob) createJobTemplate(tokenSecret *apiv1.SecretKeySelector, extraCo
 	return template
 }
 
-func (j TestJob) createPrepareJobTemplate(tokenSecret *apiv1.SecretKeySelector) (apiv1.PodTemplateSpec, error) {
-	if len(j.Spec.Prepare.Steps) == 0 {
-		return apiv1.PodTemplateSpec{}, nil
-	}
-	containers := j.prepareInitContainers(tokenSecret)
-	for stepIdx, step := range j.Spec.Prepare.Steps {
-		cmd, args := j.escapedCommand(step.Command)
-		containers = append(containers, apiv1.Container{
-			Name:       step.Name,
-			Image:      j.prepareImage(stepIdx),
-			Command:    cmd,
-			Args:       args,
-			WorkingDir: j.prepareWorkingDir(stepIdx),
-			VolumeMounts: []apiv1.VolumeMount{
-				j.workspaceVolumeMount(),
-			},
-			Env: j.prepareEnv(stepIdx),
-		})
-	}
-	lastContainer := containers[len(containers)-1]
-	initContainers := containers[:len(containers)-1]
-	return apiv1.PodTemplateSpec{
-		Spec: apiv1.PodSpec{
-			Volumes: []apiv1.Volume{
-				j.repoVolume(),
-				j.archiveVolume(),
-			},
-			InitContainers:   initContainers,
-			Containers:       []apiv1.Container{lastContainer},
-			ImagePullSecrets: j.Spec.Template.Spec.ImagePullSecrets,
-		},
-	}, nil
-}
-
 func (j TestJob) createListJobTemplate(tokenSecret *apiv1.SecretKeySelector) (apiv1.PodTemplateSpec, error) {
 	c, err := j.defaultTestContainer()
 	if err != nil {
@@ -469,11 +359,6 @@ func (j TestJob) createListJobTemplate(tokenSecret *apiv1.SecretKeySelector) (ap
 	}
 	template.ObjectMeta.Labels[listJobLabel] = fmt.Sprint(true)
 	return template, nil
-}
-
-func (j TestJob) escapedCommand(cmd Command) ([]string, []string) {
-	e := base64.StdEncoding.EncodeToString([]byte(string(cmd)))
-	return []string{"sh"}, []string{"-c", fmt.Sprintf("echo %s | base64 -d | sh", e)}
 }
 
 func (j TestJob) createTestJobTemplate(tokenSecret *apiv1.SecretKeySelector, tests []string) (apiv1.PodTemplateSpec, error) {
@@ -498,29 +383,6 @@ func (j TestJob) createTestJobTemplate(tokenSecret *apiv1.SecretKeySelector, tes
 	c, err := j.defaultTestContainer()
 	if err != nil {
 		return apiv1.PodTemplateSpec{}, xerrors.Errorf("failed to create default test container: %w", err)
-	}
-	for _, cache := range j.Spec.DistributedTest.Cache {
-		cmd, args := j.escapedCommand(cache.Command)
-		volumeMounts := append(c.VolumeMounts, j.workspaceVolumeMount(), apiv1.VolumeMount{
-			Name:      cache.Name,
-			MountPath: cache.Path,
-		})
-		cacheContainer := apiv1.Container{
-			Name:         cache.Name,
-			Image:        c.Image,
-			Command:      cmd,
-			Args:         args,
-			WorkingDir:   j.workingDir(c),
-			VolumeMounts: volumeMounts,
-			Env:          c.Env,
-		}
-		template.Spec.Volumes = append(template.Spec.Volumes, apiv1.Volume{
-			Name: cache.Name,
-			VolumeSource: apiv1.VolumeSource{
-				EmptyDir: &apiv1.EmptyDirVolumeSource{},
-			},
-		})
-		template.Spec.InitContainers = append(template.Spec.InitContainers, cacheContainer)
 	}
 	if j.Spec.DistributedTest != nil && j.enabledCheckout() {
 		template.Spec.InitContainers = append(template.Spec.InitContainers, j.packRepoContainer())
@@ -597,92 +459,4 @@ func (j TestJob) schedule(executors []*kubejob.JobExecutor) [][]*kubejob.JobExec
 	return scheduledExecutors
 }
 
-func (j TestJob) listPattern() (*regexp.Regexp, error) {
-	if j.Spec.DistributedTest == nil {
-		return nil, xerrors.Errorf("failed to create list pattern. Spec.DistributedTest is nil")
-	}
-	listPattern := j.Spec.DistributedTest.List.Pattern
-	if listPattern == "" {
-		return nil, nil
-	}
-	reg, err := regexp.Compile(listPattern)
-	if err != nil {
-		return nil, xerrors.Errorf("failed to compile pattern for distributed testing: %w", err)
-	}
-	return reg, nil
-}
-
-func (j TestJob) splitTest(src string) ([]string, error) {
-	pattern, err := j.listPattern()
-	if err != nil {
-		return nil, xerrors.Errorf("failed to get pattern for list: %w", err)
-	}
-
-	delim := j.listDelim()
-	list := strings.Split(src, delim)
-	filteredList := make([]string, 0, len(list))
-	for _, name := range list {
-		if strings.TrimSpace(name) == "" {
-			continue
-		}
-		filteredList = append(filteredList, name)
-	}
-	if pattern == nil {
-		return filteredList, nil
-	}
-
-	tests := make([]string, 0, len(filteredList))
-	for _, name := range filteredList {
-		if pattern.MatchString(name) {
-			tests = append(tests, name)
-		}
-	}
-	return tests, nil
-}
-
-func (j TestJob) plan(tests []string) [][]string {
-	if j.Spec.DistributedTest == nil {
-		return [][]string{tests}
-	}
-	maxContainers := j.Spec.DistributedTest.MaxContainersPerPod
-
-	if len(tests) <= maxContainers {
-		return [][]string{tests}
-	}
-	concurrent := len(tests) / maxContainers
-	plan := [][]string{}
-	sum := 0
-	for i := 0; i <= concurrent; i++ {
-		if i == concurrent {
-			plan = append(plan, tests[sum:])
-		} else {
-			plan = append(plan, tests[sum:sum+maxContainers])
-		}
-		sum += maxContainers
-	}
-	return plan
-}
-
-func (j TestJob) validate() error {
-	if err := j.validateArtifacts(); err != nil {
-		return xerrors.Errorf("invalid artifacts: %w", err)
-	}
-	return nil
-}
-
-func (j TestJob) validateArtifacts() error {
-	if j.Spec.DistributedTest == nil {
-		return nil
-	}
-	if j.Spec.DistributedTest.Artifacts == nil {
-		return nil
-	}
-	artifacts := j.Spec.DistributedTest.Artifacts
-	if len(artifacts.Paths) == 0 {
-		return xerrors.Errorf("failed to find any paths in artifacts")
-	}
-	if artifacts.Output.Path == "" {
-		return xerrors.Errorf("failed to find output path in artifacts")
-	}
-	return nil
-}
+*/

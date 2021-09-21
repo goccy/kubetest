@@ -1,5 +1,6 @@
 package v1_test
 
+/*
 import (
 	"context"
 	"os"
@@ -932,3 +933,4 @@ spec:
 		}
 	})
 }
+*/

@@ -1,5 +1,6 @@
 package v1
 
+/*
 import (
 	"archive/tar"
 	"bytes"
@@ -232,3 +233,4 @@ func getPrefix(file string) string {
 	// tar strips the leading '/' if it's there, so we will too
 	return strings.TrimLeft(file, "/")
 }
+*/
