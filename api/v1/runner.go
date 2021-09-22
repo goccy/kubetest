@@ -5,6 +5,7 @@ package v1
 
 import (
 	"context"
+	"os"
 
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -14,6 +15,7 @@ type Runner struct {
 	cfg       *rest.Config
 	clientset *kubernetes.Clientset
 	dryRun    bool
+	logger    *Logger
 }
 
 func NewRunner(cfg *rest.Config, dryRun bool) *Runner {
@@ -23,7 +25,15 @@ func NewRunner(cfg *rest.Config, dryRun bool) *Runner {
 	}
 }
 
+func (r *Runner) SetLogger(logger *Logger) {
+	r.logger = logger
+}
+
 func (r *Runner) Run(ctx context.Context, testjob TestJob) (*Result, error) {
+	if r.logger == nil {
+		r.logger = NewLogger(os.Stdout, LogLevelInfo)
+	}
+	ctx = WithLogger(ctx, r.logger)
 	clientset, err := kubernetes.NewForConfig(r.cfg)
 	if err != nil {
 		return nil, err

@@ -57,6 +57,7 @@ func (m *TokenManager) TokenByName(ctx context.Context, name string) (*Token, er
 	if err := os.WriteFile(file, []byte(value), 0666); err != nil {
 		return nil, fmt.Errorf("kubetest: failed to write token to %s: %w", file, err)
 	}
+	LoggerFromContext(ctx).AddMask(value)
 	return &Token{
 		File:  file,
 		Value: value,

@@ -51,8 +51,13 @@ func (t *Task) getSubTasks(execs []JobExecutor) []*SubTask {
 	tasks := make([]*SubTask, 0, len(execs))
 	for _, exec := range execs {
 		container := exec.Container()
+		var envName string
+		if t.strategyKey != nil {
+			envName = t.strategyKey.Env
+		}
 		tasks = append(tasks, &SubTask{
 			Name:         t.getKeyName(container),
+			KeyEnvName:   envName,
 			exec:         exec,
 			hasArtifact:  t.hasArtifact(container),
 			copyArtifact: t.copyArtifact,

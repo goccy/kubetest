@@ -6,7 +6,9 @@ package v1
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
+	"time"
 
 	"golang.org/x/sync/errgroup"
 	corev1 "k8s.io/api/core/v1"
@@ -14,32 +16,43 @@ import (
 
 type SubTask struct {
 	Name         string
+	KeyEnvName   string
 	exec         JobExecutor
 	hasArtifact  bool
 	copyArtifact func(JobExecutor) error
 }
 
 func (t *SubTask) Run(ctx context.Context) (*SubTaskResult, error) {
+	logger := LoggerFromContext(ctx)
+	logGroup := logger.Group()
 	defer func() {
 		if err := t.exec.Stop(); err != nil {
-			fmt.Printf("failed to stop %s", err)
+			logGroup.Warn("failed to stop %s", err)
 		}
+		logger.LogGroup(logGroup)
 	}()
+	start := time.Now()
 	out, err := t.exec.ExecOnly()
 	result := &SubTaskResult{
-		Out:       out,
-		Err:       err,
-		Name:      t.Name,
-		Container: t.exec.Container(),
-		Pod:       t.exec.Pod(),
+		ElapsedTime: time.Since(start),
+		Out:         out,
+		Err:         err,
+		Name:        t.Name,
+		Container:   t.exec.Container(),
+		Pod:         t.exec.Pod(),
 	}
+	logGroup.Info(result.Command())
+	logGroup.Log(string(out))
 	if err == nil {
 		result.Status = TaskResultSuccess
 	} else {
+		logGroup.Log(err.Error())
 		result.Status = TaskResultFailure
 	}
+	logGroup.Info("elapsed time: %f sec.", result.ElapsedTime.Seconds())
 	if t.hasArtifact {
 		if err := t.copyArtifact(t.exec); err != nil {
+			logGroup.Warn("failed to copy artifact: %s", err.Error())
 			result.Status = TaskResultFailure
 			result.ArtifactErr = err
 		}
@@ -88,12 +101,23 @@ const (
 
 type SubTaskResult struct {
 	Status      TaskResultStatus
+	ElapsedTime time.Duration
 	Out         []byte
 	Err         error
 	ArtifactErr error
 	Name        string
 	Container   corev1.Container
 	Pod         *corev1.Pod
+	KeyEnvName  string
+}
+
+func (r *SubTaskResult) Command() string {
+	cmd := strings.Join(append(r.Container.Command, r.Container.Args...), " ")
+	envName := r.KeyEnvName
+	if envName != "" {
+		return fmt.Sprintf("%s=%s; ", r.KeyEnvName, r.Name) + cmd
+	}
+	return cmd
 }
 
 type SubTaskResultGroup struct {

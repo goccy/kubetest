@@ -97,6 +97,9 @@ type PrepareStep struct {
 type TestJobTemplateSpec struct {
 	// ObjectMeta standard object's metadata.
 	metav1.ObjectMeta `json:"metadata,omitempty"`
+	// Main is the main container name ( not sidecar container ).
+	// If used multiple containers, this parameter must be specified.
+	Main string `json:"main"`
 	// Spec specification of the desired behavior of the pod for TestJob.
 	Spec TestJobPodSpec `json:"spec"`
 }
