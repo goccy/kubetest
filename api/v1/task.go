@@ -16,6 +16,7 @@ type Task struct {
 	artifactContainerNames map[string]ArtifactSpec
 	copyArtifact           func(JobExecutor) error
 	strategyKey            *StrategyKey
+	mainContainerName      string
 }
 
 func (t *Task) Run(ctx context.Context) (*TaskResult, error) {
@@ -61,15 +62,13 @@ func (t *Task) getSubTasks(execs []JobExecutor) []*SubTask {
 			exec:         exec,
 			hasArtifact:  t.hasArtifact(container),
 			copyArtifact: t.copyArtifact,
+			isMain:       t.isMainExecutor(exec),
 		})
 	}
 	return tasks
 }
 
 func (t *Task) mainExecutors(executors []JobExecutor) []JobExecutor {
-	if len(executors) == 1 {
-		return executors
-	}
 	mainExecs := make([]JobExecutor, 0, len(executors))
 	for _, exec := range executors {
 		if t.isMainExecutor(exec) {
@@ -80,9 +79,6 @@ func (t *Task) mainExecutors(executors []JobExecutor) []JobExecutor {
 }
 
 func (t *Task) sideCarExecutors(executors []JobExecutor) []JobExecutor {
-	if len(executors) == 1 {
-		return nil
-	}
 	sideCarExecs := make([]JobExecutor, 0, len(executors))
 	for _, exec := range executors {
 		if !t.isMainExecutor(exec) {
@@ -93,11 +89,7 @@ func (t *Task) sideCarExecutors(executors []JobExecutor) []JobExecutor {
 }
 
 func (t *Task) isMainExecutor(exec JobExecutor) bool {
-	return t.mainContainer(exec.Container())
-}
-
-func (t *Task) mainContainer(container corev1.Container) bool {
-	return t.hasArtifact(container) || t.hasKeyEnv(container)
+	return t.mainContainerName == exec.Container().Name || t.hasKeyEnv(exec.Container())
 }
 
 func (t *Task) hasArtifact(container corev1.Container) bool {
@@ -165,6 +157,18 @@ func (g *TaskGroup) Run(ctx context.Context) (*TaskResultGroup, error) {
 
 type TaskResult struct {
 	groups []*SubTaskResultGroup
+}
+
+func (r *TaskResult) MainTaskResults() []*SubTaskResult {
+	mainResults := []*SubTaskResult{}
+	for _, group := range r.groups {
+		for _, result := range group.results {
+			if result.IsMain {
+				mainResults = append(mainResults, result)
+			}
+		}
+	}
+	return mainResults
 }
 
 func (r *TaskResult) add(group *SubTaskResultGroup) {

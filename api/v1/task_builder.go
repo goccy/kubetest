@@ -37,14 +37,17 @@ func (b *TaskBuilder) BuildWithKey(tmpl TestJobTemplateSpec, strategyKey *Strate
 	spec := tmpl.Spec
 	ctx := NewTaskBuildContextWithSpec(spec)
 	podSpec := ctx.spec
+	mainContainer, err := getMainContainerFromTmpl(tmpl)
+	if err != nil {
+		return nil, err
+	}
+	if mainContainer.Name == "" {
+		return nil, fmt.Errorf("kubetest: main container name must be specified")
+	}
 	if strategyKey != nil {
-		container, err := b.getContainerSpecByName(spec, strategyKey.ContainerName)
-		if err != nil {
-			return nil, err
-		}
 		containers := []corev1.Container{}
 		for _, key := range strategyKey.Keys {
-			container := container
+			container := mainContainer
 			container.Name = ""
 			container.Env = append(container.Env, corev1.EnvVar{
 				Name:  strategyKey.Env,
@@ -54,7 +57,7 @@ func (b *TaskBuilder) BuildWithKey(tmpl TestJobTemplateSpec, strategyKey *Strate
 		}
 		sideCarContainers := []corev1.Container{}
 		for _, container := range podSpec.Containers {
-			if container.Name == strategyKey.ContainerName {
+			if container.Name == mainContainer.Name {
 				continue
 			}
 			sideCarContainers = append(sideCarContainers, container)
@@ -100,16 +103,8 @@ func (b *TaskBuilder) BuildWithKey(tmpl TestJobTemplateSpec, strategyKey *Strate
 		copyArtifact:           copyArtifact,
 		artifactContainerNames: artifactMap,
 		strategyKey:            strategyKey,
+		mainContainerName:      mainContainer.Name,
 	}, nil
-}
-
-func (b *TaskBuilder) getContainerSpecByName(spec TestJobPodSpec, name string) (corev1.Container, error) {
-	for _, container := range spec.Containers {
-		if container.Name == name {
-			return container, nil
-		}
-	}
-	return corev1.Container{}, fmt.Errorf("kubetest: failed to find container spec by name %s", name)
 }
 
 func (b *TaskBuilder) preInitContainer(ctx *TaskBuildContext) corev1.Container {

@@ -25,7 +25,6 @@ func NewTaskScheduler(strategy *Strategy, builder *TaskBuilder) *TaskScheduler {
 type StrategyKey struct {
 	Keys             []string
 	Env              string
-	ContainerName    string
 	SubTaskScheduler *SubTaskScheduler
 }
 
@@ -48,7 +47,6 @@ func (s *TaskScheduler) Schedule(ctx context.Context, tmpl TestJobTemplateSpec) 
 			Keys:             keys,
 			SubTaskScheduler: subTaskScheduler,
 			Env:              s.strategy.Key.Env,
-			ContainerName:    s.strategy.Key.ContainerName,
 		})
 		if err != nil {
 			return nil, err
@@ -69,7 +67,6 @@ func (s *TaskScheduler) Schedule(ctx context.Context, tmpl TestJobTemplateSpec) 
 			Keys:             taskKeys,
 			SubTaskScheduler: subTaskScheduler,
 			Env:              s.strategy.Key.Env,
-			ContainerName:    s.strategy.Key.ContainerName,
 		})
 		if err != nil {
 			return nil, err
@@ -100,8 +97,14 @@ func (s *TaskScheduler) dynamicKeys(ctx context.Context, source *StrategyDynamic
 	if err != nil {
 		return nil, err
 	}
-	_ = result
-	var out []byte // TODO assign output
+	mainResults := result.MainTaskResults()
+	if len(mainResults) == 0 {
+		return nil, fmt.Errorf("kubetest: failed to find main task results for dynamic keys")
+	}
+	if len(mainResults) > 1 {
+		return nil, fmt.Errorf("kubetest: found multiple main task results")
+	}
+	out := mainResults[0].Out
 	filter, err := s.sourceFilter(source.Filter)
 	if err != nil {
 		return nil, err

@@ -19,6 +19,7 @@ type SubTask struct {
 	KeyEnvName   string
 	exec         JobExecutor
 	hasArtifact  bool
+	isMain       bool
 	copyArtifact func(JobExecutor) error
 }
 
@@ -40,6 +41,7 @@ func (t *SubTask) Run(ctx context.Context) (*SubTaskResult, error) {
 		Name:        t.Name,
 		Container:   t.exec.Container(),
 		Pod:         t.exec.Pod(),
+		IsMain:      t.isMain,
 	}
 	logGroup.Info(result.Command())
 	logGroup.Log(string(out))
@@ -109,6 +111,7 @@ type SubTaskResult struct {
 	Container   corev1.Container
 	Pod         *corev1.Pod
 	KeyEnvName  string
+	IsMain      bool
 }
 
 func (r *SubTaskResult) Command() string {

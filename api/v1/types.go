@@ -204,8 +204,6 @@ type Strategy struct {
 
 // StrategyKeySpec
 type StrategyKeySpec struct {
-	// ContainerName container name for inserting env in TestJobSpec.Template.
-	ContainerName string `json:"containerName"`
 	// Env name of env value for strategy key
 	Env string `json:"env"`
 	// Source
