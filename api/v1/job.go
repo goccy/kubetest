@@ -6,6 +6,9 @@ package v1
 import (
 	"context"
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
 
 	"github.com/goccy/kubejob"
 	batchv1 "k8s.io/api/batch/v1"
@@ -21,11 +24,11 @@ type Job interface {
 }
 
 type JobExecutor interface {
-	ExecOnly() ([]byte, error)
+	Output() ([]byte, error)
 	ExecAsync()
 	Stop() error
-	CopyFromPod(string, string) error
-	CopyToPod(string, string) error
+	CopyFrom(string, string) error
+	CopyTo(string, string) error
 	Container() corev1.Container
 	Pod() *corev1.Pod
 }
@@ -33,121 +36,240 @@ type JobExecutor interface {
 type JobBuilder struct {
 	cfg       *rest.Config
 	namespace string
-	dryRun    bool
+	runMode   RunMode
 }
 
-func NewJobBuilder(cfg *rest.Config, namesapce string, dryRun bool) *JobBuilder {
-	return &JobBuilder{dryRun: dryRun}
+func NewJobBuilder(cfg *rest.Config, namesapce string, runMode RunMode) *JobBuilder {
+	return &JobBuilder{runMode: runMode}
 }
 
 func (b *JobBuilder) BuildWithJob(jobSpec *batchv1.Job) (Job, error) {
-	if b.dryRun {
-		return &mockJob{job: jobSpec}, nil
+	switch b.runMode {
+	case RunModeKubernetes:
+		job, err := kubejob.NewJobBuilder(b.cfg, b.namespace).BuildWithJob(jobSpec)
+		if err != nil {
+			return nil, err
+		}
+		return &kubernetesJob{job: job}, nil
+	case RunModeLocal:
+		rootDir, err := os.MkdirTemp("", "root")
+		if err != nil {
+			return nil, fmt.Errorf("kubetest: failed to create working directory for running on local file system")
+		}
+		return &localJob{rootDir: rootDir, job: jobSpec}, nil
+	case RunModeDryRun:
+		return &dryRunJob{job: jobSpec}, nil
 	}
-	job, err := kubejob.NewJobBuilder(b.cfg, b.namespace).BuildWithJob(jobSpec)
-	if err != nil {
-		return nil, err
-	}
-	return &wrappedKubejob{job: job}, nil
+	return nil, fmt.Errorf("kubetest: unknown run mode %v", b.runMode)
 }
 
-type wrappedKubejob struct {
+type kubernetesJob struct {
 	job *kubejob.Job
 }
 
-func (j *wrappedKubejob) PreInit(c corev1.Container, cb PreInitCallback) {
+func (j *kubernetesJob) PreInit(c corev1.Container, cb PreInitCallback) {
 	j.job.PreInit(c, func(exec *kubejob.JobExecutor) error {
-		return cb(&wrappedJobExecutor{exec: exec})
+		return cb(&kubernetesJobExecutor{exec: exec})
 	})
 }
 
-func (j *wrappedKubejob) RunWithExecutionHandler(ctx context.Context, handler func([]JobExecutor) error) error {
+func (j *kubernetesJob) RunWithExecutionHandler(ctx context.Context, handler func([]JobExecutor) error) error {
 	return j.job.RunWithExecutionHandler(ctx, func(execs []*kubejob.JobExecutor) error {
 		converted := make([]JobExecutor, 0, len(execs))
 		for _, exec := range execs {
-			converted = append(converted, &wrappedJobExecutor{exec: exec})
+			converted = append(converted, &kubernetesJobExecutor{exec: exec})
 		}
 		return handler(converted)
 	})
 }
 
-type wrappedJobExecutor struct {
+type kubernetesJobExecutor struct {
 	exec *kubejob.JobExecutor
 }
 
-func (e *wrappedJobExecutor) ExecOnly() ([]byte, error) {
+func (e *kubernetesJobExecutor) Output() ([]byte, error) {
 	return e.exec.ExecOnly()
 }
 
-func (e *wrappedJobExecutor) ExecAsync() {
+func (e *kubernetesJobExecutor) ExecAsync() {
 	e.exec.ExecAsync()
 }
 
-func (e *wrappedJobExecutor) Stop() error {
+func (e *kubernetesJobExecutor) Stop() error {
 	return e.exec.Stop()
 }
 
-func (e *wrappedJobExecutor) CopyFromPod(src string, dst string) error {
+func (e *kubernetesJobExecutor) CopyFrom(src string, dst string) error {
 	return e.exec.CopyFromPod(src, dst)
 }
 
-func (e *wrappedJobExecutor) CopyToPod(src string, dst string) error {
+func (e *kubernetesJobExecutor) CopyTo(src string, dst string) error {
 	return e.exec.CopyToPod(src, dst)
 }
 
-func (e *wrappedJobExecutor) Container() corev1.Container {
+func (e *kubernetesJobExecutor) Container() corev1.Container {
 	return e.exec.Container
 }
 
-func (e *wrappedJobExecutor) Pod() *corev1.Pod {
+func (e *kubernetesJobExecutor) Pod() *corev1.Pod {
 	return e.exec.Pod
 }
 
-type mockJob struct {
-	job *batchv1.Job
+type localJob struct {
+	rootDir          string
+	preInitContainer corev1.Container
+	preInitCallback  PreInitCallback
+	job              *batchv1.Job
 }
 
-func (j *mockJob) PreInit(c corev1.Container, cb PreInitCallback) {}
+func (j *localJob) PreInit(c corev1.Container, cb PreInitCallback) {
+	j.preInitContainer = c
+	j.preInitCallback = cb
+}
 
-func (j *mockJob) RunWithExecutionHandler(ctx context.Context, handler func([]JobExecutor) error) error {
+func (j *localJob) RunWithExecutionHandler(ctx context.Context, handler func([]JobExecutor) error) error {
+	preInitNameToPath := map[string]string{}
+	if j.preInitCallback != nil {
+		j.preInitCallback(&localJobExecutor{
+			rootDir:   j.rootDir,
+			container: j.preInitContainer,
+		})
+		for _, volumeMount := range j.preInitContainer.VolumeMounts {
+			preInitNameToPath[volumeMount.Name] = filepath.Join(j.rootDir, volumeMount.MountPath)
+		}
+	}
 	execs := make([]JobExecutor, 0, len(j.job.Spec.Template.Spec.Containers))
 	for _, container := range j.job.Spec.Template.Spec.Containers {
-		execs = append(execs, &mockJobExecutor{
+		for _, mount := range container.VolumeMounts {
+			oldPath, exists := preInitNameToPath[mount.Name]
+			if !exists {
+				continue
+			}
+			newPath := filepath.Join(j.rootDir, mount.MountPath)
+			if err := os.Symlink(oldPath, newPath); err != nil {
+				return fmt.Errorf(
+					"kubetest: failed to create symlink from %s to %s for running local file system",
+					oldPath,
+					newPath,
+				)
+			}
+		}
+		execs = append(execs, &localJobExecutor{
+			rootDir:   j.rootDir,
 			container: container,
 		})
 	}
 	return handler(execs)
 }
 
-type mockJobExecutor struct {
+type localJobExecutor struct {
+	rootDir   string
 	container corev1.Container
 }
 
-func (e *mockJobExecutor) ExecOnly() ([]byte, error) {
-	return nil, nil
+func (e *localJobExecutor) cmd() (*exec.Cmd, error) {
+	cmdarr := append(e.container.Command, e.container.Args...)
+	if len(cmdarr) == 0 {
+		return nil, fmt.Errorf("kubetest: invalid command. command is empty")
+	}
+	var cmd *exec.Cmd
+	if len(cmdarr) == 1 {
+		cmd = exec.Command(cmdarr[0])
+	} else {
+		cmd = exec.Command(cmdarr[0], cmdarr[1:]...)
+	}
+	cmd.Dir = filepath.Join(e.rootDir, e.container.WorkingDir)
+	return cmd, nil
 }
 
-func (e *mockJobExecutor) ExecAsync() {
+func (e *localJobExecutor) Output() ([]byte, error) {
+	cmd, err := e.cmd()
+	if err != nil {
+		return nil, err
+	}
+	return cmd.Output()
 }
 
-func (e *mockJobExecutor) Stop() error {
+func (e *localJobExecutor) ExecAsync() {
+	cmd, err := e.cmd()
+	if err != nil {
+		return
+	}
+	go func() {
+		_ = cmd.Run()
+	}()
+}
+
+func (e *localJobExecutor) Stop() error {
 	return nil
 }
 
-func (e *mockJobExecutor) CopyFromPod(src string, dst string) error {
-	fmt.Printf("copy from %s to %s\n", src, dst)
-	return nil
+func (e *localJobExecutor) CopyFrom(src string, dst string) error {
+	src = filepath.Join(e.rootDir, src)
+	fmt.Printf("copyFrom: from %s to %s\n", src, dst)
+	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
+		return err
+	}
+	return localCopy(src, dst)
 }
 
-func (e *mockJobExecutor) CopyToPod(src string, dst string) error {
-	fmt.Printf("copy from %s to %s\n", src, dst)
-	return nil
+func (e *localJobExecutor) CopyTo(src string, dst string) error {
+	dst = filepath.Join(e.rootDir, dst)
+	fmt.Printf("copyTo: from %s to %s\n", src, dst)
+	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
+		return err
+	}
+	return localCopy(src, dst)
 }
 
-func (e *mockJobExecutor) Container() corev1.Container {
+func (e *localJobExecutor) Container() corev1.Container {
 	return e.container
 }
 
-func (e *mockJobExecutor) Pod() *corev1.Pod {
+func (e *localJobExecutor) Pod() *corev1.Pod {
+	return &corev1.Pod{}
+}
+
+type dryRunJob struct {
+	job *batchv1.Job
+}
+
+func (j *dryRunJob) PreInit(c corev1.Container, cb PreInitCallback) {}
+
+func (j *dryRunJob) RunWithExecutionHandler(ctx context.Context, handler func([]JobExecutor) error) error {
+	execs := make([]JobExecutor, 0, len(j.job.Spec.Template.Spec.Containers))
+	for _, container := range j.job.Spec.Template.Spec.Containers {
+		execs = append(execs, &dryRunJobExecutor{
+			container: container,
+		})
+	}
+	return handler(execs)
+}
+
+type dryRunJobExecutor struct {
+	container corev1.Container
+}
+
+func (e *dryRunJobExecutor) Output() ([]byte, error) {
+	return []byte("( dry running .... )"), nil
+}
+
+func (e *dryRunJobExecutor) ExecAsync()  {}
+func (e *dryRunJobExecutor) Stop() error { return nil }
+func (e *dryRunJobExecutor) CopyFrom(src string, dst string) error {
+	fmt.Printf("copy from %s to %s\n", src, dst)
+	return nil
+}
+
+func (e *dryRunJobExecutor) CopyTo(src string, dst string) error {
+	fmt.Printf("copy from %s to %s\n", src, dst)
+	return nil
+}
+
+func (e *dryRunJobExecutor) Container() corev1.Container {
+	return e.container
+}
+
+func (e *dryRunJobExecutor) Pod() *corev1.Pod {
 	return &corev1.Pod{}
 }

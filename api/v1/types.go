@@ -20,10 +20,10 @@ type TestJobSpec struct {
 	// In addition, when performing distributed execution, the work that must be performed at the distributed execution destination is reduced,
 	// so the resources of kubernetes cluster can be used efficiently.
 	// +optional
-	PreSteps []PrepareStep `json:"preSteps,omitempty"`
+	PreSteps []PreStep `json:"preSteps,omitempty"`
 	// FinalArtifacts export what was saved as an artifact to any path.
 	// +optional
-	FinalArtifacts []FinalArtifact `json:"finalArtifacts,omitempty"`
+	ExportArtifacts []ExportArtifact `json:"exportArtifacts,omitempty"`
 	// Log extend parameter to output log.
 	// +optional
 	Log LogSpec `json:"log,omitempty"`
@@ -87,8 +87,8 @@ type GitHubAppTokenSource struct {
 // GitHubTokenSource describes the specification of github token.
 type GitHubTokenSource corev1.SecretKeySelector
 
-// PrepareStep defines pre-processing to prepare files for testing that are not included in the repository.
-type PrepareStep struct {
+// PreStep defines pre-processing to prepare files for testing that are not included in the repository.
+type PreStep struct {
 	Name     string              `json:"name"`
 	Template TestJobTemplateSpec `json:"template"`
 }
@@ -163,28 +163,28 @@ type TokenVolumeSource struct {
 	Name string `json:"name"`
 }
 
-// FinalArtifact
-type FinalArtifact struct {
+// ExportArtifact
+type ExportArtifact struct {
 	// This must match the Name of a ArtifactSpec.
 	Name string `json:"name"`
 	// Output define output path for artifact.
-	Output ArtifactOutputSpec `json:"output"`
+	Export ArtifactExportSpec `json:"export"`
 }
 
 // ArtifactOutputPathType
-type ArtifactOutputPathType string
+type ArtifactExportPathType string
 
 const (
-	ArtifactOutputPathContainer ArtifactOutputPathType = "container"
-	ArtifactOutputPathTest      ArtifactOutputPathType = "test"
+	ArtifactExportPathContainer ArtifactExportPathType = "container"
+	ArtifactExportPathKey       ArtifactExportPathType = "key"
 )
 
 // ArtifactOutputSpec
-type ArtifactOutputSpec struct {
+type ArtifactExportSpec struct {
 	// Path path to the artifact.
 	Path string `json:"path"`
-	// PathType type of intermediate directory name for output path. default type is container.
-	PathType ArtifactOutputPathType `json:"pathType"`
+	// PathType type of intermediate directory name for export path. default type is container.
+	PathType ArtifactExportPathType `json:"pathType"`
 }
 
 // LogSpec

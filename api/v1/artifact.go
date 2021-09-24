@@ -11,11 +11,13 @@ import (
 
 type ArtifactManager struct {
 	nameToLocalPaths map[string]string
+	exports          []ExportArtifact
 }
 
-func NewArtifactManager() *ArtifactManager {
+func NewArtifactManager(exports []ExportArtifact) *ArtifactManager {
 	return &ArtifactManager{
 		nameToLocalPaths: map[string]string{},
+		exports:          exports,
 	}
 }
 
@@ -37,4 +39,16 @@ func (m *ArtifactManager) LocalPathByName(name string) (string, error) {
 		return "", errInvalidArtifactName(name)
 	}
 	return path, nil
+}
+
+func (m *ArtifactManager) ExportArtifacts() error {
+	for _, export := range m.exports {
+		src, err := m.LocalPathByName(export.Name)
+		if err != nil {
+			return fmt.Errorf("kubetest: failed to source path to export artifact: %w", err)
+		}
+		dst := export.Export.Path
+		fmt.Printf("copy %s to %s\n", src, dst)
+	}
+	return nil
 }

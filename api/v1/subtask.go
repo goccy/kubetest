@@ -17,6 +17,7 @@ import (
 type SubTask struct {
 	Name         string
 	KeyEnvName   string
+	OnFinish     func(*SubTask)
 	exec         JobExecutor
 	hasArtifact  bool
 	isMain       bool
@@ -31,9 +32,12 @@ func (t *SubTask) Run(ctx context.Context) (*SubTaskResult, error) {
 			logGroup.Warn("failed to stop %s", err)
 		}
 		logger.LogGroup(logGroup)
+		if t.OnFinish != nil {
+			t.OnFinish(t)
+		}
 	}()
 	start := time.Now()
-	out, err := t.exec.ExecOnly()
+	out, err := t.exec.Output()
 	result := &SubTaskResult{
 		ElapsedTime: time.Since(start),
 		Out:         out,

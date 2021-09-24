@@ -23,7 +23,7 @@ func NewResourceManager(clientset *kubernetes.Clientset, testjob TestJob) *Resou
 	tokenClient := NewTokenClient(clientset, testjob.Namespace)
 	tokenMgr := NewTokenManager(testjob.Spec.Tokens, tokenClient)
 	repoMgr := NewRepositoryManager(testjob.Spec.Repos, tokenMgr)
-	artifactMgr := NewArtifactManager()
+	artifactMgr := NewArtifactManager(testjob.Spec.ExportArtifacts)
 	return &ResourceManager{
 		repoMgr:     repoMgr,
 		tokenMgr:    tokenMgr,
@@ -69,4 +69,8 @@ func (m *ResourceManager) ArtifactPathByName(name string) (string, error) {
 		return "", fmt.Errorf("kubetest: resource manager isn't setup")
 	}
 	return m.artifactMgr.LocalPathByName(name)
+}
+
+func (m *ResourceManager) ExportArtifacts() error {
+	return m.artifactMgr.ExportArtifacts()
 }

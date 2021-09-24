@@ -6,22 +6,31 @@ package v1
 import (
 	"context"
 	"os"
+	"time"
 
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 )
 
+type RunMode int
+
+const (
+	RunModeKubernetes RunMode = iota
+	RunModeLocal
+	RunModeDryRun
+)
+
 type Runner struct {
 	cfg       *rest.Config
 	clientset *kubernetes.Clientset
-	dryRun    bool
+	runMode   RunMode
 	logger    *Logger
 }
 
-func NewRunner(cfg *rest.Config, dryRun bool) *Runner {
+func NewRunner(cfg *rest.Config, runMode RunMode) *Runner {
 	return &Runner{
-		cfg:    cfg,
-		dryRun: dryRun,
+		cfg:     cfg,
+		runMode: runMode,
 	}
 }
 
@@ -30,6 +39,7 @@ func (r *Runner) SetLogger(logger *Logger) {
 }
 
 func (r *Runner) Run(ctx context.Context, testjob TestJob) (*Result, error) {
+	startedAt := time.Now()
 	if r.logger == nil {
 		r.logger = NewLogger(os.Stdout, LogLevelInfo)
 	}
@@ -43,7 +53,7 @@ func (r *Runner) Run(ctx context.Context, testjob TestJob) (*Result, error) {
 		return nil, err
 	}
 	defer resourceMgr.Cleanup()
-	builder := NewTaskBuilder(r.cfg, resourceMgr, testjob.Namespace, r.dryRun)
+	builder := NewTaskBuilder(r.cfg, resourceMgr, testjob.Namespace, r.runMode)
 	var result Result
 	for _, step := range testjob.Spec.PreSteps {
 		task, err := builder.Build(step.Template)
@@ -65,12 +75,27 @@ func (r *Runner) Run(ctx context.Context, testjob TestJob) (*Result, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := resourceMgr.ExportArtifacts(); err != nil {
+		return nil, err
+	}
 	result.taskResult = taskResult
+	result.StartedAt = startedAt
+	result.ElapsedTime = time.Since(startedAt)
 	// copy final artifact
 	return &result, nil
 }
 
+type ResultStatus int
+
+const (
+	ResultStatusSuccess ResultStatus = iota
+	ResultStatusFailure
+)
+
 type Result struct {
+	Status         ResultStatus
+	StartedAt      time.Time
+	ElapsedTime    time.Duration
 	preStepResults []*TaskResult
 	taskResult     *TaskResultGroup
 }

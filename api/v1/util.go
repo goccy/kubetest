@@ -5,6 +5,9 @@ package v1
 
 import (
 	"fmt"
+	"io"
+	"os"
+	"path/filepath"
 
 	corev1 "k8s.io/api/core/v1"
 )
@@ -22,4 +25,84 @@ func getMainContainerFromTmpl(tmpl TestJobTemplateSpec) (corev1.Container, error
 		return tmpl.Spec.Containers[0], nil
 	}
 	return corev1.Container{}, fmt.Errorf("kubetest: use multiple containers but doesn't specified main container name")
+}
+
+func localCopy(src, dst string) error {
+	srcInfo, err := os.Lstat(src)
+	if err != nil {
+		return err
+	}
+	if _, err := os.Lstat(dst); err == nil || !os.IsNotExist(err) {
+		return err
+	}
+	switch mode := srcInfo.Mode(); mode & os.ModeType {
+	case os.ModeSymlink:
+		return copySymLink(src, dst)
+	case os.ModeDir:
+		return copyDir(src, dst, mode)
+	case 0:
+		return copyFile(src, dst, mode)
+	default:
+		return fmt.Errorf("kubetest: couldn't copy file with mode %v", mode)
+	}
+}
+
+func copySymLink(src, dst string) error {
+	target, err := os.Readlink(src)
+	if err != nil {
+		return err
+	}
+	return os.Symlink(target, dst)
+}
+
+func copyFile(src, dst string, mode os.FileMode) error {
+	srcFile, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer srcFile.Close()
+	dstFile, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, mode.Perm())
+	if err != nil {
+		return err
+	}
+	defer dstFile.Close()
+	if err := os.Chmod(dstFile.Name(), mode.Perm()); err != nil {
+		return err
+	}
+	if _, err := io.Copy(dstFile, srcFile); err != nil {
+		return fmt.Errorf("kubetest: couldn't copy %q to %q: %w", src, dst, err)
+	}
+	return nil
+}
+
+func copyDir(src, dst string, mode os.FileMode) error {
+	srcFile, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer srcFile.Close()
+	if mode&0500 == 0 {
+		mode |= 0500
+	}
+	if err := os.Mkdir(dst, mode.Perm()); err != nil {
+		return err
+	}
+	for {
+		names, err := srcFile.Readdirnames(100)
+		for _, name := range names {
+			if err := localCopy(filepath.Join(src, name), filepath.Join(dst, name)); err != nil {
+				return err
+			}
+		}
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return fmt.Errorf("kubetest: failed to read directory %q: %w", src, err)
+		}
+	}
+	if err := os.Chmod(dst, mode.Perm()); err != nil {
+		return err
+	}
+	return nil
 }

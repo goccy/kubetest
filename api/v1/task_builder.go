@@ -5,6 +5,7 @@ package v1
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"path/filepath"
 
@@ -13,19 +14,24 @@ import (
 	"k8s.io/client-go/rest"
 )
 
+const (
+	kubetestLabel  = "kubetest.io/testjob"
+	keysAnnotation = "kubetest.io/strategyKeys"
+)
+
 type TaskBuilder struct {
 	cfg       *rest.Config
 	mgr       *ResourceManager
 	namespace string
-	dryRun    bool
+	runMode   RunMode
 }
 
-func NewTaskBuilder(cfg *rest.Config, mgr *ResourceManager, namespace string, dryRun bool) *TaskBuilder {
+func NewTaskBuilder(cfg *rest.Config, mgr *ResourceManager, namespace string, runMode RunMode) *TaskBuilder {
 	return &TaskBuilder{
 		cfg:       cfg,
 		mgr:       mgr,
 		namespace: namespace,
-		dryRun:    dryRun,
+		runMode:   runMode,
 	}
 }
 
@@ -44,7 +50,9 @@ func (b *TaskBuilder) BuildWithKey(tmpl TestJobTemplateSpec, strategyKey *Strate
 	if mainContainer.Name == "" {
 		return nil, fmt.Errorf("kubetest: main container name must be specified")
 	}
+	var onFinishSubTask func(*SubTask)
 	if strategyKey != nil {
+		onFinishSubTask = strategyKey.OnFinishSubTask
 		containers := []corev1.Container{}
 		for _, key := range strategyKey.Keys {
 			container := mainContainer
@@ -64,11 +72,31 @@ func (b *TaskBuilder) BuildWithKey(tmpl TestJobTemplateSpec, strategyKey *Strate
 		}
 		podSpec.Containers = append(sideCarContainers, containers...)
 	}
-	job, err := NewJobBuilder(b.cfg, b.namespace, b.dryRun).BuildWithJob(&batchv1.Job{
+	podMeta := tmpl.ObjectMeta
+	labels := map[string]string{}
+	for k, v := range podMeta.Labels {
+		labels[k] = v
+	}
+	labels[kubetestLabel] = fmt.Sprint(true)
+	annotations := map[string]string{}
+	for k, v := range podMeta.Annotations {
+		annotations[k] = v
+	}
+	if strategyKey != nil {
+		keys, err := json.Marshal(strategyKey.Keys)
+		if err != nil {
+			return nil, fmt.Errorf("kubetest: failed to encode strategy keys: %w", err)
+		}
+		annotations[keysAnnotation] = string(keys)
+	}
+	podMeta.Labels = labels
+	podMeta.Annotations = annotations
+	job, err := NewJobBuilder(b.cfg, b.namespace, b.runMode).BuildWithJob(&batchv1.Job{
 		ObjectMeta: tmpl.ObjectMeta,
 		Spec: batchv1.JobSpec{
 			Template: corev1.PodTemplateSpec{
-				Spec: podSpec,
+				ObjectMeta: podMeta,
+				Spec:       podSpec,
 			},
 		},
 	})
@@ -80,6 +108,7 @@ func (b *TaskBuilder) BuildWithKey(tmpl TestJobTemplateSpec, strategyKey *Strate
 		return nil, err
 	}
 	job.PreInit(b.preInitContainer(ctx), callback)
+	b.mgr.artifactMgr.AddArtifacts(spec.Artifacts)
 	artifactMap := map[string]ArtifactSpec{}
 	for _, artifact := range spec.Artifacts {
 		artifactMap[artifact.Container.Name] = artifact
@@ -93,12 +122,13 @@ func (b *TaskBuilder) BuildWithKey(tmpl TestJobTemplateSpec, strategyKey *Strate
 		if err != nil {
 			return err
 		}
-		return exec.CopyFromPod(
+		return exec.CopyFrom(
 			artifact.Container.Path,
 			localPath,
 		)
 	}
 	return &Task{
+		OnFinishSubTask:        onFinishSubTask,
 		job:                    job,
 		copyArtifact:           copyArtifact,
 		artifactContainerNames: artifactMap,
@@ -141,7 +171,7 @@ func (b *TaskBuilder) preInitCallback(ctx *TaskBuildContext) (PreInitCallback, e
 	}
 	return func(exec JobExecutor) error {
 		for _, path := range copyPaths {
-			if err := exec.CopyToPod(path.src, path.dst); err != nil {
+			if err := exec.CopyTo(path.src, path.dst); err != nil {
 				return err
 			}
 		}

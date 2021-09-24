@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"sync/atomic"
 )
 
 type TaskScheduler struct {
@@ -26,6 +27,7 @@ type StrategyKey struct {
 	Keys             []string
 	Env              string
 	SubTaskScheduler *SubTaskScheduler
+	OnFinishSubTask  func(*SubTask)
 }
 
 func (s *TaskScheduler) Schedule(ctx context.Context, tmpl TestJobTemplateSpec) (*TaskGroup, error) {
@@ -42,11 +44,23 @@ func (s *TaskScheduler) Schedule(ctx context.Context, tmpl TestJobTemplateSpec) 
 	}
 	subTaskScheduler := NewSubTaskScheduler(s.strategy.Scheduler.MaxConcurrentNumPerPod)
 	maxContainers := s.strategy.Scheduler.MaxContainersPerPod
+
+	var (
+		finishedKeyNum uint32
+		keyNum         uint32 = uint32(len(keys))
+	)
 	if len(keys) <= maxContainers {
 		task, err := s.builder.BuildWithKey(tmpl, &StrategyKey{
 			Keys:             keys,
 			SubTaskScheduler: subTaskScheduler,
 			Env:              s.strategy.Key.Env,
+			OnFinishSubTask: func(_ *SubTask) {
+				atomic.AddUint32(&finishedKeyNum, 1)
+				LoggerFromContext(ctx).Info(
+					"%d/%d (%f%%) finished.",
+					finishedKeyNum, keyNum, (float32(finishedKeyNum/keyNum))*100,
+				)
+			},
 		})
 		if err != nil {
 			return nil, err
@@ -67,6 +81,13 @@ func (s *TaskScheduler) Schedule(ctx context.Context, tmpl TestJobTemplateSpec) 
 			Keys:             taskKeys,
 			SubTaskScheduler: subTaskScheduler,
 			Env:              s.strategy.Key.Env,
+			OnFinishSubTask: func(_ *SubTask) {
+				atomic.AddUint32(&finishedKeyNum, 1)
+				LoggerFromContext(ctx).Info(
+					"%d/%d (%f%%) finished.",
+					finishedKeyNum, keyNum, (float32(finishedKeyNum/keyNum))*100,
+				)
+			},
 		})
 		if err != nil {
 			return nil, err
@@ -80,6 +101,10 @@ func (s *TaskScheduler) Schedule(ctx context.Context, tmpl TestJobTemplateSpec) 
 func (s *TaskScheduler) getScheduleKeys(ctx context.Context, source StrategyKeySource) ([]string, error) {
 	switch {
 	case len(source.Static) > 0:
+		LoggerFromContext(ctx).Info(
+			"found %d static keys to start distributed task",
+			len(source.Static),
+		)
 		return source.Static, nil
 	case source.Dynamic != nil:
 		return s.dynamicKeys(ctx, source.Dynamic)
@@ -119,6 +144,11 @@ func (s *TaskScheduler) dynamicKeys(ctx context.Context, source *StrategyDynamic
 		}
 		keys = append(keys, key)
 	}
+	LoggerFromContext(ctx).Info(
+		"found %d dynamic keys to start distributed task. elapsed time %f sec",
+		len(keys),
+		mainResults[0].ElapsedTime.Seconds(),
+	)
 	return keys, nil
 }
 
