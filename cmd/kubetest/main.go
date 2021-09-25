@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -14,33 +13,21 @@ import (
 
 	kubetestv1 "github.com/goccy/kubetest/api/v1"
 	"github.com/jessevdk/go-flags"
-	"golang.org/x/xerrors"
-	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/yaml"
-	_ "k8s.io/client-go/plugin/pkg/client/auth/gcp"
+	_ "k8s.io/client-go/plugin/pkg/client/auth"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 )
 
 type option struct {
-	Namespace       string `description:"specify namespace" short:"n" long:"namespace" default:"default"`
-	InCluster       bool   `description:"specify whether in cluster" long:"in-cluster"`
-	Config          string `description:"specify local kubeconfig path. ( default: $HOME/.kube/config )" short:"c" long:"config"`
-	Image           string `description:"specify container image" short:"i" long:"image"`
-	Repo            string `description:"specify repository name" long:"repo"`
-	Branch          string `description:"specify branch name" short:"b" long:"branch"`
-	Revision        string `description:"specify revision ( commit hash )" long:"rev"`
-	TokenFromSecret string `description:"specify github auth token from secret resource. specify ( name.key ) style" long:"token-from-secret"`
-	ImagePullSecret string `description:"specify image pull secret name" long:"image-pull-secret"`
-
-	// Distributed Testing Parameters
-	MaxContainersPerPod int    `description:"specify max number of container per pod" long:"max-containers-per-pod"`
-	List                string `description:"specify path to get the list for test" long:"list"`
-	Retest              *bool  `description:"specify enabled retest if exists failed tests" long:"retest"`
-	Verbose             bool   `description:"specify enabled debug log" short:"v" long:"versbose"`
-
-	File     string            `description:"specify yaml file path" short:"f" long:"file"`
-	Template map[string]string `description:"specify template parameter for file specified with --file option" long:"template"`
+	Namespace string            `description:"specify namespace" short:"n" long:"namespace" default:"default"`
+	InCluster bool              `description:"specify whether in cluster" long:"in-cluster"`
+	Config    string            `description:"specify local kubeconfig path. ( default: $HOME/.kube/config )" short:"c" long:"config"`
+	List      string            `description:"specify path to get the list for test" long:"list"`
+	LogLevel  string            `description:"specify log level (debug/info/warn/error)" long:"log-level"`
+	File      string            `description:"specify yaml file path" short:"f" long:"file"`
+	DryRun    bool              `description:"specify dry run mode" long:"dry-run"`
+	Template  map[string]string `description:"specify template parameter for file specified with --file option" long:"template"`
 }
 
 const (
@@ -55,7 +42,7 @@ func loadConfig(opt option) (*rest.Config, error) {
 	if opt.InCluster {
 		cfg, err := rest.InClusterConfig()
 		if err != nil {
-			return nil, xerrors.Errorf("failed to load config in cluster: %w", err)
+			return nil, fmt.Errorf("kubetest: failed to load config in cluster: %w", err)
 		}
 		return cfg, nil
 	}
@@ -65,195 +52,100 @@ func loadConfig(opt option) (*rest.Config, error) {
 	}
 	cfg, err := clientcmd.BuildConfigFromFlags("", p)
 	if err != nil {
-		return nil, xerrors.Errorf("failed to load config from %s: %w", p, err)
+		return nil, fmt.Errorf("kubetest: failed to load config from %s: %w", p, err)
 	}
 	return cfg, nil
 }
 
-func hasDistributedParam(job kubetestv1.TestJob, opt option) bool {
-	if job.Spec.DistributedTest != nil {
-		return true
-	}
-	if opt.MaxContainersPerPod > 0 {
-		return true
-	}
-	if opt.List != "" {
-		return true
-	}
-	if opt.Retest != nil {
-		return true
-	}
-	return false
-}
-
-func validateDistributedTestParam(job kubetestv1.TestJob) error {
-	distributedTest := job.Spec.DistributedTest
-	if distributedTest.MaxContainersPerPod == 0 {
-		return xerrors.New("the required flag '--max-containers-per-pod' was not specified")
-	}
-	if len(distributedTest.List.Command) == 0 && len(distributedTest.List.Names) == 0 {
-		return xerrors.New("the required flag '--list' was not specified")
-	}
-	return nil
-}
-
-func validateTestJobParam(job kubetestv1.TestJob) error {
-	if job.Spec.Git.Checkout != nil && !(*job.Spec.Git.Checkout) {
-		return nil
-	}
-	if job.Spec.Git.Repo == "" {
-		return xerrors.New("the required flag '--repo' was not specified")
-	}
-	if job.Spec.Template.Spec.Containers[0].Image == "" {
-		return xerrors.New("the required flag '--image' was not specified")
-	}
-	if len(job.Spec.Template.Spec.Containers[0].Command) == 0 {
-		return xerrors.New("command is required. please speficy after '--' section")
-	}
-	return nil
-}
-
-func assignListNames(job *kubetestv1.TestJob, opt option) error {
+func assignStaticKeys(job *kubetestv1.TestJob, opt option) error {
 	if opt.List == "" {
 		return nil
 	}
 
-	list, err := ioutil.ReadFile(opt.List)
+	list, err := os.ReadFile(opt.List)
 	if err != nil {
-		return xerrors.Errorf("failed to read list for test from %s: %w", opt.List, err)
+		return fmt.Errorf("kubetest: failed to read list for test from %s: %w", opt.List, err)
 	}
-	testNames := []string{}
-	for _, testName := range strings.Split(string(list), "\n") {
-		if strings.TrimSpace(testName) == "" {
+	staticKeys := []string{}
+	for _, key := range strings.Split(string(list), "\n") {
+		if strings.TrimSpace(key) == "" {
 			continue
 		}
-		testNames = append(testNames, testName)
+		staticKeys = append(staticKeys, key)
 	}
-	if len(testNames) == 0 {
-		return xerrors.New("invalid list file. test list is empty")
+	if len(staticKeys) == 0 {
+		return fmt.Errorf("kubetest: invalid list file. test list is empty")
 	}
-	job.Spec.DistributedTest.List.Names = testNames
-	return nil
+	return job.SetStaticStrategyKeys(staticKeys)
 }
 
-func _main(args []string, opt option) error {
+func _main(args []string, opt option) (*kubetestv1.Result, error) {
+	if len(args) != 1 {
+		return nil, fmt.Errorf("unspecified testjob file path")
+	}
+	path := args[0]
 	cfg, err := loadConfig(opt)
 	if err != nil {
-		return xerrors.Errorf("failed to load config: %w", err)
+		return nil, err
 	}
 	var job kubetestv1.TestJob
-	if opt.File != "" {
-		file, err := ioutil.ReadFile(opt.File)
-		if err != nil {
-			return xerrors.Errorf("failed to open %s: %w", string(file), err)
-		}
-		f, err := template.New("").Parse(string(file))
-		if err != nil {
-			return xerrors.Errorf("failed to parse file as template %s: %w", string(file), err)
-		}
-		var b bytes.Buffer
-		if err := f.Execute(&b, opt.Template); err != nil {
-			return xerrors.Errorf("failed to execute template %s: %w", string(file), err)
-		}
-		if err := yaml.NewYAMLOrJSONDecoder(&b, 1024).Decode(&job); err != nil {
-			return xerrors.Errorf("failed to decode YAML: %w", err)
-		}
-	}
-	if len(job.Spec.Template.Spec.Containers) == 0 {
-		job.Spec.Template.Spec.Containers = []corev1.Container{{}}
-	}
-	if job.ObjectMeta.Namespace == "" {
-		job.ObjectMeta.Namespace = opt.Namespace
-	}
-	if opt.Image != "" {
-		job.Spec.Template.Spec.Containers[0].Image = opt.Image
-	}
-	if opt.Repo != "" {
-		job.Spec.Git.Repo = opt.Repo
-	}
-	if opt.Branch != "" {
-		job.Spec.Git.Branch = opt.Branch
-	}
-	if opt.Revision != "" {
-		job.Spec.Git.Rev = opt.Revision
-	}
-	if len(args) > 0 {
-		job.Spec.Template.Spec.Containers[0].Command = []string{args[0]}
-		if len(args) > 1 {
-			job.Spec.Template.Spec.Containers[0].Args = args[1:]
-		}
-	}
-	if opt.TokenFromSecret != "" {
-		splitted := strings.Split(opt.TokenFromSecret, ".")
-		if len(splitted) != 2 {
-			return xerrors.Errorf("invalid --token-from-secret parameter")
-		}
-		name := splitted[0]
-		key := splitted[1]
-		job.Spec.Git.Token = &kubetestv1.TestJobToken{
-			Token: &corev1.SecretKeySelector{
-				LocalObjectReference: corev1.LocalObjectReference{
-					Name: name,
-				},
-				Key: key,
-			},
-		}
-	}
-	if opt.ImagePullSecret != "" {
-		job.Spec.Template.Spec.ImagePullSecrets = append(job.Spec.Template.Spec.ImagePullSecrets, corev1.LocalObjectReference{
-			Name: opt.ImagePullSecret,
-		})
-	}
-
-	if hasDistributedParam(job, opt) {
-		if job.Spec.DistributedTest == nil {
-			job.Spec.DistributedTest = &kubetestv1.DistributedTestSpec{}
-		}
-		if opt.MaxContainersPerPod > 0 {
-			job.Spec.DistributedTest.MaxContainersPerPod = opt.MaxContainersPerPod
-		}
-		if err := assignListNames(&job, opt); err != nil {
-			return err
-		}
-		if opt.Retest != nil {
-			job.Spec.DistributedTest.Retest = *opt.Retest
-		}
-		if err := validateDistributedTestParam(job); err != nil {
-			return err
-		}
-	}
-	if err := validateTestJobParam(job); err != nil {
-		return err
-	}
-	kubetest, err := kubetestv1.NewTestJobRunner(cfg)
+	file, err := os.ReadFile(path)
 	if err != nil {
-		return err
+		return nil, fmt.Errorf("kubetest: failed to open %s: %w", path, err)
 	}
-	if opt.Verbose {
-		kubetest.EnableVerboseLog()
+	f, err := template.New("").Parse(string(file))
+	if err != nil {
+		return nil, fmt.Errorf("kubetest: failed to parse file as template %s: %w", string(file), err)
 	}
-
+	var b bytes.Buffer
+	if err := f.Execute(&b, opt.Template); err != nil {
+		return nil, fmt.Errorf("kubetest: failed to execute template %s: %w", string(file), err)
+	}
+	if err := yaml.NewYAMLOrJSONDecoder(&b, 1024).Decode(&job); err != nil {
+		return nil, fmt.Errorf("kubetest: failed to decode YAML: %w", err)
+	}
+	if err := assignStaticKeys(&job, opt); err != nil {
+		return nil, err
+	}
+	runMode := kubetestv1.RunModeKubernetes
+	if opt.DryRun {
+		runMode = kubetestv1.RunModeDryRun
+	}
+	runner := kubetestv1.NewRunner(cfg, runMode)
+	switch opt.LogLevel {
+	case "debug":
+		runner.SetLogger(kubetestv1.NewLogger(os.Stdout, kubetestv1.LogLevelDebug))
+	case "", "info":
+		runner.SetLogger(kubetestv1.NewLogger(os.Stdout, kubetestv1.LogLevelInfo))
+	case "warn":
+		runner.SetLogger(kubetestv1.NewLogger(os.Stdout, kubetestv1.LogLevelWarn))
+	case "error":
+		runner.SetLogger(kubetestv1.NewLogger(os.Stdout, kubetestv1.LogLevelError))
+	default:
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	interrupt := make(chan os.Signal, 1)
 	signal.Notify(interrupt, os.Interrupt, syscall.SIGTERM)
-	receiveSignal := false
+
+	canceledBySignal := false
 	go func() {
 		select {
 		case s := <-interrupt:
-			fmt.Printf("receive %s. try to graceful stop\n", s)
-			receiveSignal = true
+			fmt.Fprintf(os.Stdout, "kubetest: receive %s. try to graceful stop\n", s)
+			canceledBySignal = true
 			cancel()
 		}
 	}()
 
-	if err := kubetest.Run(ctx, job); err != nil {
-		if receiveSignal {
+	result, err := runner.Run(ctx, job)
+	if err != nil {
+		if canceledBySignal {
 			fmt.Println(err)
 			os.Exit(ExitWithSignal)
 		}
-		return err
+		return nil, err
 	}
-	return nil
+	return result, nil
 }
 
 func parseOpt() ([]string, option, error) {
@@ -268,7 +160,7 @@ func main() {
 	if err != nil {
 		flagsErr, ok := err.(*flags.Error)
 		if !ok {
-			fmt.Printf("unknown error instance: %T", err)
+			fmt.Fprintf(os.Stdout, "kubetest: unknown parsed option error: %T %v\n", err, err)
 			os.Exit(ExitWithOtherError)
 		}
 		if flagsErr.Type == flags.ErrHelp {
@@ -276,13 +168,12 @@ func main() {
 		}
 		os.Exit(ExitWithOtherError)
 	}
-	if err := _main(args, opt); err != nil {
-		fmt.Println(err)
-		if xerrors.Is(err, kubetestv1.ErrFailedTestJob) {
-			os.Exit(ExitWithFailureTestJob)
-		} else if xerrors.Is(err, kubetestv1.ErrFatal) {
-			os.Exit(ExitWithFatalError)
-		}
-		os.Exit(ExitWithOtherError)
+	result, err := _main(args, opt)
+	if err != nil {
+		fmt.Fprintln(os.Stdout, err)
+		os.Exit(ExitWithFatalError)
+	}
+	if result.Status == kubetestv1.ResultStatusFailure {
+		os.Exit(ExitWithFailureTestJob)
 	}
 }
