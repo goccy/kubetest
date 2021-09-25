@@ -3,6 +3,7 @@ package v1
 import (
 	"context"
 	"io/ioutil"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -46,7 +47,7 @@ func TestTokenManager(t *testing.T) {
 			},
 		},
 	}, cli)
-	gotToken, err := mgr.TokenByName(context.Background(), "github-token")
+	gotToken, err := mgr.TokenByName(WithLogger(context.Background(), NewLogger(os.Stdout, LogLevelInfo)), "github-token")
 	if err != nil {
 		t.Fatal(err)
 	}

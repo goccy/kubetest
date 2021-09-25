@@ -113,7 +113,7 @@ func (b *TaskBuilder) BuildWithKey(tmpl TestJobTemplateSpec, strategyKey *Strate
 	for _, artifact := range spec.Artifacts {
 		artifactMap[artifact.Container.Name] = artifact
 	}
-	copyArtifact := func(exec JobExecutor) error {
+	copyArtifact := func(ctx context.Context, exec JobExecutor) error {
 		artifact, exists := artifactMap[exec.Container().Name]
 		if !exists {
 			return nil
@@ -123,6 +123,7 @@ func (b *TaskBuilder) BuildWithKey(tmpl TestJobTemplateSpec, strategyKey *Strate
 			return err
 		}
 		return exec.CopyFrom(
+			ctx,
 			artifact.Container.Path,
 			localPath,
 		)
@@ -169,9 +170,9 @@ func (b *TaskBuilder) preInitCallback(ctx *TaskBuildContext) (PreInitCallback, e
 	}); err != nil {
 		return nil, err
 	}
-	return func(exec JobExecutor) error {
+	return func(ctx context.Context, exec JobExecutor) error {
 		for _, path := range copyPaths {
-			if err := exec.CopyTo(path.src, path.dst); err != nil {
+			if err := exec.CopyTo(ctx, path.src, path.dst); err != nil {
 				return err
 			}
 		}

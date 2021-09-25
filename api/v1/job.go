@@ -16,7 +16,7 @@ import (
 	"k8s.io/client-go/rest"
 )
 
-type PreInitCallback func(JobExecutor) error
+type PreInitCallback func(context.Context, JobExecutor) error
 
 type Job interface {
 	PreInit(corev1.Container, PreInitCallback)
@@ -24,11 +24,11 @@ type Job interface {
 }
 
 type JobExecutor interface {
-	Output() ([]byte, error)
-	ExecAsync()
-	Stop() error
-	CopyFrom(string, string) error
-	CopyTo(string, string) error
+	Output(context.Context) ([]byte, error)
+	ExecAsync(context.Context)
+	Stop(context.Context) error
+	CopyFrom(context.Context, string, string) error
+	CopyTo(context.Context, string, string) error
 	Container() corev1.Container
 	Pod() *corev1.Pod
 }
@@ -64,16 +64,18 @@ func (b *JobBuilder) BuildWithJob(jobSpec *batchv1.Job) (Job, error) {
 }
 
 type kubernetesJob struct {
-	job *kubejob.Job
+	preInitCallbackContext context.Context
+	job                    *kubejob.Job
 }
 
 func (j *kubernetesJob) PreInit(c corev1.Container, cb PreInitCallback) {
 	j.job.PreInit(c, func(exec *kubejob.JobExecutor) error {
-		return cb(&kubernetesJobExecutor{exec: exec})
+		return cb(j.preInitCallbackContext, &kubernetesJobExecutor{exec: exec})
 	})
 }
 
 func (j *kubernetesJob) RunWithExecutionHandler(ctx context.Context, handler func([]JobExecutor) error) error {
+	j.preInitCallbackContext = ctx
 	return j.job.RunWithExecutionHandler(ctx, func(execs []*kubejob.JobExecutor) error {
 		converted := make([]JobExecutor, 0, len(execs))
 		for _, exec := range execs {
@@ -87,23 +89,25 @@ type kubernetesJobExecutor struct {
 	exec *kubejob.JobExecutor
 }
 
-func (e *kubernetesJobExecutor) Output() ([]byte, error) {
+func (e *kubernetesJobExecutor) Output(_ context.Context) ([]byte, error) {
 	return e.exec.ExecOnly()
 }
 
-func (e *kubernetesJobExecutor) ExecAsync() {
+func (e *kubernetesJobExecutor) ExecAsync(_ context.Context) {
 	e.exec.ExecAsync()
 }
 
-func (e *kubernetesJobExecutor) Stop() error {
+func (e *kubernetesJobExecutor) Stop(_ context.Context) error {
 	return e.exec.Stop()
 }
 
-func (e *kubernetesJobExecutor) CopyFrom(src string, dst string) error {
+func (e *kubernetesJobExecutor) CopyFrom(ctx context.Context, src string, dst string) error {
+	LoggerFromContext(ctx).Debug("copy from %s on container to %s on local", src, dst)
 	return e.exec.CopyFromPod(src, dst)
 }
 
-func (e *kubernetesJobExecutor) CopyTo(src string, dst string) error {
+func (e *kubernetesJobExecutor) CopyTo(ctx context.Context, src string, dst string) error {
+	LoggerFromContext(ctx).Debug("copy from %s on local to %s on container", src, dst)
 	return e.exec.CopyToPod(src, dst)
 }
 
@@ -130,7 +134,7 @@ func (j *localJob) PreInit(c corev1.Container, cb PreInitCallback) {
 func (j *localJob) RunWithExecutionHandler(ctx context.Context, handler func([]JobExecutor) error) error {
 	preInitNameToPath := map[string]string{}
 	if j.preInitCallback != nil {
-		j.preInitCallback(&localJobExecutor{
+		j.preInitCallback(ctx, &localJobExecutor{
 			rootDir:   j.rootDir,
 			container: j.preInitContainer,
 		})
@@ -139,6 +143,7 @@ func (j *localJob) RunWithExecutionHandler(ctx context.Context, handler func([]J
 		}
 	}
 	execs := make([]JobExecutor, 0, len(j.job.Spec.Template.Spec.Containers))
+	linkedPathMap := map[string]struct{}{}
 	for _, container := range j.job.Spec.Template.Spec.Containers {
 		for _, mount := range container.VolumeMounts {
 			oldPath, exists := preInitNameToPath[mount.Name]
@@ -146,6 +151,10 @@ func (j *localJob) RunWithExecutionHandler(ctx context.Context, handler func([]J
 				continue
 			}
 			newPath := filepath.Join(j.rootDir, mount.MountPath)
+			if _, exists := linkedPathMap[newPath]; exists {
+				// already created symlink
+				continue
+			}
 			if err := os.Symlink(oldPath, newPath); err != nil {
 				return fmt.Errorf(
 					"kubetest: failed to create symlink from %s to %s for running local file system",
@@ -153,6 +162,7 @@ func (j *localJob) RunWithExecutionHandler(ctx context.Context, handler func([]J
 					newPath,
 				)
 			}
+			linkedPathMap[newPath] = struct{}{}
 		}
 		execs = append(execs, &localJobExecutor{
 			rootDir:   j.rootDir,
@@ -178,11 +188,17 @@ func (e *localJobExecutor) cmd() (*exec.Cmd, error) {
 	} else {
 		cmd = exec.Command(cmdarr[0], cmdarr[1:]...)
 	}
+	for _, env := range e.container.Env {
+		if env.Value == "" {
+			continue
+		}
+		cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", env.Name, env.Value))
+	}
 	cmd.Dir = filepath.Join(e.rootDir, e.container.WorkingDir)
 	return cmd, nil
 }
 
-func (e *localJobExecutor) Output() ([]byte, error) {
+func (e *localJobExecutor) Output(_ context.Context) ([]byte, error) {
 	cmd, err := e.cmd()
 	if err != nil {
 		return nil, err
@@ -190,7 +206,7 @@ func (e *localJobExecutor) Output() ([]byte, error) {
 	return cmd.Output()
 }
 
-func (e *localJobExecutor) ExecAsync() {
+func (e *localJobExecutor) ExecAsync(_ context.Context) {
 	cmd, err := e.cmd()
 	if err != nil {
 		return
@@ -200,22 +216,22 @@ func (e *localJobExecutor) ExecAsync() {
 	}()
 }
 
-func (e *localJobExecutor) Stop() error {
+func (e *localJobExecutor) Stop(_ context.Context) error {
 	return nil
 }
 
-func (e *localJobExecutor) CopyFrom(src string, dst string) error {
+func (e *localJobExecutor) CopyFrom(ctx context.Context, src string, dst string) error {
 	src = filepath.Join(e.rootDir, src)
-	fmt.Printf("copyFrom: from %s to %s\n", src, dst)
+	LoggerFromContext(ctx).Debug("copy from %s on local to %s on local", src, dst)
 	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
 		return err
 	}
 	return localCopy(src, dst)
 }
 
-func (e *localJobExecutor) CopyTo(src string, dst string) error {
+func (e *localJobExecutor) CopyTo(ctx context.Context, src string, dst string) error {
 	dst = filepath.Join(e.rootDir, dst)
-	fmt.Printf("copyTo: from %s to %s\n", src, dst)
+	LoggerFromContext(ctx).Debug("copy from %s on local to %s on local", src, dst)
 	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
 		return err
 	}
@@ -250,19 +266,19 @@ type dryRunJobExecutor struct {
 	container corev1.Container
 }
 
-func (e *dryRunJobExecutor) Output() ([]byte, error) {
+func (e *dryRunJobExecutor) Output(_ context.Context) ([]byte, error) {
 	return []byte("( dry running .... )"), nil
 }
 
-func (e *dryRunJobExecutor) ExecAsync()  {}
-func (e *dryRunJobExecutor) Stop() error { return nil }
-func (e *dryRunJobExecutor) CopyFrom(src string, dst string) error {
-	fmt.Printf("copy from %s to %s\n", src, dst)
+func (e *dryRunJobExecutor) ExecAsync(_ context.Context)  {}
+func (e *dryRunJobExecutor) Stop(_ context.Context) error { return nil }
+func (e *dryRunJobExecutor) CopyFrom(ctx context.Context, src string, dst string) error {
+	LoggerFromContext(ctx).Debug("copy from %s on container to %s on local", src, dst)
 	return nil
 }
 
-func (e *dryRunJobExecutor) CopyTo(src string, dst string) error {
-	fmt.Printf("copy from %s to %s\n", src, dst)
+func (e *dryRunJobExecutor) CopyTo(ctx context.Context, src string, dst string) error {
+	LoggerFromContext(ctx).Debug("copy from %s on local to %s on container", src, dst)
 	return nil
 }
 

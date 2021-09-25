@@ -85,28 +85,28 @@ func (g *LoggerGroup) Debug(format string, args ...interface{}) {
 	if g.level < LogLevelDebug {
 		return
 	}
-	g.log(fmt.Sprintf("[DEBUG] %s", format), args...)
+	g.log("[DEBUG] "+format, args...)
 }
 
 func (g *LoggerGroup) Info(format string, args ...interface{}) {
 	if g.level < LogLevelInfo {
 		return
 	}
-	g.log(fmt.Sprintf("[INFO] %s", format), args...)
+	g.log("[INFO] "+format, args...)
 }
 
 func (g *LoggerGroup) Warn(format string, args ...interface{}) {
 	if g.level < LogLevelWarn {
 		return
 	}
-	g.log(fmt.Sprintf("[WARN] %s", format), args...)
+	g.log("[WARN] "+format, args...)
 }
 
 func (g *LoggerGroup) Error(format string, args ...interface{}) {
 	if g.level < LogLevelError {
 		return
 	}
-	g.log(fmt.Sprintf("[ERROR] %s", format), args...)
+	g.log("[ERROR] "+format, args...)
 }
 
 func (g *LoggerGroup) log(format string, args ...interface{}) {
@@ -133,28 +133,28 @@ func (l *Logger) Debug(format string, args ...interface{}) {
 	if l.level < LogLevelDebug {
 		return
 	}
-	l.log(fmt.Sprintf("[DEBUG] %s", format), args...)
+	l.log("[DEBUG] "+format, args...)
 }
 
 func (l *Logger) Info(format string, args ...interface{}) {
 	if l.level < LogLevelInfo {
 		return
 	}
-	l.log(fmt.Sprintf("[INFO] %s", format), args...)
+	l.log("[INFO] "+format, args...)
 }
 
 func (l *Logger) Warn(format string, args ...interface{}) {
 	if l.level < LogLevelWarn {
 		return
 	}
-	l.log(fmt.Sprintf("[WARN] %s", format), args...)
+	l.log("[WARN] "+format, args...)
 }
 
 func (l *Logger) Error(format string, args ...interface{}) {
 	if l.level < LogLevelError {
 		return
 	}
-	l.log(fmt.Sprintf("[ERROR] %s", format), args...)
+	l.log("[ERROR] "+format, args...)
 }
 
 func (l *Logger) log(format string, args ...interface{}) {
@@ -164,8 +164,7 @@ func (l *Logger) log(format string, args ...interface{}) {
 	if msg == "" {
 		return
 	}
-	fmt.Fprintf(l.out, l.mask(msg))
-	fmt.Fprintf(l.out, "\n")
+	fmt.Fprintln(l.out, l.mask(msg))
 }
 
 func (l *Logger) mask(msg string) string {

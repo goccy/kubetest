@@ -2,6 +2,7 @@ package v1
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -48,6 +49,7 @@ func testRepoVolumeMount() corev1.VolumeMount {
 func TestRunner(t *testing.T) {
 	t.Run("simple", func(t *testing.T) {
 		runner := NewRunner(getConfig(), RunModeLocal)
+		runner.SetLogger(NewLogger(os.Stdout, LogLevelDebug))
 		if _, err := runner.Run(context.Background(), TestJob{
 			ObjectMeta: testjobObjectMeta(),
 			Spec: TestJobSpec{
@@ -79,6 +81,7 @@ func TestRunner(t *testing.T) {
 	})
 	t.Run("prestep", func(t *testing.T) {
 		runner := NewRunner(getConfig(), RunModeLocal)
+		runner.SetLogger(NewLogger(os.Stdout, LogLevelDebug))
 		if _, err := runner.Run(context.Background(), TestJob{
 			ObjectMeta: testjobObjectMeta(),
 			Spec: TestJobSpec{
@@ -154,6 +157,118 @@ func TestRunner(t *testing.T) {
 									},
 								},
 							},
+						},
+					},
+				},
+			},
+		}); err != nil {
+			t.Fatal(err)
+		}
+	})
+	t.Run("static key based multiple tasks", func(t *testing.T) {
+		runner := NewRunner(getConfig(), RunModeLocal)
+		runner.SetLogger(NewLogger(os.Stdout, LogLevelDebug))
+		if _, err := runner.Run(context.Background(), TestJob{
+			ObjectMeta: testjobObjectMeta(),
+			Spec: TestJobSpec{
+				Repos: testRepos(),
+				Strategy: &Strategy{
+					Key: StrategyKeySpec{
+						Env: "TEST",
+						Source: StrategyKeySource{
+							Static: []string{"A", "B", "C"},
+						},
+					},
+					Scheduler: Scheduler{
+						MaxContainersPerPod: 10,
+					},
+				},
+				Template: TestJobTemplateSpec{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "test",
+					},
+					Spec: TestJobPodSpec{
+						PodSpec: corev1.PodSpec{
+							Containers: []corev1.Container{
+								{
+									Name:       "test",
+									Image:      "alpine",
+									Command:    []string{"sh", "-c"},
+									Args:       []string{"echo $TEST"},
+									WorkingDir: filepath.Join("/", "work"),
+									VolumeMounts: []corev1.VolumeMount{
+										testRepoVolumeMount(),
+									},
+								},
+							},
+						},
+						Volumes: []TestJobVolume{
+							testRepoVolume(),
+						},
+					},
+				},
+			},
+		}); err != nil {
+			t.Fatal(err)
+		}
+	})
+	t.Run("dynamic key based multiple tasks", func(t *testing.T) {
+		runner := NewRunner(getConfig(), RunModeLocal)
+		runner.SetLogger(NewLogger(os.Stdout, LogLevelDebug))
+		if _, err := runner.Run(context.Background(), TestJob{
+			ObjectMeta: testjobObjectMeta(),
+			Spec: TestJobSpec{
+				Repos: testRepos(),
+				Strategy: &Strategy{
+					Key: StrategyKeySpec{
+						Env: "TEST",
+						Source: StrategyKeySource{
+							Dynamic: &StrategyDynamicKeySource{
+								Spec: TestJobTemplateSpec{
+									ObjectMeta: metav1.ObjectMeta{
+										Name: "list",
+									},
+									Spec: TestJobPodSpec{
+										PodSpec: corev1.PodSpec{
+											Containers: []corev1.Container{
+												{
+													Name:    "list",
+													Image:   "alpine",
+													Command: []string{"sh", "-c"},
+													Args:    []string{`echo "A\nB\nC\nD"`},
+												},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+					Scheduler: Scheduler{
+						MaxContainersPerPod: 10,
+					},
+				},
+				Template: TestJobTemplateSpec{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "test",
+					},
+					Spec: TestJobPodSpec{
+						PodSpec: corev1.PodSpec{
+							Containers: []corev1.Container{
+								{
+									Name:       "test",
+									Image:      "alpine",
+									Command:    []string{"sh", "-c"},
+									Args:       []string{"echo $TEST"},
+									WorkingDir: filepath.Join("/", "work"),
+									VolumeMounts: []corev1.VolumeMount{
+										testRepoVolumeMount(),
+									},
+								},
+							},
+						},
+						Volumes: []TestJobVolume{
+							testRepoVolume(),
 						},
 					},
 				},

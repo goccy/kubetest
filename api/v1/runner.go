@@ -56,6 +56,7 @@ func (r *Runner) Run(ctx context.Context, testjob TestJob) (*Result, error) {
 	builder := NewTaskBuilder(r.cfg, resourceMgr, testjob.Namespace, r.runMode)
 	var result Result
 	for _, step := range testjob.Spec.PreSteps {
+		r.logger.Info("prestep %s", step.Name)
 		task, err := builder.Build(step.Template)
 		if err != nil {
 			return nil, err

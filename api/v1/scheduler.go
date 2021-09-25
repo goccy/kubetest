@@ -58,7 +58,7 @@ func (s *TaskScheduler) Schedule(ctx context.Context, tmpl TestJobTemplateSpec) 
 				atomic.AddUint32(&finishedKeyNum, 1)
 				LoggerFromContext(ctx).Info(
 					"%d/%d (%f%%) finished.",
-					finishedKeyNum, keyNum, (float32(finishedKeyNum/keyNum))*100,
+					finishedKeyNum, keyNum, (float32(finishedKeyNum)/float32(keyNum))*100,
 				)
 			},
 		})
@@ -85,7 +85,7 @@ func (s *TaskScheduler) Schedule(ctx context.Context, tmpl TestJobTemplateSpec) 
 				atomic.AddUint32(&finishedKeyNum, 1)
 				LoggerFromContext(ctx).Info(
 					"%d/%d (%f%%) finished.",
-					finishedKeyNum, keyNum, (float32(finishedKeyNum/keyNum))*100,
+					finishedKeyNum, keyNum, (float32(finishedKeyNum)/float32(keyNum))*100,
 				)
 			},
 		})

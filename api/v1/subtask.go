@@ -21,14 +21,14 @@ type SubTask struct {
 	exec         JobExecutor
 	hasArtifact  bool
 	isMain       bool
-	copyArtifact func(JobExecutor) error
+	copyArtifact func(context.Context, JobExecutor) error
 }
 
 func (t *SubTask) Run(ctx context.Context) (*SubTaskResult, error) {
 	logger := LoggerFromContext(ctx)
 	logGroup := logger.Group()
 	defer func() {
-		if err := t.exec.Stop(); err != nil {
+		if err := t.exec.Stop(ctx); err != nil {
 			logGroup.Warn("failed to stop %s", err)
 		}
 		logger.LogGroup(logGroup)
@@ -37,7 +37,7 @@ func (t *SubTask) Run(ctx context.Context) (*SubTaskResult, error) {
 		}
 	}()
 	start := time.Now()
-	out, err := t.exec.Output()
+	out, err := t.exec.Output(ctx)
 	result := &SubTaskResult{
 		ElapsedTime: time.Since(start),
 		Out:         out,
@@ -57,7 +57,7 @@ func (t *SubTask) Run(ctx context.Context) (*SubTaskResult, error) {
 	}
 	logGroup.Info("elapsed time: %f sec.", result.ElapsedTime.Seconds())
 	if t.hasArtifact {
-		if err := t.copyArtifact(t.exec); err != nil {
+		if err := t.copyArtifact(ctx, t.exec); err != nil {
 			logGroup.Warn("failed to copy artifact: %s", err.Error())
 			result.Status = TaskResultFailure
 			result.ArtifactErr = err

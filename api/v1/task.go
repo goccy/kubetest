@@ -15,7 +15,7 @@ type Task struct {
 	OnFinishSubTask        func(*SubTask)
 	job                    Job
 	artifactContainerNames map[string]ArtifactSpec
-	copyArtifact           func(JobExecutor) error
+	copyArtifact           func(context.Context, JobExecutor) error
 	strategyKey            *StrategyKey
 	mainContainerName      string
 }
@@ -24,7 +24,7 @@ func (t *Task) Run(ctx context.Context) (*TaskResult, error) {
 	var result TaskResult
 	if err := t.job.RunWithExecutionHandler(ctx, func(executors []JobExecutor) error {
 		for _, sidecar := range t.sideCarExecutors(executors) {
-			sidecar.ExecAsync()
+			sidecar.ExecAsync(ctx)
 		}
 		subTasks := t.getSubTasks(t.mainExecutors(executors))
 		if t.strategyKey == nil {
