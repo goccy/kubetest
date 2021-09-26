@@ -39,6 +39,9 @@ func (r *Runner) SetLogger(logger *Logger) {
 }
 
 func (r *Runner) Run(ctx context.Context, testjob TestJob) (*Result, error) {
+	if err := testjob.Validate(); err != nil {
+		return nil, err
+	}
 	startedAt := time.Now()
 	if r.logger == nil {
 		r.logger = NewLogger(os.Stdout, LogLevelInfo)

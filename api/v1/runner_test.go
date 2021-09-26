@@ -180,7 +180,8 @@ func TestRunner(t *testing.T) {
 						},
 					},
 					Scheduler: Scheduler{
-						MaxContainersPerPod: 10,
+						MaxContainersPerPod:    10,
+						MaxConcurrentNumPerPod: 10,
 					},
 				},
 				Template: TestJobTemplateSpec{
@@ -245,7 +246,8 @@ func TestRunner(t *testing.T) {
 						},
 					},
 					Scheduler: Scheduler{
-						MaxContainersPerPod: 10,
+						MaxContainersPerPod:    10,
+						MaxConcurrentNumPerPod: 10,
 					},
 				},
 				Template: TestJobTemplateSpec{
