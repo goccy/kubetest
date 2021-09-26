@@ -22,6 +22,18 @@ const (
 	RunModeDryRun
 )
 
+func (m RunMode) String() string {
+	switch m {
+	case RunModeKubernetes:
+		return "kubernetes"
+	case RunModeLocal:
+		return "local"
+	case RunModeDryRun:
+		return "dryrun"
+	}
+	return "unknown"
+}
+
 type Runner struct {
 	cfg       *rest.Config
 	clientset *kubernetes.Clientset

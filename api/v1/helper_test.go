@@ -13,23 +13,44 @@ const (
 )
 
 var (
-	envtestCfg *rest.Config
+	kubecfg  *rest.Config
+	runModes []RunMode
 )
 
+func init() {
+	c, err := rest.InClusterConfig()
+	if err == nil {
+		kubecfg = c
+		runModes = []RunMode{
+			RunModeLocal,
+			RunModeKubernetes,
+		}
+	}
+}
+
 func getConfig() *rest.Config {
-	return envtestCfg
+	return kubecfg
+}
+
+func getRunModes() []RunMode {
+	return runModes
 }
 
 func TestMain(m *testing.M) {
 	result := func() int {
-		os.Setenv(envKubebuilderPath, "../../bin/k8sbin")
-		testenv := envtest.Environment{}
-		cfg, err := testenv.Start()
-		if err != nil {
-			panic(err)
+		if kubecfg == nil {
+			os.Setenv(envKubebuilderPath, "../../bin/k8sbin")
+			testenv := envtest.Environment{}
+			cfg, err := testenv.Start()
+			if err != nil {
+				panic(err)
+			}
+			kubecfg = cfg
+			runModes = []RunMode{
+				RunModeLocal,
+			}
+			defer testenv.Stop()
 		}
-		envtestCfg = cfg
-		defer testenv.Stop()
 		return m.Run()
 	}()
 	os.Exit(result)
