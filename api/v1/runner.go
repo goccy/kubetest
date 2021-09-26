@@ -5,6 +5,7 @@ package v1
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"time"
 
@@ -59,7 +60,7 @@ func (r *Runner) Run(ctx context.Context, testjob TestJob) (*Result, error) {
 	builder := NewTaskBuilder(r.cfg, resourceMgr, testjob.Namespace, r.runMode)
 	var result Result
 	for _, step := range testjob.Spec.PreSteps {
-		r.logger.Info("prestep %s", step.Name)
+		r.logger.Info("run prestep %s", step.Name)
 		task, err := builder.Build(step.Template)
 		if err != nil {
 			return nil, err
@@ -67,6 +68,11 @@ func (r *Runner) Run(ctx context.Context, testjob TestJob) (*Result, error) {
 		preStepResult, err := task.Run(ctx)
 		if err != nil {
 			return nil, err
+		}
+		for _, result := range preStepResult.MainTaskResults() {
+			if err := result.Error(); err != nil {
+				return nil, fmt.Errorf("failed to run %s: %w", step.Name, err)
+			}
 		}
 		result.preStepResults = append(result.preStepResults, preStepResult)
 	}

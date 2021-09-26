@@ -118,6 +118,20 @@ type SubTaskResult struct {
 	IsMain      bool
 }
 
+func (r *SubTaskResult) Error() error {
+	errs := []string{}
+	if r.Err != nil {
+		errs = append(errs, r.Err.Error())
+	}
+	if r.ArtifactErr != nil {
+		errs = append(errs, r.ArtifactErr.Error())
+	}
+	if len(errs) > 0 {
+		return fmt.Errorf(strings.Join(errs, ":"))
+	}
+	return nil
+}
+
 func (r *SubTaskResult) Command() string {
 	cmd := strings.Join(append(r.Container.Command, r.Container.Args...), " ")
 	envName := r.KeyEnvName
