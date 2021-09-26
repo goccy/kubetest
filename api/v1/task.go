@@ -15,7 +15,7 @@ type Task struct {
 	OnFinishSubTask        func(*SubTask)
 	job                    Job
 	artifactContainerNames map[string]ArtifactSpec
-	copyArtifact           func(context.Context, JobExecutor) error
+	copyArtifact           func(context.Context, *SubTask) error
 	strategyKey            *StrategyKey
 	mainContainerName      string
 }
@@ -62,7 +62,6 @@ func (t *Task) getSubTasks(execs []JobExecutor) []*SubTask {
 			KeyEnvName:   envName,
 			OnFinish:     t.OnFinishSubTask,
 			exec:         exec,
-			hasArtifact:  t.hasArtifact(container),
 			copyArtifact: t.copyArtifact,
 			isMain:       t.isMainExecutor(exec),
 		})
@@ -92,11 +91,6 @@ func (t *Task) sideCarExecutors(executors []JobExecutor) []JobExecutor {
 
 func (t *Task) isMainExecutor(exec JobExecutor) bool {
 	return t.mainContainerName == exec.Container().Name || t.hasKeyEnv(exec.Container())
-}
-
-func (t *Task) hasArtifact(container corev1.Container) bool {
-	_, exists := t.artifactContainerNames[container.Name]
-	return exists
 }
 
 func (t *Task) getKeyName(container corev1.Container) string {

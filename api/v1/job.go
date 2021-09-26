@@ -144,7 +144,10 @@ func (j *localJob) RunWithExecutionHandler(ctx context.Context, handler func([]J
 	}
 	execs := make([]JobExecutor, 0, len(j.job.Spec.Template.Spec.Containers))
 	linkedPathMap := map[string]struct{}{}
-	for _, container := range j.job.Spec.Template.Spec.Containers {
+	for idx, container := range j.job.Spec.Template.Spec.Containers {
+		if container.Name == "" {
+			container.Name = fmt.Sprintf("container%d", idx)
+		}
 		for _, mount := range container.VolumeMounts {
 			oldPath, exists := preInitNameToPath[mount.Name]
 			if !exists {

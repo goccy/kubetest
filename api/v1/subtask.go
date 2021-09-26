@@ -19,9 +19,8 @@ type SubTask struct {
 	KeyEnvName   string
 	OnFinish     func(*SubTask)
 	exec         JobExecutor
-	hasArtifact  bool
 	isMain       bool
-	copyArtifact func(context.Context, JobExecutor) error
+	copyArtifact func(context.Context, *SubTask) error
 }
 
 func (t *SubTask) Run(ctx context.Context) (*SubTaskResult, error) {
@@ -56,12 +55,10 @@ func (t *SubTask) Run(ctx context.Context) (*SubTaskResult, error) {
 		result.Status = TaskResultFailure
 	}
 	logGroup.Info("elapsed time: %f sec.", result.ElapsedTime.Seconds())
-	if t.hasArtifact {
-		if err := t.copyArtifact(ctx, t.exec); err != nil {
-			logGroup.Warn("failed to copy artifact: %s", err.Error())
-			result.Status = TaskResultFailure
-			result.ArtifactErr = err
-		}
+	if err := t.copyArtifact(ctx, t); err != nil {
+		logGroup.Warn("failed to copy artifact: %s", err.Error())
+		result.Status = TaskResultFailure
+		result.ArtifactErr = err
 	}
 	return result, nil
 }

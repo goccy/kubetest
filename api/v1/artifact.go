@@ -4,19 +4,22 @@
 package v1
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 )
 
 type ArtifactManager struct {
-	nameToLocalPaths map[string]string
+	nameToLocalDirs  map[string]string
+	nameToLocalFiles map[string]string
 	exports          []ExportArtifact
 }
 
 func NewArtifactManager(exports []ExportArtifact) *ArtifactManager {
 	return &ArtifactManager{
-		nameToLocalPaths: map[string]string{},
+		nameToLocalDirs:  map[string]string{},
+		nameToLocalFiles: map[string]string{},
 		exports:          exports,
 	}
 }
@@ -27,28 +30,76 @@ func (m *ArtifactManager) AddArtifacts(artifacts []ArtifactSpec) error {
 		if err != nil {
 			return fmt.Errorf("kubetest: failed to create temporary directory for artifact: %w", err)
 		}
-		localPath := filepath.Join(dir, filepath.Base(artifact.Container.Path))
-		m.nameToLocalPaths[artifact.Name] = localPath
+		m.nameToLocalDirs[artifact.Name] = dir
+		m.nameToLocalFiles[artifact.Name] = filepath.Base(artifact.Container.Path)
 	}
 	return nil
 }
 
-func (m *ArtifactManager) LocalPathByName(name string) (string, error) {
-	path, exists := m.nameToLocalPaths[name]
+func (m *ArtifactManager) ExportPathByName(name string) (string, error) {
+	dir, exists := m.nameToLocalDirs[name]
 	if !exists {
 		return "", errInvalidArtifactName(name)
 	}
-	return path, nil
+	return dir, nil
 }
 
-func (m *ArtifactManager) ExportArtifacts() error {
+func (m *ArtifactManager) LocalPathByName(name string) (string, error) {
+	dir, exists := m.nameToLocalDirs[name]
+	if !exists {
+		return "", errInvalidArtifactName(name)
+	}
+	file, exists := m.nameToLocalFiles[name]
+	if !exists {
+		return "", errInvalidArtifactName(name)
+	}
+	containerNames, err := filepath.Glob(filepath.Join(dir, "*"))
+	if err != nil {
+		return "", fmt.Errorf("kubetest: couldn't find local path for artifact %s", name)
+	}
+	if len(containerNames) == 0 {
+		return "", fmt.Errorf("kubetest: couldn't find local path for artifact %s", name)
+	}
+	if len(containerNames) > 1 {
+		return "", fmt.Errorf("kubetest: couldn't find local path for artifact %s. found multiple paths under the local artifact directory", name)
+	}
+	return filepath.Join(dir, containerNames[0], file), nil
+}
+
+func (m *ArtifactManager) LocalPathByNameAndContainerName(name, containerName string) (string, error) {
+	dir, exists := m.nameToLocalDirs[name]
+	if !exists {
+		return "", errInvalidArtifactName(name)
+	}
+	file, exists := m.nameToLocalFiles[name]
+	if !exists {
+		return "", errInvalidArtifactName(name)
+	}
+	return filepath.Join(dir, containerName, file), nil
+}
+
+func (m *ArtifactManager) ExportArtifacts(ctx context.Context) error {
 	for _, export := range m.exports {
-		src, err := m.LocalPathByName(export.Name)
+		src, err := m.ExportPathByName(export.Name)
 		if err != nil {
-			return fmt.Errorf("kubetest: failed to source path to export artifact: %w", err)
+			return fmt.Errorf("kubetest: failed to get src path to export artifact: %w", err)
 		}
 		dst := export.Export.Path
-		fmt.Printf("copy %s to %s\n", src, dst)
+		paths, err := filepath.Glob(filepath.Join(src, "*"))
+		if err != nil {
+			return fmt.Errorf("kubetest: failed to get src path to export artifact: %w", err)
+		}
+		for _, path := range paths {
+			src := path
+			dst := filepath.Join(dst, filepath.Base(path))
+			LoggerFromContext(ctx).Debug(
+				"export artifact: copy from %s to %s",
+				src, dst,
+			)
+			if err := localCopy(src, dst); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }

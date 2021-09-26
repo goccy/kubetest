@@ -28,16 +28,22 @@ func (v *Validator) ValidateTestJob(job TestJob) error {
 
 func (v *Validator) ValidateTestJobSpec(spec TestJobSpec) error {
 	for _, token := range spec.Tokens {
-		v.tokenNameMap[token.Name] = struct{}{}
 		if err := v.ValidateToken(token); err != nil {
 			return err
 		}
+		if _, exists := v.tokenNameMap[token.Name]; exists {
+			return fmt.Errorf("kubetest: specified token name '%s' is duplicated", token.Name)
+		}
+		v.tokenNameMap[token.Name] = struct{}{}
 	}
 	for _, repo := range spec.Repos {
-		v.repoNameMap[repo.Name] = struct{}{}
 		if err := v.ValidateRepositorySpec(repo); err != nil {
 			return err
 		}
+		if _, exists := v.repoNameMap[repo.Name]; exists {
+			return fmt.Errorf("kubetest: specified repository name '%s' is duplicated", repo.Name)
+		}
+		v.repoNameMap[repo.Name] = struct{}{}
 	}
 	for _, prestep := range spec.PreSteps {
 		if err := v.ValidatePreStep(prestep); err != nil {
@@ -183,6 +189,9 @@ func (v *Validator) ValidateTestJobPodSpec(spec TestJobPodSpec) error {
 		}
 		if !foundContainerName {
 			return fmt.Errorf("kubetest: template.spec.artifact.container.name %s is undefined", artifact.Container.Name)
+		}
+		if _, exists := v.artifactNameMap[artifact.Name]; exists {
+			return fmt.Errorf("kubetest: specified artifact name '%s' is duplicated", artifact.Name)
 		}
 		v.artifactNameMap[artifact.Name] = struct{}{}
 	}

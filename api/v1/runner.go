@@ -85,13 +85,12 @@ func (r *Runner) Run(ctx context.Context, testjob TestJob) (*Result, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := resourceMgr.ExportArtifacts(); err != nil {
+	if err := resourceMgr.ExportArtifacts(ctx); err != nil {
 		return nil, err
 	}
 	result.taskResult = taskResult
 	result.StartedAt = startedAt
 	result.ElapsedTime = time.Since(startedAt)
-	// copy final artifact
 	return &result, nil
 }
 

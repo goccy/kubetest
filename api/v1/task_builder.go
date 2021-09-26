@@ -113,16 +113,22 @@ func (b *TaskBuilder) BuildWithKey(tmpl TestJobTemplateSpec, strategyKey *Strate
 	for _, artifact := range spec.Artifacts {
 		artifactMap[artifact.Container.Name] = artifact
 	}
-	copyArtifact := func(ctx context.Context, exec JobExecutor) error {
-		artifact, exists := artifactMap[exec.Container().Name]
+	copyArtifact := func(ctx context.Context, subtask *SubTask) error {
+		var containerName string
+		if subtask.isMain {
+			containerName = mainContainer.Name
+		} else {
+			containerName = subtask.exec.Container().Name
+		}
+		artifact, exists := artifactMap[containerName]
 		if !exists {
 			return nil
 		}
-		localPath, err := b.mgr.artifactMgr.LocalPathByName(artifact.Name)
+		localPath, err := b.mgr.ArtifactPathByNameAndContainerName(artifact.Name, subtask.exec.Container().Name)
 		if err != nil {
 			return err
 		}
-		return exec.CopyFrom(
+		return subtask.exec.CopyFrom(
 			ctx,
 			artifact.Container.Path,
 			localPath,

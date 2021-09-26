@@ -71,6 +71,13 @@ func (m *ResourceManager) ArtifactPathByName(name string) (string, error) {
 	return m.artifactMgr.LocalPathByName(name)
 }
 
-func (m *ResourceManager) ExportArtifacts() error {
-	return m.artifactMgr.ExportArtifacts()
+func (m *ResourceManager) ArtifactPathByNameAndContainerName(name, containerName string) (string, error) {
+	if !m.doneSetup {
+		return "", fmt.Errorf("kubetest: resource manager isn't setup")
+	}
+	return m.artifactMgr.LocalPathByNameAndContainerName(name, containerName)
+}
+
+func (m *ResourceManager) ExportArtifacts(ctx context.Context) error {
+	return m.artifactMgr.ExportArtifacts(ctx)
 }

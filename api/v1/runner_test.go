@@ -279,4 +279,82 @@ func TestRunner(t *testing.T) {
 			t.Fatal(err)
 		}
 	})
+	t.Run("export artifacts by multiple tasks", func(t *testing.T) {
+		exportDir, err := os.MkdirTemp("", "exported_artifacts")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer os.RemoveAll(exportDir)
+
+		runner := NewRunner(getConfig(), RunModeLocal)
+		runner.SetLogger(NewLogger(os.Stdout, LogLevelDebug))
+		if _, err := runner.Run(context.Background(), TestJob{
+			ObjectMeta: testjobObjectMeta(),
+			Spec: TestJobSpec{
+				Repos: testRepos(),
+				Strategy: &Strategy{
+					Key: StrategyKeySpec{
+						Env: "TEST",
+						Source: StrategyKeySource{
+							Static: []string{"A", "B", "C"},
+						},
+					},
+					Scheduler: Scheduler{
+						MaxContainersPerPod:    10,
+						MaxConcurrentNumPerPod: 10,
+					},
+				},
+				ExportArtifacts: []ExportArtifact{
+					{
+						Name: "export-artifact",
+						Export: ArtifactExportSpec{
+							Path: exportDir,
+						},
+					},
+				},
+				Template: TestJobTemplateSpec{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "test",
+					},
+					Spec: TestJobPodSpec{
+						Artifacts: []ArtifactSpec{
+							{
+								Name: "export-artifact",
+								Container: ArtifactContainer{
+									Name: "test",
+									Path: filepath.Join("/", "work", "artifact"),
+								},
+							},
+						},
+						PodSpec: corev1.PodSpec{
+							Containers: []corev1.Container{
+								{
+									Name:       "test",
+									Image:      "alpine",
+									Command:    []string{"touch"},
+									Args:       []string{"artifact"},
+									WorkingDir: filepath.Join("/", "work"),
+									VolumeMounts: []corev1.VolumeMount{
+										testRepoVolumeMount(),
+									},
+								},
+							},
+						},
+						Volumes: []TestJobVolume{
+							testRepoVolume(),
+						},
+					},
+				},
+			},
+		}); err != nil {
+			t.Fatal(err)
+		}
+		artifacts, err := filepath.Glob(filepath.Join(exportDir, "*"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(artifacts) != 3 {
+			t.Fatalf("failed to find exported artifacts. artifacts num %d", len(artifacts))
+		}
+	})
 }
