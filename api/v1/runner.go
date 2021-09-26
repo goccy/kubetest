@@ -5,6 +5,7 @@ package v1
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"time"
@@ -88,6 +89,7 @@ func (r *Runner) Run(ctx context.Context, testjob TestJob) (*Result, error) {
 	if err := resourceMgr.ExportArtifacts(ctx); err != nil {
 		return nil, err
 	}
+	result.Status = taskResult.Status()
 	result.taskResult = taskResult
 	result.StartedAt = startedAt
 	result.ElapsedTime = time.Since(startedAt)
@@ -101,10 +103,50 @@ const (
 	ResultStatusFailure
 )
 
+func (s ResultStatus) String() string {
+	switch s {
+	case ResultStatusSuccess:
+		return "success"
+	case ResultStatusFailure:
+		return "failure"
+	}
+	return "error"
+}
+
+func (s ResultStatus) MarshalJSON() ([]byte, error) {
+	return []byte(fmt.Sprintf(`"%s"`, s.String())), nil
+}
+
 type Result struct {
 	Status         ResultStatus
 	StartedAt      time.Time
 	ElapsedTime    time.Duration
 	preStepResults []*TaskResult
 	taskResult     *TaskResultGroup
+	job            TestJob
+}
+
+func (r *Result) MarshalJSON() ([]byte, error) {
+	b, err := json.Marshal(struct {
+		Status         ResultStatus     `json:"status"`
+		StartedAt      time.Time        `json:"startedAt"`
+		ElapsedTimeSec int64            `json:"elapsedTimeSec"`
+		Details        *TaskResultGroup `json:"details"`
+	}{
+		Status:         r.Status,
+		StartedAt:      r.StartedAt,
+		ElapsedTimeSec: int64(r.ElapsedTime.Seconds()),
+		Details:        r.taskResult,
+	})
+	if err != nil {
+		return nil, err
+	}
+	var logMap map[string]interface{}
+	if err := json.Unmarshal(b, &logMap); err != nil {
+		return nil, err
+	}
+	for k, v := range r.job.Spec.Log.ExtParam {
+		logMap[k] = v
+	}
+	return json.Marshal(logMap)
 }

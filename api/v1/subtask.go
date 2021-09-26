@@ -45,6 +45,7 @@ func (t *SubTask) Run(ctx context.Context) (*SubTaskResult, error) {
 		Container:   t.exec.Container(),
 		Pod:         t.exec.Pod(),
 		IsMain:      t.isMain,
+		KeyEnvName:  t.KeyEnvName,
 	}
 	logGroup.Info(result.Command())
 	logGroup.Log(string(out))
@@ -102,6 +103,20 @@ const (
 	TaskResultFailure
 )
 
+func (s TaskResultStatus) String() string {
+	switch s {
+	case TaskResultSuccess:
+		return "success"
+	case TaskResultFailure:
+		return "failure"
+	}
+	return "unknown"
+}
+
+func (s TaskResultStatus) MarshalJSON() ([]byte, error) {
+	return []byte(fmt.Sprintf(`"%s"`, s.String())), nil
+}
+
 type SubTaskResult struct {
 	Status      TaskResultStatus
 	ElapsedTime time.Duration
@@ -133,7 +148,7 @@ func (r *SubTaskResult) Command() string {
 	cmd := strings.Join(append(r.Container.Command, r.Container.Args...), " ")
 	envName := r.KeyEnvName
 	if envName != "" {
-		return fmt.Sprintf("%s=%s; ", r.KeyEnvName, r.Name) + cmd
+		return fmt.Sprintf("%s=%s; ", envName, r.Name) + cmd
 	}
 	return cmd
 }

@@ -5,6 +5,7 @@ package v1
 
 import (
 	"context"
+	"encoding/json"
 	"sync"
 
 	"golang.org/x/sync/errgroup"
@@ -174,6 +175,40 @@ func (r *TaskResult) add(group *SubTaskResultGroup) {
 type TaskResultGroup struct {
 	results []*TaskResult
 	mu      sync.Mutex
+}
+
+func (g *TaskResultGroup) Status() ResultStatus {
+	for _, result := range g.results {
+		for _, group := range result.groups {
+			for _, subTaskResult := range group.results {
+				if err := subTaskResult.Error(); err != nil {
+					return ResultStatusFailure
+				}
+			}
+		}
+	}
+	return ResultStatusSuccess
+}
+
+func (g *TaskResultGroup) MarshalJSON() ([]byte, error) {
+	type resultReport struct {
+		Status         TaskResultStatus `json:"status"`
+		Name           string           `json:"name"`
+		ElapsedTimeSec int64            `json:"elapsedTimeSec"`
+	}
+	allResults := []*resultReport{}
+	for _, result := range g.results {
+		for _, group := range result.groups {
+			for _, subTaskResult := range group.results {
+				allResults = append(allResults, &resultReport{
+					Status:         subTaskResult.Status,
+					Name:           subTaskResult.Name,
+					ElapsedTimeSec: int64(subTaskResult.ElapsedTime.Seconds()),
+				})
+			}
+		}
+	}
+	return json.Marshal(allResults)
 }
 
 func (g *TaskResultGroup) add(result *TaskResult) {

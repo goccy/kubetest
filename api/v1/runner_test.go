@@ -2,6 +2,7 @@ package v1
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -288,7 +289,7 @@ func TestRunner(t *testing.T) {
 
 		runner := NewRunner(getConfig(), RunModeLocal)
 		runner.SetLogger(NewLogger(os.Stdout, LogLevelDebug))
-		if _, err := runner.Run(context.Background(), TestJob{
+		result, err := runner.Run(context.Background(), TestJob{
 			ObjectMeta: testjobObjectMeta(),
 			Spec: TestJobSpec{
 				Repos: testRepos(),
@@ -346,7 +347,8 @@ func TestRunner(t *testing.T) {
 					},
 				},
 			},
-		}); err != nil {
+		})
+		if err != nil {
 			t.Fatal(err)
 		}
 		artifacts, err := filepath.Glob(filepath.Join(exportDir, "*"))
@@ -356,5 +358,10 @@ func TestRunner(t *testing.T) {
 		if len(artifacts) != 3 {
 			t.Fatalf("failed to find exported artifacts. artifacts num %d", len(artifacts))
 		}
+		b, err := json.Marshal(result)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Log(string(b))
 	})
 }
