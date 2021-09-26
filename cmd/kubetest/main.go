@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/signal"
@@ -140,7 +141,7 @@ func _main(args []string, opt option) (*kubetestv1.Result, error) {
 	result, err := runner.Run(ctx, job)
 	if err != nil {
 		if canceledBySignal {
-			fmt.Println(err)
+			fmt.Fprintln(os.Stderr, err)
 			os.Exit(ExitWithSignal)
 		}
 		return nil, err
@@ -160,7 +161,7 @@ func main() {
 	if err != nil {
 		flagsErr, ok := err.(*flags.Error)
 		if !ok {
-			fmt.Fprintf(os.Stdout, "kubetest: unknown parsed option error: %T %v\n", err, err)
+			fmt.Fprintf(os.Stderr, "kubetest: unknown parsed option error: %T %v\n", err, err)
 			os.Exit(ExitWithOtherError)
 		}
 		if flagsErr.Type == flags.ErrHelp {
@@ -170,9 +171,15 @@ func main() {
 	}
 	result, err := _main(args, opt)
 	if err != nil {
-		fmt.Fprintln(os.Stdout, err)
+		fmt.Fprintln(os.Stderr, err)
 		os.Exit(ExitWithFatalError)
 	}
+	b, err := json.Marshal(result)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(ExitWithFatalError)
+	}
+	fmt.Fprintln(os.Stdout, string(b))
 	if result.Status == kubetestv1.ResultStatusFailure {
 		os.Exit(ExitWithFailureTestJob)
 	}

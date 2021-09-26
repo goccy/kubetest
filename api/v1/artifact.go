@@ -80,6 +80,7 @@ func (m *ArtifactManager) LocalPathByNameAndContainerName(name, containerName st
 
 func (m *ArtifactManager) ExportArtifacts(ctx context.Context) error {
 	for _, export := range m.exports {
+		LoggerFromContext(ctx).Info("export artifact %s", export.Name)
 		src, err := m.ExportPathByName(export.Name)
 		if err != nil {
 			return fmt.Errorf("kubetest: failed to get src path to export artifact: %w", err)
