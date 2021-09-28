@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"github.com/goccy/kubejob"
 	batchv1 "k8s.io/api/batch/v1"
@@ -33,7 +34,6 @@ type JobExecutor interface {
 	CopyFrom(context.Context, string, string) error
 	CopyTo(context.Context, string, string) error
 	Container() corev1.Container
-	ContainerIdx() int
 	Pod() *corev1.Pod
 	PrepareCommand([]string) ([]byte, error)
 }
@@ -173,19 +173,18 @@ func (e *kubernetesJobExecutor) Container() corev1.Container {
 	return e.exec.Container
 }
 
-func (e *kubernetesJobExecutor) ContainerIdx() int {
-	return e.exec.ContainerIdx
-}
-
 func (e *kubernetesJobExecutor) Pod() *corev1.Pod {
 	return e.exec.Pod
 }
 
 type localJob struct {
-	rootDir          string
-	preInitContainer corev1.Container
-	preInitCallback  PreInitCallback
-	job              *batchv1.Job
+	rootDir               string
+	preInitContainer      corev1.Container
+	preInitCallback       PreInitCallback
+	mountRepoCallback     func(context.Context, JobExecutor, bool) error
+	mountTokenCallback    func(context.Context, JobExecutor, bool) error
+	mountArtifactCallback func(context.Context, JobExecutor, bool) error
+	job                   *batchv1.Job
 }
 
 func (j *localJob) PreInit(c corev1.Container, cb PreInitCallback) {
@@ -193,16 +192,16 @@ func (j *localJob) PreInit(c corev1.Container, cb PreInitCallback) {
 	j.preInitCallback = cb
 }
 
-func (j *localJob) MountRepository(_ func(context.Context, JobExecutor, bool) error) {
-
+func (j *localJob) MountRepository(cb func(context.Context, JobExecutor, bool) error) {
+	j.mountRepoCallback = cb
 }
 
-func (j *localJob) MountToken(_ func(context.Context, JobExecutor, bool) error) {
-
+func (j *localJob) MountToken(cb func(context.Context, JobExecutor, bool) error) {
+	j.mountTokenCallback = cb
 }
 
-func (j *localJob) MountArtifact(_ func(context.Context, JobExecutor, bool) error) {
-
+func (j *localJob) MountArtifact(cb func(context.Context, JobExecutor, bool) error) {
+	j.mountArtifactCallback = cb
 }
 
 func (j *localJob) RunWithExecutionHandler(ctx context.Context, handler func([]JobExecutor) error) error {
@@ -212,55 +211,39 @@ func (j *localJob) RunWithExecutionHandler(ctx context.Context, handler func([]J
 			rootDir:   j.rootDir,
 			container: j.preInitContainer,
 		})
-		for _, volumeMount := range j.preInitContainer.VolumeMounts {
-			preInitNameToPath[volumeMount.Name] = filepath.Join(j.rootDir, volumeMount.MountPath)
+		for _, vm := range j.preInitContainer.VolumeMounts {
+			preInitNameToPath[vm.Name] = filepath.Join(j.rootDir, vm.MountPath)
 		}
 	}
 	execs := make([]JobExecutor, 0, len(j.job.Spec.Template.Spec.Containers))
-	linkedPathMap := map[string]struct{}{}
-	for idx, container := range j.job.Spec.Template.Spec.Containers {
-		if container.Name == "" {
-			container.Name = fmt.Sprintf("container%d", idx)
+	for _, container := range j.job.Spec.Template.Spec.Containers {
+		if err := os.MkdirAll(filepath.Join(j.rootDir, container.WorkingDir), 0755); err != nil {
+			return err
 		}
-		for _, mount := range container.VolumeMounts {
-			oldPath, exists := preInitNameToPath[mount.Name]
-			if !exists {
-				continue
-			}
-			newPath := filepath.Join(j.rootDir, mount.MountPath)
-			if _, exists := linkedPathMap[newPath]; exists {
-				// already created symlink
-				continue
-			}
-			if err := os.Symlink(oldPath, newPath); err != nil {
-				return fmt.Errorf(
-					"kubetest: failed to create symlink from %s to %s for running local file system",
-					oldPath,
-					newPath,
-				)
-			}
-			linkedPathMap[newPath] = struct{}{}
+		e := &localJobExecutor{
+			rootDir:   j.rootDir,
+			container: container,
 		}
-		execs = append(execs, &localJobExecutor{
-			rootDir:      j.rootDir,
-			container:    container,
-			containerIdx: idx,
-		})
+		if j.mountRepoCallback != nil {
+			j.mountRepoCallback(ctx, e, false)
+		}
+		if j.mountTokenCallback != nil {
+			j.mountTokenCallback(ctx, e, false)
+		}
+		if j.mountArtifactCallback != nil {
+			j.mountArtifactCallback(ctx, e, false)
+		}
+		execs = append(execs, e)
 	}
 	return handler(execs)
 }
 
 type localJobExecutor struct {
-	rootDir      string
-	container    corev1.Container
-	containerIdx int
+	rootDir   string
+	container corev1.Container
 }
 
-func (e *localJobExecutor) cmd() (*exec.Cmd, error) {
-	cmdarr := append(e.container.Command, e.container.Args...)
-	if len(cmdarr) == 0 {
-		return nil, fmt.Errorf("kubetest: invalid command. command is empty")
-	}
+func (e *localJobExecutor) cmd(cmdarr []string) (*exec.Cmd, error) {
 	var cmd *exec.Cmd
 	if len(cmdarr) == 1 {
 		cmd = exec.Command(cmdarr[0])
@@ -277,12 +260,29 @@ func (e *localJobExecutor) cmd() (*exec.Cmd, error) {
 	return cmd, nil
 }
 
-func (e *localJobExecutor) PrepareCommand(cmd []string) ([]byte, error) {
-	return nil, nil
+func (e *localJobExecutor) PrepareCommand(cmdarr []string) ([]byte, error) {
+	filteredCmd := []string{}
+	for _, c := range cmdarr {
+		if strings.HasPrefix(c, "/") {
+			filteredCmd = append(filteredCmd, e.rootDir+c)
+		} else {
+			filteredCmd = append(filteredCmd, c)
+		}
+	}
+	fmt.Println(strings.Join(filteredCmd, " "))
+	cmd, err := e.cmd(filteredCmd)
+	if err != nil {
+		return nil, err
+	}
+	return cmd.Output()
 }
 
 func (e *localJobExecutor) Output(_ context.Context) ([]byte, error) {
-	cmd, err := e.cmd()
+	cmdarr := append(e.container.Command, e.container.Args...)
+	if len(cmdarr) == 0 {
+		return nil, fmt.Errorf("kubetest: invalid command. command is empty")
+	}
+	cmd, err := e.cmd(cmdarr)
 	if err != nil {
 		return nil, err
 	}
@@ -290,7 +290,11 @@ func (e *localJobExecutor) Output(_ context.Context) ([]byte, error) {
 }
 
 func (e *localJobExecutor) ExecAsync(_ context.Context) {
-	cmd, err := e.cmd()
+	cmdarr := append(e.container.Command, e.container.Args...)
+	if len(cmdarr) == 0 {
+		return
+	}
+	cmd, err := e.cmd(cmdarr)
 	if err != nil {
 		return
 	}
@@ -305,28 +309,30 @@ func (e *localJobExecutor) Stop(_ context.Context) error {
 
 func (e *localJobExecutor) CopyFrom(ctx context.Context, src string, dst string) error {
 	src = filepath.Join(e.rootDir, src)
-	LoggerFromContext(ctx).Debug("copy from %s on local to %s on local", src, dst)
+	if filepath.Base(src) != filepath.Base(dst) {
+		dst = filepath.Join(dst, filepath.Base(src))
+	}
 	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
 		return err
 	}
+	LoggerFromContext(ctx).Debug("copy from %s on local to %s on local", src, dst)
 	return localCopy(src, dst)
 }
 
 func (e *localJobExecutor) CopyTo(ctx context.Context, src string, dst string) error {
 	dst = filepath.Join(e.rootDir, dst)
-	LoggerFromContext(ctx).Debug("copy from %s on local to %s on local", src, dst)
+	if filepath.Base(src) != filepath.Base(dst) {
+		dst = filepath.Join(dst, filepath.Base(src))
+	}
 	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
 		return err
 	}
+	LoggerFromContext(ctx).Debug("copy from %s on local to %s on local", src, dst)
 	return localCopy(src, dst)
 }
 
 func (e *localJobExecutor) Container() corev1.Container {
 	return e.container
-}
-
-func (e *localJobExecutor) ContainerIdx() int {
-	return e.containerIdx
 }
 
 func (e *localJobExecutor) Pod() *corev1.Pod {
@@ -350,18 +356,16 @@ func (j *dryRunJob) MountArtifact(_ func(context.Context, JobExecutor, bool) err
 
 func (j *dryRunJob) RunWithExecutionHandler(ctx context.Context, handler func([]JobExecutor) error) error {
 	execs := make([]JobExecutor, 0, len(j.job.Spec.Template.Spec.Containers))
-	for idx, container := range j.job.Spec.Template.Spec.Containers {
+	for _, container := range j.job.Spec.Template.Spec.Containers {
 		execs = append(execs, &dryRunJobExecutor{
-			container:    container,
-			containerIdx: idx,
+			container: container,
 		})
 	}
 	return handler(execs)
 }
 
 type dryRunJobExecutor struct {
-	container    corev1.Container
-	containerIdx int
+	container corev1.Container
 }
 
 func (e *dryRunJobExecutor) PrepareCommand(cmd []string) ([]byte, error) {
@@ -386,10 +390,6 @@ func (e *dryRunJobExecutor) CopyTo(ctx context.Context, src string, dst string) 
 
 func (e *dryRunJobExecutor) Container() corev1.Container {
 	return e.container
-}
-
-func (e *dryRunJobExecutor) ContainerIdx() int {
-	return e.containerIdx
 }
 
 func (e *dryRunJobExecutor) Pod() *corev1.Pod {

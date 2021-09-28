@@ -4,12 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"os"
 	"path/filepath"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes"
 )
 
 func testjobObjectMeta() metav1.ObjectMeta {
@@ -86,6 +88,29 @@ func TestRunner(t *testing.T) {
 		}
 	})
 	t.Run("use token", func(t *testing.T) {
+		if !inCluster {
+			privateKeyPath := filepath.Join("..", "..", "testdata", "githubapp.private-key.pem")
+			privateKey, err := ioutil.ReadFile(privateKeyPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			clientset, err := kubernetes.NewForConfig(getConfig())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := clientset.CoreV1().
+				Secrets("default").
+				Create(context.Background(), &corev1.Secret{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "github-app",
+					},
+					Data: map[string][]byte{
+						"private-key": []byte(privateKey),
+					},
+				}, metav1.CreateOptions{}); err != nil {
+				t.Fatal(err)
+			}
+		}
 		for _, runMode := range getRunModes() {
 			t.Run(runMode.String(), func(t *testing.T) {
 				runner := NewRunner(getConfig(), runMode)
@@ -122,7 +147,7 @@ func TestRunner(t *testing.T) {
 											Name:       "test",
 											Image:      "alpine",
 											Command:    []string{"cat"},
-											Args:       []string{filepath.Join("/", "work", "github-token")},
+											Args:       []string{filepath.Join("./github-token")},
 											WorkingDir: filepath.Join("/", "work"),
 											VolumeMounts: []corev1.VolumeMount{
 												testRepoVolumeMount(),
@@ -320,10 +345,10 @@ func TestRunner(t *testing.T) {
 														{
 															Name:    "list",
 															Image:   "alpine",
-															Command: []string{"echo"},
+															Command: []string{"sh", "-c"}, // []string{"echo"},
 															Args: []string{
 																fmt.Sprintf(
-																	`"%s"`,
+																	`echo "%s"`,
 																	string([]byte{
 																		'A', '\n',
 																		'B', '\n',

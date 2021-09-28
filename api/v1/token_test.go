@@ -20,11 +20,12 @@ func TestTokenManager(t *testing.T) {
 	}
 	namespace := "default"
 	gitHubToken := "ghp_foobar"
+	tokenName := "test-github-token"
 	if _, err := clientset.CoreV1().
 		Secrets(namespace).
 		Create(context.Background(), &corev1.Secret{
 			ObjectMeta: metav1.ObjectMeta{
-				Name: "github-token",
+				Name: tokenName,
 			},
 			Data: map[string][]byte{
 				"token": []byte(gitHubToken),
@@ -33,6 +34,11 @@ func TestTokenManager(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	defer func() {
+		clientset.CoreV1().Secrets(namespace).
+			Delete(context.Background(), tokenName, metav1.DeleteOptions{})
+	}()
+
 	cli := NewTokenClient(clientset, "default")
 	mgr := NewTokenManager([]TokenSpec{
 		{
@@ -40,7 +46,7 @@ func TestTokenManager(t *testing.T) {
 			Value: TokenSource{
 				GitHubToken: &GitHubTokenSource{
 					LocalObjectReference: corev1.LocalObjectReference{
-						Name: "github-token",
+						Name: tokenName,
 					},
 					Key: "token",
 				},

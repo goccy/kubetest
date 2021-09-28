@@ -13,13 +13,15 @@ const (
 )
 
 var (
-	kubecfg  *rest.Config
-	runModes []RunMode
+	kubecfg   *rest.Config
+	runModes  []RunMode
+	inCluster bool
 )
 
 func init() {
 	c, err := rest.InClusterConfig()
 	if err == nil {
+		inCluster = true
 		kubecfg = c
 		runModes = []RunMode{
 			RunModeLocal,

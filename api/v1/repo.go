@@ -36,6 +36,7 @@ func NewRepositoryManager(repos []RepositorySpec, tokenMgr *TokenManager) *Repos
 }
 
 func (m *RepositoryManager) Cleanup() error {
+	return nil
 	errs := []string{}
 	for name, clonedPath := range m.clonedPaths {
 		if err := os.RemoveAll(clonedPath); err != nil {
