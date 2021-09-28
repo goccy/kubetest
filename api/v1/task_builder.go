@@ -152,6 +152,9 @@ func (b *TaskBuilder) build(ctx context.Context, tmpl TestJobTemplateSpec, strat
 	})
 	job.MountArtifact(func(ctx context.Context, exec JobExecutor, isInitContainer bool) error {
 		LoggerFromContext(ctx).Debug("mount artifacts")
+		if b.runMode == RunModeDryRun {
+			return nil
+		}
 		taskContainer := buildCtx.taskContainer(exec.Container().Name, isInitContainer)
 		for artifactName, mountPath := range taskContainer.artifactNameToArchiveMountPath {
 			orgMountPath, exists := taskContainer.artifactNameToOrgMountPath[artifactName]
@@ -185,6 +188,9 @@ func (b *TaskBuilder) build(ctx context.Context, tmpl TestJobTemplateSpec, strat
 	}
 	b.mgr.artifactMgr.AddArtifacts(spec.Artifacts)
 	copyArtifact := func(ctx context.Context, subtask *SubTask) error {
+		if b.runMode == RunModeDryRun {
+			return nil
+		}
 		var containerName string
 		if subtask.isMain {
 			containerName = mainContainer.Name
@@ -307,6 +313,9 @@ func (b *TaskBuilder) getCopyPathForToken(ctx context.Context, buildCtx *TaskBui
 }
 
 func (b *TaskBuilder) getCopyPathForArtifact(buildCtx *TaskBuildContext, cb func(src, dst string)) error {
+	if b.runMode == RunModeDryRun {
+		return nil
+	}
 	for _, name := range buildCtx.artifactNames() {
 		src, err := b.mgr.ArtifactPathByName(name)
 		if err != nil {

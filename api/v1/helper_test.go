@@ -24,6 +24,7 @@ func init() {
 		inCluster = true
 		kubecfg = c
 		runModes = []RunMode{
+			RunModeDryRun,
 			RunModeLocal,
 			RunModeKubernetes,
 		}
@@ -49,6 +50,7 @@ func TestMain(m *testing.M) {
 			}
 			kubecfg = cfg
 			runModes = []RunMode{
+				RunModeDryRun,
 				RunModeLocal,
 			}
 			defer testenv.Stop()

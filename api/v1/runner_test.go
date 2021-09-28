@@ -479,7 +479,7 @@ func TestRunner(t *testing.T) {
 					t.Fatal(err)
 				}
 				t.Log(artifacts)
-				if len(artifacts) != 3 {
+				if runMode != RunModeDryRun && len(artifacts) != 3 {
 					t.Fatalf("failed to find exported artifacts. artifacts num %d", len(artifacts))
 				}
 				b, err := json.Marshal(result)
