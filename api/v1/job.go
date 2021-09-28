@@ -21,6 +21,9 @@ type PreInitCallback func(context.Context, JobExecutor) error
 type Job interface {
 	PreInit(corev1.Container, PreInitCallback)
 	RunWithExecutionHandler(context.Context, func([]JobExecutor) error) error
+	MountRepository(func(ctx context.Context, exec JobExecutor, isInitContainer bool) error)
+	MountToken(func(ctx context.Context, exec JobExecutor, isInitContainer bool) error)
+	MountArtifact(func(ctx context.Context, exec JobExecutor, isInitContainer bool) error)
 }
 
 type JobExecutor interface {
@@ -30,7 +33,9 @@ type JobExecutor interface {
 	CopyFrom(context.Context, string, string) error
 	CopyTo(context.Context, string, string) error
 	Container() corev1.Container
+	ContainerIdx() int
 	Pod() *corev1.Pod
+	PrepareCommand([]string) ([]byte, error)
 }
 
 type JobBuilder struct {
@@ -39,8 +44,12 @@ type JobBuilder struct {
 	runMode   RunMode
 }
 
-func NewJobBuilder(cfg *rest.Config, namesapce string, runMode RunMode) *JobBuilder {
-	return &JobBuilder{runMode: runMode}
+func NewJobBuilder(cfg *rest.Config, namespace string, runMode RunMode) *JobBuilder {
+	return &JobBuilder{
+		cfg:       cfg,
+		namespace: namespace,
+		runMode:   runMode,
+	}
 }
 
 func (b *JobBuilder) BuildWithJob(jobSpec *batchv1.Job) (Job, error) {
@@ -66,6 +75,9 @@ func (b *JobBuilder) BuildWithJob(jobSpec *batchv1.Job) (Job, error) {
 type kubernetesJob struct {
 	preInitCallbackContext context.Context
 	job                    *kubejob.Job
+	mountRepoCallback      func(context.Context, JobExecutor, bool) error
+	mountTokenCallback     func(context.Context, JobExecutor, bool) error
+	mountArtifactCallback  func(context.Context, JobExecutor, bool) error
 }
 
 func (j *kubernetesJob) PreInit(c corev1.Container, cb PreInitCallback) {
@@ -74,12 +86,54 @@ func (j *kubernetesJob) PreInit(c corev1.Container, cb PreInitCallback) {
 	})
 }
 
+func (j *kubernetesJob) MountRepository(cb func(context.Context, JobExecutor, bool) error) {
+	j.mountRepoCallback = cb
+}
+
+func (j *kubernetesJob) MountToken(cb func(context.Context, JobExecutor, bool) error) {
+	j.mountTokenCallback = cb
+}
+
+func (j *kubernetesJob) MountArtifact(cb func(context.Context, JobExecutor, bool) error) {
+	j.mountArtifactCallback = cb
+}
+
+func (j *kubernetesJob) SetInitContainerHook() {
+	j.job.SetInitContainerExecutionHandler(func(exec *kubejob.JobExecutor) error {
+		_, err := exec.ExecOnly()
+		return err
+	})
+}
+
 func (j *kubernetesJob) RunWithExecutionHandler(ctx context.Context, handler func([]JobExecutor) error) error {
 	j.preInitCallbackContext = ctx
+	j.job.SetInitContainerExecutionHandler(func(exec *kubejob.JobExecutor) error {
+		if j.mountRepoCallback != nil {
+			j.mountRepoCallback(ctx, &kubernetesJobExecutor{exec: exec}, true)
+		}
+		if j.mountTokenCallback != nil {
+			j.mountTokenCallback(ctx, &kubernetesJobExecutor{exec: exec}, true)
+		}
+		if j.mountArtifactCallback != nil {
+			j.mountArtifactCallback(ctx, &kubernetesJobExecutor{exec: exec}, true)
+		}
+		_, err := exec.ExecOnly()
+		return err
+	})
 	return j.job.RunWithExecutionHandler(ctx, func(execs []*kubejob.JobExecutor) error {
 		converted := make([]JobExecutor, 0, len(execs))
 		for _, exec := range execs {
-			converted = append(converted, &kubernetesJobExecutor{exec: exec})
+			e := &kubernetesJobExecutor{exec: exec}
+			if j.mountRepoCallback != nil {
+				j.mountRepoCallback(ctx, e, false)
+			}
+			if j.mountTokenCallback != nil {
+				j.mountTokenCallback(ctx, e, false)
+			}
+			if j.mountArtifactCallback != nil {
+				j.mountArtifactCallback(ctx, e, false)
+			}
+			converted = append(converted, e)
 		}
 		return handler(converted)
 	})
@@ -87,6 +141,10 @@ func (j *kubernetesJob) RunWithExecutionHandler(ctx context.Context, handler fun
 
 type kubernetesJobExecutor struct {
 	exec *kubejob.JobExecutor
+}
+
+func (e *kubernetesJobExecutor) PrepareCommand(cmd []string) ([]byte, error) {
+	return e.exec.ExecPrepareCommand(cmd)
 }
 
 func (e *kubernetesJobExecutor) Output(_ context.Context) ([]byte, error) {
@@ -115,6 +173,10 @@ func (e *kubernetesJobExecutor) Container() corev1.Container {
 	return e.exec.Container
 }
 
+func (e *kubernetesJobExecutor) ContainerIdx() int {
+	return e.exec.ContainerIdx
+}
+
 func (e *kubernetesJobExecutor) Pod() *corev1.Pod {
 	return e.exec.Pod
 }
@@ -129,6 +191,18 @@ type localJob struct {
 func (j *localJob) PreInit(c corev1.Container, cb PreInitCallback) {
 	j.preInitContainer = c
 	j.preInitCallback = cb
+}
+
+func (j *localJob) MountRepository(_ func(context.Context, JobExecutor, bool) error) {
+
+}
+
+func (j *localJob) MountToken(_ func(context.Context, JobExecutor, bool) error) {
+
+}
+
+func (j *localJob) MountArtifact(_ func(context.Context, JobExecutor, bool) error) {
+
 }
 
 func (j *localJob) RunWithExecutionHandler(ctx context.Context, handler func([]JobExecutor) error) error {
@@ -168,16 +242,18 @@ func (j *localJob) RunWithExecutionHandler(ctx context.Context, handler func([]J
 			linkedPathMap[newPath] = struct{}{}
 		}
 		execs = append(execs, &localJobExecutor{
-			rootDir:   j.rootDir,
-			container: container,
+			rootDir:      j.rootDir,
+			container:    container,
+			containerIdx: idx,
 		})
 	}
 	return handler(execs)
 }
 
 type localJobExecutor struct {
-	rootDir   string
-	container corev1.Container
+	rootDir      string
+	container    corev1.Container
+	containerIdx int
 }
 
 func (e *localJobExecutor) cmd() (*exec.Cmd, error) {
@@ -199,6 +275,10 @@ func (e *localJobExecutor) cmd() (*exec.Cmd, error) {
 	}
 	cmd.Dir = filepath.Join(e.rootDir, e.container.WorkingDir)
 	return cmd, nil
+}
+
+func (e *localJobExecutor) PrepareCommand(cmd []string) ([]byte, error) {
+	return nil, nil
 }
 
 func (e *localJobExecutor) Output(_ context.Context) ([]byte, error) {
@@ -245,6 +325,10 @@ func (e *localJobExecutor) Container() corev1.Container {
 	return e.container
 }
 
+func (e *localJobExecutor) ContainerIdx() int {
+	return e.containerIdx
+}
+
 func (e *localJobExecutor) Pod() *corev1.Pod {
 	return &corev1.Pod{}
 }
@@ -255,18 +339,33 @@ type dryRunJob struct {
 
 func (j *dryRunJob) PreInit(c corev1.Container, cb PreInitCallback) {}
 
+func (j *dryRunJob) MountRepository(_ func(context.Context, JobExecutor, bool) error) {
+}
+
+func (j *dryRunJob) MountToken(_ func(context.Context, JobExecutor, bool) error) {
+}
+
+func (j *dryRunJob) MountArtifact(_ func(context.Context, JobExecutor, bool) error) {
+}
+
 func (j *dryRunJob) RunWithExecutionHandler(ctx context.Context, handler func([]JobExecutor) error) error {
 	execs := make([]JobExecutor, 0, len(j.job.Spec.Template.Spec.Containers))
-	for _, container := range j.job.Spec.Template.Spec.Containers {
+	for idx, container := range j.job.Spec.Template.Spec.Containers {
 		execs = append(execs, &dryRunJobExecutor{
-			container: container,
+			container:    container,
+			containerIdx: idx,
 		})
 	}
 	return handler(execs)
 }
 
 type dryRunJobExecutor struct {
-	container corev1.Container
+	container    corev1.Container
+	containerIdx int
+}
+
+func (e *dryRunJobExecutor) PrepareCommand(cmd []string) ([]byte, error) {
+	return nil, nil
 }
 
 func (e *dryRunJobExecutor) Output(_ context.Context) ([]byte, error) {
@@ -287,6 +386,10 @@ func (e *dryRunJobExecutor) CopyTo(ctx context.Context, src string, dst string) 
 
 func (e *dryRunJobExecutor) Container() corev1.Container {
 	return e.container
+}
+
+func (e *dryRunJobExecutor) ContainerIdx() int {
+	return e.containerIdx
 }
 
 func (e *dryRunJobExecutor) Pod() *corev1.Pod {

@@ -4,9 +4,13 @@
 package v1
 
 import (
+	"archive/tar"
+	"compress/gzip"
 	"context"
 	"fmt"
+	"io"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/go-git/go-git/v5"
@@ -16,16 +20,18 @@ import (
 )
 
 type RepositoryManager struct {
-	repos       []RepositorySpec
-	tokenMgr    *TokenManager
-	clonedPaths map[string]string
+	repos        []RepositorySpec
+	tokenMgr     *TokenManager
+	clonedPaths  map[string]string
+	archivePaths map[string]string
 }
 
 func NewRepositoryManager(repos []RepositorySpec, tokenMgr *TokenManager) *RepositoryManager {
 	return &RepositoryManager{
-		repos:       repos,
-		tokenMgr:    tokenMgr,
-		clonedPaths: map[string]string{},
+		repos:        repos,
+		tokenMgr:     tokenMgr,
+		clonedPaths:  map[string]string{},
+		archivePaths: map[string]string{},
 	}
 }
 
@@ -36,6 +42,11 @@ func (m *RepositoryManager) Cleanup() error {
 			errs = append(errs, fmt.Sprintf("failed to remove %s repository directory: %s", name, err.Error()))
 		}
 	}
+	for name, archivePath := range m.archivePaths {
+		if err := os.RemoveAll(archivePath); err != nil {
+			errs = append(errs, fmt.Sprintf("failed to remove %s repository archive directory: %s", name, err.Error()))
+		}
+	}
 	if len(errs) > 0 {
 		return fmt.Errorf("kubetest: failed to cleanup %s", strings.Join(errs, ":"))
 	}
@@ -44,14 +55,23 @@ func (m *RepositoryManager) Cleanup() error {
 
 func (m *RepositoryManager) CloneAll(ctx context.Context) error {
 	for _, repo := range m.repos {
-		dir, err := os.MkdirTemp("", "repo")
+		repoDir, err := os.MkdirTemp("", "repo")
 		if err != nil {
 			return fmt.Errorf("kubetest: failed to create temporary directory for repository: %w", err)
 		}
-		if err := m.clone(ctx, dir, repo.Value); err != nil {
+		if err := m.clone(ctx, repoDir, repo.Value); err != nil {
 			return err
 		}
-		m.clonedPaths[repo.Name] = dir
+		repoArchiveDir, err := os.MkdirTemp("", "repo-archive")
+		if err != nil {
+			return fmt.Errorf("kubetest: failed to create temporary directory for repository archive: %w", err)
+		}
+		repoArchivePath := filepath.Join(repoArchiveDir, "repo.tar.gz")
+		if err := m.archiveRepo(repoDir, repoArchivePath); err != nil {
+			return err
+		}
+		m.archivePaths[repo.Name] = repoArchivePath
+		m.clonedPaths[repo.Name] = repoDir
 	}
 	return nil
 }
@@ -139,10 +159,54 @@ func (m *RepositoryManager) clone(ctx context.Context, clonedPath string, repo R
 	return nil
 }
 
-func (m *RepositoryManager) ClonedPathByRepoName(name string) (string, error) {
-	path, exists := m.clonedPaths[name]
+func (m *RepositoryManager) archiveRepo(repoDir, archivePath string) error {
+	dst, err := os.Create(archivePath)
+	if err != nil {
+		return fmt.Errorf("kubetest: failed to create archive file for repository: %w", err)
+	}
+	defer dst.Close()
+
+	gzw, err := gzip.NewWriterLevel(dst, gzip.BestCompression)
+	if err != nil {
+		return fmt.Errorf("kubetest: failed to create gzip writer: %w", err)
+	}
+	defer gzw.Close()
+
+	tw := tar.NewWriter(gzw)
+	defer tw.Close()
+
+	return filepath.Walk(repoDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return fmt.Errorf("kubetest: failed to create archive file for repository: %w", err)
+		}
+		if info.IsDir() {
+			return nil
+		}
+		name := path[len(repoDir)+1:]
+		if err := tw.WriteHeader(&tar.Header{
+			Name:    name,
+			Mode:    int64(info.Mode()),
+			ModTime: info.ModTime(),
+			Size:    info.Size(),
+		}); err != nil {
+			return fmt.Errorf("kubetest: failed to write archive header to create archive file for repository: %w", err)
+		}
+		f, err := os.Open(path)
+		if err != nil {
+			return fmt.Errorf("kubetest: failed to open local file to create archive file for repository: %w", err)
+		}
+		defer f.Close()
+		if _, err := io.Copy(tw, f); err != nil {
+			return fmt.Errorf("kubetest: failed to copy local file to archive file for repository: %w", err)
+		}
+		return nil
+	})
+}
+
+func (m *RepositoryManager) ArchivePathByRepoName(name string) (string, error) {
+	path, exists := m.archivePaths[name]
 	if !exists {
-		return "", errInvalidRepoName(name)
+		return "", fmt.Errorf("kubetest: repository name %s is undefined", name)
 	}
 	return path, nil
 }

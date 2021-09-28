@@ -26,6 +26,7 @@ type SubTask struct {
 func (t *SubTask) Run(ctx context.Context) (*SubTaskResult, error) {
 	logger := LoggerFromContext(ctx)
 	logGroup := logger.Group()
+	ctx = WithLogger(ctx, logGroup)
 	defer func() {
 		if err := t.exec.Stop(ctx); err != nil {
 			logGroup.Warn("failed to stop %s", err)

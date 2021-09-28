@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"sync"
 	"sync/atomic"
 )
 
@@ -32,7 +33,7 @@ type StrategyKey struct {
 
 func (s *TaskScheduler) Schedule(ctx context.Context, tmpl TestJobTemplateSpec) (*TaskGroup, error) {
 	if s.strategy == nil {
-		task, err := s.builder.Build(tmpl)
+		task, err := s.builder.Build(ctx, tmpl)
 		if err != nil {
 			return nil, err
 		}
@@ -48,14 +49,17 @@ func (s *TaskScheduler) Schedule(ctx context.Context, tmpl TestJobTemplateSpec) 
 	var (
 		finishedKeyNum uint32
 		keyNum         uint32 = uint32(len(keys))
+		onFinishMu     sync.Mutex
 	)
 	if len(keys) <= maxContainers {
-		task, err := s.builder.BuildWithKey(tmpl, &StrategyKey{
+		task, err := s.builder.BuildWithKey(ctx, tmpl, &StrategyKey{
 			Keys:             keys,
 			SubTaskScheduler: subTaskScheduler,
 			Env:              s.strategy.Key.Env,
 			OnFinishSubTask: func(_ *SubTask) {
-				atomic.AddUint32(&finishedKeyNum, 1)
+				onFinishMu.Lock()
+				defer onFinishMu.Unlock()
+				finishedKeyNum++
 				LoggerFromContext(ctx).Info(
 					"%d/%d (%f%%) finished.",
 					finishedKeyNum, keyNum, (float32(finishedKeyNum)/float32(keyNum))*100,
@@ -77,7 +81,7 @@ func (s *TaskScheduler) Schedule(ctx context.Context, tmpl TestJobTemplateSpec) 
 		} else {
 			taskKeys = keys[sum : sum+maxContainers]
 		}
-		task, err := s.builder.BuildWithKey(tmpl, &StrategyKey{
+		task, err := s.builder.BuildWithKey(ctx, tmpl, &StrategyKey{
 			Keys:             taskKeys,
 			SubTaskScheduler: subTaskScheduler,
 			Env:              s.strategy.Key.Env,
@@ -114,7 +118,7 @@ func (s *TaskScheduler) getScheduleKeys(ctx context.Context, source StrategyKeyS
 }
 
 func (s *TaskScheduler) dynamicKeys(ctx context.Context, source *StrategyDynamicKeySource) ([]string, error) {
-	keyTask, err := s.builder.Build(source.Spec)
+	keyTask, err := s.builder.Build(ctx, source.Spec)
 	if err != nil {
 		return nil, err
 	}

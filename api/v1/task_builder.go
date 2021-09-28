@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"sort"
+	"strings"
 
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -35,14 +37,16 @@ func NewTaskBuilder(cfg *rest.Config, mgr *ResourceManager, namespace string, ru
 	}
 }
 
-func (b *TaskBuilder) Build(spec TestJobTemplateSpec) (*Task, error) {
-	return b.BuildWithKey(spec, nil)
+func (b *TaskBuilder) Build(ctx context.Context, spec TestJobTemplateSpec) (*Task, error) {
+	return b.BuildWithKey(ctx, spec, nil)
 }
 
-func (b *TaskBuilder) BuildWithKey(tmpl TestJobTemplateSpec, strategyKey *StrategyKey) (*Task, error) {
-	spec := tmpl.Spec
-	ctx := NewTaskBuildContextWithSpec(spec)
-	podSpec := ctx.spec
+func (b *TaskBuilder) BuildWithKey(ctx context.Context, tmpl TestJobTemplateSpec, strategyKey *StrategyKey) (*Task, error) {
+
+	return b.build(ctx, tmpl, strategyKey)
+}
+
+func (b *TaskBuilder) build(ctx context.Context, tmpl TestJobTemplateSpec, strategyKey *StrategyKey) (*Task, error) {
 	mainContainer, err := getMainContainerFromTmpl(tmpl)
 	if err != nil {
 		return nil, err
@@ -50,27 +54,17 @@ func (b *TaskBuilder) BuildWithKey(tmpl TestJobTemplateSpec, strategyKey *Strate
 	if mainContainer.Name == "" {
 		return nil, fmt.Errorf("kubetest: main container name must be specified")
 	}
+	spec := tmpl.Spec
+	spec.PodSpec = b.addContainersByStrategyKey(spec.PodSpec, mainContainer, strategyKey)
+	buildCtx := &TaskBuildContext{
+		initContainers: newTaskContainerGroup(spec.InitContainers, spec.Volumes),
+		containers:     newTaskContainerGroup(spec.Containers, spec.Volumes),
+		spec:           spec,
+	}
+	podSpec := buildCtx.podSpec()
 	var onFinishSubTask func(*SubTask)
 	if strategyKey != nil {
 		onFinishSubTask = strategyKey.OnFinishSubTask
-		containers := []corev1.Container{}
-		for _, key := range strategyKey.Keys {
-			container := mainContainer
-			container.Name = ""
-			container.Env = append(container.Env, corev1.EnvVar{
-				Name:  strategyKey.Env,
-				Value: key,
-			})
-			containers = append(containers, container)
-		}
-		sideCarContainers := []corev1.Container{}
-		for _, container := range podSpec.Containers {
-			if container.Name == mainContainer.Name {
-				continue
-			}
-			sideCarContainers = append(sideCarContainers, container)
-		}
-		podSpec.Containers = append(sideCarContainers, containers...)
 	}
 	podMeta := tmpl.ObjectMeta
 	labels := map[string]string{}
@@ -103,16 +97,93 @@ func (b *TaskBuilder) BuildWithKey(tmpl TestJobTemplateSpec, strategyKey *Strate
 	if err != nil {
 		return nil, err
 	}
-	callback, err := b.preInitCallback(ctx)
-	if err != nil {
-		return nil, err
+	if buildCtx.needsToPreInit() {
+		callback, err := b.preInitCallback(ctx, buildCtx)
+		if err != nil {
+			return nil, err
+		}
+		job.PreInit(b.preInitContainer(buildCtx), callback)
 	}
-	job.PreInit(b.preInitContainer(ctx), callback)
-	b.mgr.artifactMgr.AddArtifacts(spec.Artifacts)
+	job.MountRepository(func(ctx context.Context, exec JobExecutor, isInitContainer bool) error {
+		LoggerFromContext(ctx).Debug("mount repositories")
+		taskContainer := buildCtx.taskContainer(exec.Container().Name, isInitContainer)
+		for repoName, archiveMountPath := range taskContainer.repoNameToArchiveMountPath {
+			orgMountPath, exists := taskContainer.repoNameToOrgMountPath[repoName]
+			if !exists {
+				return fmt.Errorf("kubetest: failed to find org mount path by %s", repoName)
+			}
+			cmd := []string{
+				"tar",
+				"-zxvf",
+				filepath.Join(archiveMountPath, "repo.tar.gz"),
+				"-C",
+				orgMountPath,
+			}
+			LoggerFromContext(ctx).Debug("mount repository %s by '%s'", repoName, strings.Join(cmd, " "))
+			out, err := exec.PrepareCommand(cmd)
+			if err != nil {
+				return fmt.Errorf("kubetest: failed to mount repository. %s: %w", string(out), err)
+			}
+			return nil
+		}
+		return nil
+	})
+	job.MountToken(func(ctx context.Context, exec JobExecutor, isInitContainer bool) error {
+		LoggerFromContext(ctx).Debug("mount tokens")
+		taskContainer := buildCtx.taskContainer(exec.Container().Name, isInitContainer)
+		for tokenName, mountPath := range taskContainer.tokenNameToMountPath {
+			orgMountPath, exists := taskContainer.tokenNameToOrgMountPath[tokenName]
+			if !exists {
+				return fmt.Errorf("kubetest: failed to find org mount path by %s", tokenName)
+			}
+			cmd := []string{
+				"cp",
+				filepath.Join(mountPath, "token"),
+				orgMountPath,
+			}
+			LoggerFromContext(ctx).Debug("mount token %s by '%s'", tokenName, strings.Join(cmd, " "))
+			out, err := exec.PrepareCommand(cmd)
+			if err != nil {
+				return fmt.Errorf("kubetest: failed to mount token. %s: %w", string(out), err)
+			}
+			return nil
+		}
+		return nil
+	})
+	job.MountArtifact(func(ctx context.Context, exec JobExecutor, isInitContainer bool) error {
+		LoggerFromContext(ctx).Debug("mount artifacts")
+		taskContainer := buildCtx.taskContainer(exec.Container().Name, isInitContainer)
+		for artifactName, mountPath := range taskContainer.artifactNameToArchiveMountPath {
+			orgMountPath, exists := taskContainer.artifactNameToOrgMountPath[artifactName]
+			if !exists {
+				return fmt.Errorf("kubetest: failed to find org mount path by %s", artifactName)
+			}
+			localArtifactPath, err := b.mgr.ArtifactPathByName(artifactName)
+			if err != nil {
+				return err
+			}
+			fileName := filepath.Base(localArtifactPath)
+			cmd := []string{
+				"cp",
+				"-rf",
+				filepath.Join(mountPath, fileName),
+				orgMountPath,
+			}
+			LoggerFromContext(ctx).Debug("mount artifact %s by '%s'", artifactName, strings.Join(cmd, " "))
+			out, err := exec.PrepareCommand(cmd)
+			if err != nil {
+				return fmt.Errorf("kubetest: failed to mount artifact. %s: %w", string(out), err)
+			}
+			return nil
+		}
+		return nil
+	})
+
 	artifactMap := map[string]ArtifactSpec{}
 	for _, artifact := range spec.Artifacts {
 		artifactMap[artifact.Container.Name] = artifact
 	}
+	b.mgr.artifactMgr.AddArtifacts(spec.Artifacts)
 	copyArtifact := func(ctx context.Context, subtask *SubTask) error {
 		var containerName string
 		if subtask.isMain {
@@ -144,34 +215,59 @@ func (b *TaskBuilder) BuildWithKey(tmpl TestJobTemplateSpec, strategyKey *Strate
 	}, nil
 }
 
-func (b *TaskBuilder) preInitContainer(ctx *TaskBuildContext) corev1.Container {
+func (b *TaskBuilder) addContainersByStrategyKey(podSpec corev1.PodSpec, mainContainer corev1.Container, strategyKey *StrategyKey) corev1.PodSpec {
+	if strategyKey == nil {
+		return podSpec
+	}
+	containers := []corev1.Container{}
+	for idx, key := range strategyKey.Keys {
+		container := *mainContainer.DeepCopy()
+		container.Name += fmt.Sprint(idx)
+		container.Env = append(container.Env, corev1.EnvVar{
+			Name:  strategyKey.Env,
+			Value: key,
+		})
+		containers = append(containers, container)
+	}
+	sideCarContainers := []corev1.Container{}
+	for _, container := range podSpec.Containers {
+		if container.Name == mainContainer.Name {
+			continue
+		}
+		sideCarContainers = append(sideCarContainers, container)
+	}
+	podSpec.Containers = append(sideCarContainers, containers...)
+	return podSpec
+}
+
+func (b *TaskBuilder) preInitContainer(buildCtx *TaskBuildContext) corev1.Container {
 	return corev1.Container{
 		Name:         "preinit",
-		Image:        ctx.preInitImage,
+		Image:        buildCtx.preInitImage(),
 		Command:      []string{"echo"},
 		Args:         []string{"-n", "preinit"},
-		VolumeMounts: ctx.preInitVolumeMounts,
+		VolumeMounts: buildCtx.preInitVolumeMounts(),
 	}
 }
 
-func (b *TaskBuilder) preInitCallback(ctx *TaskBuildContext) (PreInitCallback, error) {
+func (b *TaskBuilder) preInitCallback(ctx context.Context, buildCtx *TaskBuildContext) (PreInitCallback, error) {
 	type copyPath struct {
 		src string
 		dst string
 	}
 
 	copyPaths := []*copyPath{}
-	if err := b.getCopyPathForRepository(ctx, func(src, dst string) {
+	if err := b.getCopyPathForRepository(buildCtx, func(src, dst string) {
 		copyPaths = append(copyPaths, &copyPath{src: src, dst: dst})
 	}); err != nil {
 		return nil, err
 	}
-	if err := b.getCopyPathForToken(ctx, func(src, dst string) {
+	if err := b.getCopyPathForToken(ctx, buildCtx, func(src, dst string) {
 		copyPaths = append(copyPaths, &copyPath{src: src, dst: dst})
 	}); err != nil {
 		return nil, err
 	}
-	if err := b.getCopyPathForArtifact(ctx, func(src, dst string) {
+	if err := b.getCopyPathForArtifact(buildCtx, func(src, dst string) {
 		copyPaths = append(copyPaths, &copyPath{src: src, dst: dst})
 	}); err != nil {
 		return nil, err
@@ -186,123 +282,403 @@ func (b *TaskBuilder) preInitCallback(ctx *TaskBuildContext) (PreInitCallback, e
 	}, nil
 }
 
-func (b *TaskBuilder) getCopyPathForRepository(ctx *TaskBuildContext, cb func(src, dst string)) error {
-	for name, dst := range ctx.repoToPath {
+func (b *TaskBuilder) getCopyPathForRepository(buildCtx *TaskBuildContext, cb func(src, dst string)) error {
+	for _, name := range buildCtx.repoNames() {
 		src, err := b.mgr.RepositoryPathByName(name)
 		if err != nil {
 			return err
 		}
+		dst := buildCtx.repoNameToArchiveMountPath(name)
 		cb(src, dst)
 	}
 	return nil
 }
 
-func (b *TaskBuilder) getCopyPathForToken(ctx *TaskBuildContext, cb func(src, dst string)) error {
-	for name, dst := range ctx.tokenToPath {
-		src, err := b.mgr.TokenPathByName(context.Background(), name)
+func (b *TaskBuilder) getCopyPathForToken(ctx context.Context, buildCtx *TaskBuildContext, cb func(src, dst string)) error {
+	for _, name := range buildCtx.tokenNames() {
+		src, err := b.mgr.TokenPathByName(ctx, name)
 		if err != nil {
 			return err
 		}
+		dst := buildCtx.tokenNameToMountPath(name)
 		cb(src, dst)
 	}
 	return nil
 }
 
-func (b *TaskBuilder) getCopyPathForArtifact(ctx *TaskBuildContext, cb func(src, dst string)) error {
-	for name, dst := range ctx.artifactToPath {
+func (b *TaskBuilder) getCopyPathForArtifact(buildCtx *TaskBuildContext, cb func(src, dst string)) error {
+	for _, name := range buildCtx.artifactNames() {
 		src, err := b.mgr.ArtifactPathByName(name)
 		if err != nil {
 			return err
 		}
+		dst := buildCtx.artifactNameToArchiveMountPath(name)
 		cb(src, dst)
 	}
 	return nil
 }
 
 type TaskBuildContext struct {
-	spec                corev1.PodSpec
-	preInitImage        string
-	preInitVolumeMounts []corev1.VolumeMount
-	repoToPath          map[string]string
-	artifactToPath      map[string]string
-	tokenToPath         map[string]string
+	initContainers *TaskContainerGroup
+	containers     *TaskContainerGroup
+	spec           TestJobPodSpec
 }
 
-func NewTaskBuildContextWithSpec(spec TestJobPodSpec) *TaskBuildContext {
-	ctx := &TaskBuildContext{
-		repoToPath:     map[string]string{},
-		artifactToPath: map[string]string{},
-		tokenToPath:    map[string]string{},
+func (c *TaskBuildContext) taskContainer(name string, isInitContainer bool) *TaskContainer {
+	if isInitContainer {
+		return c.initContainers.containerMap[name]
 	}
-	for _, volume := range spec.Volumes {
-		name := volume.Name
+	return c.containers.containerMap[name]
+}
+
+func (c *TaskBuildContext) repoNames() []string {
+	repoNameMap := map[string]struct{}{}
+	for _, name := range c.initContainers.repoNames() {
+		repoNameMap[name] = struct{}{}
+	}
+	for _, name := range c.containers.repoNames() {
+		repoNameMap[name] = struct{}{}
+	}
+	repoNames := make([]string, 0, len(repoNameMap))
+	for name := range repoNameMap {
+		repoNames = append(repoNames, name)
+	}
+	sort.Strings(repoNames)
+	return repoNames
+}
+
+func (c *TaskBuildContext) tokenNames() []string {
+	tokenNameMap := map[string]struct{}{}
+	for _, name := range c.initContainers.tokenNames() {
+		tokenNameMap[name] = struct{}{}
+	}
+	for _, name := range c.containers.tokenNames() {
+		tokenNameMap[name] = struct{}{}
+	}
+	tokenNames := make([]string, 0, len(tokenNameMap))
+	for name := range tokenNameMap {
+		tokenNames = append(tokenNames, name)
+	}
+	sort.Strings(tokenNames)
+	return tokenNames
+}
+
+func (c *TaskBuildContext) artifactNames() []string {
+	artifactNameMap := map[string]struct{}{}
+	for _, name := range c.initContainers.artifactNames() {
+		artifactNameMap[name] = struct{}{}
+	}
+	for _, name := range c.containers.artifactNames() {
+		artifactNameMap[name] = struct{}{}
+	}
+	artifactNames := make([]string, 0, len(artifactNameMap))
+	for name := range artifactNameMap {
+		artifactNames = append(artifactNames, name)
+	}
+	sort.Strings(artifactNames)
+	return artifactNames
+}
+
+func (g *TaskBuildContext) repoNameToArchiveMountPath(name string) string {
+	path := g.initContainers.repoNameToArchiveMountPath(name)
+	if path != "" {
+		return path
+	}
+	return g.containers.repoNameToArchiveMountPath(name)
+}
+
+func (g *TaskBuildContext) tokenNameToMountPath(name string) string {
+	path := g.initContainers.tokenNameToMountPath(name)
+	if path != "" {
+		return path
+	}
+	return g.containers.tokenNameToMountPath(name)
+}
+
+func (g *TaskBuildContext) artifactNameToArchiveMountPath(name string) string {
+	path := g.initContainers.artifactNameToArchiveMountPath(name)
+	if path != "" {
+		return path
+	}
+	return g.containers.artifactNameToArchiveMountPath(name)
+}
+
+func (c *TaskBuildContext) needsToPreInit() bool {
+	return c.initContainers.hasTestVolumeMont() || c.containers.hasTestVolumeMont()
+}
+
+func (c *TaskBuildContext) podSpec() corev1.PodSpec {
+	podSpec := c.spec.PodSpec
+	podSpecVolumeMap := map[string]corev1.Volume{}
+	for k, v := range c.initContainers.podSpecVolumeMap() {
+		podSpecVolumeMap[k] = v
+	}
+	for k, v := range c.containers.podSpecVolumeMap() {
+		podSpecVolumeMap[k] = v
+	}
+	for _, v := range podSpecVolumeMap {
+		podSpec.Volumes = append(podSpec.Volumes, v)
+	}
+	return podSpec
+}
+
+func (c *TaskBuildContext) preInitVolumeMounts() []corev1.VolumeMount {
+	preInitVolumeMounts := []corev1.VolumeMount{}
+	preInitVolumeMountMap := map[string]corev1.VolumeMount{}
+	for k, v := range c.initContainers.preInitVolumeMountMap() {
+		preInitVolumeMountMap[k] = v
+	}
+	for k, v := range c.containers.preInitVolumeMountMap() {
+		preInitVolumeMountMap[k] = v
+	}
+	for _, v := range preInitVolumeMountMap {
+		preInitVolumeMounts = append(preInitVolumeMounts, v)
+	}
+	return preInitVolumeMounts
+}
+
+func (c *TaskBuildContext) preInitImage() string {
+	image := c.initContainers.preInitImage()
+	if image != "" {
+		return image
+	}
+	return c.containers.preInitImage()
+}
+
+type TaskContainerGroup struct {
+	containerMap map[string]*TaskContainer
+}
+
+func (g *TaskContainerGroup) repoNames() []string {
+	repoNameMap := map[string]struct{}{}
+	for _, c := range g.containerMap {
+		for name := range c.repoNameToArchiveMountPath {
+			repoNameMap[name] = struct{}{}
+		}
+	}
+	repoNames := make([]string, 0, len(repoNameMap))
+	for name := range repoNameMap {
+		repoNames = append(repoNames, name)
+	}
+	sort.Strings(repoNames)
+	return repoNames
+}
+
+func (g *TaskContainerGroup) tokenNames() []string {
+	tokenNameMap := map[string]struct{}{}
+	for _, c := range g.containerMap {
+		for name := range c.tokenNameToMountPath {
+			tokenNameMap[name] = struct{}{}
+		}
+	}
+	tokenNames := make([]string, 0, len(tokenNameMap))
+	for name := range tokenNameMap {
+		tokenNames = append(tokenNames, name)
+	}
+	sort.Strings(tokenNames)
+	return tokenNames
+}
+
+func (g *TaskContainerGroup) artifactNames() []string {
+	artifactNameMap := map[string]struct{}{}
+	for _, c := range g.containerMap {
+		for name := range c.artifactNameToArchiveMountPath {
+			artifactNameMap[name] = struct{}{}
+		}
+	}
+	artifactNames := make([]string, 0, len(artifactNameMap))
+	for name := range artifactNameMap {
+		artifactNames = append(artifactNames, name)
+	}
+	sort.Strings(artifactNames)
+	return artifactNames
+}
+
+func (g *TaskContainerGroup) repoNameToArchiveMountPath(name string) string {
+	for _, c := range g.containerMap {
+		path, exists := c.repoNameToArchiveMountPath[name]
+		if exists {
+			return path
+		}
+	}
+	return ""
+}
+
+func (g *TaskContainerGroup) tokenNameToMountPath(name string) string {
+	for _, c := range g.containerMap {
+		path, exists := c.tokenNameToMountPath[name]
+		if exists {
+			return path
+		}
+	}
+	return ""
+}
+
+func (g *TaskContainerGroup) artifactNameToArchiveMountPath(name string) string {
+	for _, c := range g.containerMap {
+		path, exists := c.artifactNameToArchiveMountPath[name]
+		if exists {
+			return path
+		}
+	}
+	return ""
+}
+
+func (g *TaskContainerGroup) podSpecVolumeMap() map[string]corev1.Volume {
+	podSpecVolumeMap := map[string]corev1.Volume{}
+	for _, c := range g.containerMap {
+		for k, v := range c.podSpecVolumeMap {
+			podSpecVolumeMap[k] = v
+		}
+	}
+	return podSpecVolumeMap
+}
+
+func (g *TaskContainerGroup) preInitVolumeMountMap() map[string]corev1.VolumeMount {
+	preInitVolumeMountMap := map[string]corev1.VolumeMount{}
+	for _, c := range g.containerMap {
+		for k, v := range c.preInitVolumeMountMap {
+			preInitVolumeMountMap[k] = v
+		}
+	}
+	return preInitVolumeMountMap
+}
+
+func (g *TaskContainerGroup) hasTestVolumeMont() bool {
+	for _, c := range g.containerMap {
+		if c.hasTestVolumeMount() {
+			return true
+		}
+	}
+	return false
+}
+
+func (g *TaskContainerGroup) preInitImage() string {
+	for _, c := range g.containerMap {
+		if c.hasTestVolumeMount() {
+			return c.container.Image
+		}
+	}
+	return ""
+}
+
+func newTaskContainerGroup(containers []corev1.Container, volumes []TestJobVolume) *TaskContainerGroup {
+	g := &TaskContainerGroup{
+		containerMap: map[string]*TaskContainer{},
+	}
+	for _, c := range containers {
+		g.containerMap[c.Name] = newTaskContainer(c, volumes)
+	}
+	return g
+}
+
+type TaskContainer struct {
+	idx                            int
+	container                      corev1.Container
+	repoNameToArchiveMountPath     map[string]string
+	repoNameToOrgMountPath         map[string]string
+	tokenNameToMountPath           map[string]string
+	tokenNameToOrgMountPath        map[string]string
+	artifactNameToArchiveMountPath map[string]string
+	artifactNameToOrgMountPath     map[string]string
+	podSpecVolumeMap               map[string]corev1.Volume
+	preInitVolumeMountMap          map[string]corev1.VolumeMount
+}
+
+func (c *TaskContainer) hasTestVolumeMount() bool {
+	return len(c.preInitVolumeMountMap) > 0
+}
+
+func newTaskContainer(c corev1.Container, volumes []TestJobVolume) *TaskContainer {
+	repoNameToArchiveMountPath := map[string]string{}
+	repoNameToOrgMountPath := map[string]string{}
+
+	tokenNameToMountPath := map[string]string{}
+	tokenNameToOrgMountPath := map[string]string{}
+
+	artifactNameToArchiveMountPath := map[string]string{}
+	artifactNameToOrgMountPath := map[string]string{}
+
+	podSpecVolumeMap := map[string]corev1.Volume{}
+	preInitVolumeMountMap := map[string]corev1.VolumeMount{}
+
+	for _, volume := range volumes {
 		switch {
 		case volume.Repo != nil:
-			path := filepath.Join("/", "tmp", "repo", name)
-			ctx.repoToPath[volume.Repo.Name] = path
-			spec.PodSpec.Volumes = append(spec.PodSpec.Volumes, corev1.Volume{
-				Name: name,
+			repoVolumeName := volume.Name
+			repoName := volume.Repo.Name
+			archiveMountPath := filepath.Join("/", "tmp", "repo-archive", repoVolumeName)
+			repoNameToArchiveMountPath[repoName] = archiveMountPath
+			for idx, vm := range c.VolumeMounts {
+				if vm.Name == repoVolumeName {
+					repoNameToOrgMountPath[repoName] = vm.MountPath
+					c.VolumeMounts[idx].MountPath = archiveMountPath
+				}
+			}
+			// repository archive file mounted to /tmp/repo-archive/name directory on container by emptyDir
+			podSpecVolumeMap[repoVolumeName] = corev1.Volume{
+				Name: repoVolumeName,
 				VolumeSource: corev1.VolumeSource{
 					EmptyDir: &corev1.EmptyDirVolumeSource{},
 				},
-			})
-			ctx.preInitVolumeMounts = append(ctx.preInitVolumeMounts, corev1.VolumeMount{
-				Name:      name,
-				MountPath: path,
-			})
+			}
+			preInitVolumeMountMap[repoVolumeName] = corev1.VolumeMount{
+				Name:      repoVolumeName,
+				MountPath: archiveMountPath,
+			}
 		case volume.Artifact != nil:
-			path := filepath.Join("/", "tmp", "artifact", name)
-			ctx.artifactToPath[volume.Artifact.Name] = path
-			spec.PodSpec.Volumes = append(spec.PodSpec.Volumes, corev1.Volume{
-				Name: name,
+			artifactVolumeName := volume.Name
+			artifactName := volume.Artifact.Name
+			archiveMountPath := filepath.Join("/", "tmp", "artifact-archive", artifactVolumeName)
+			artifactNameToArchiveMountPath[artifactName] = archiveMountPath
+			for idx, vm := range c.VolumeMounts {
+				if vm.Name == artifactVolumeName {
+					artifactNameToOrgMountPath[artifactName] = vm.MountPath
+					c.VolumeMounts[idx].MountPath = archiveMountPath
+				}
+			}
+			podSpecVolumeMap[artifactVolumeName] = corev1.Volume{
+				Name: artifactVolumeName,
 				VolumeSource: corev1.VolumeSource{
 					EmptyDir: &corev1.EmptyDirVolumeSource{},
 				},
-			})
-			ctx.preInitVolumeMounts = append(ctx.preInitVolumeMounts, corev1.VolumeMount{
-				Name:      name,
-				MountPath: path,
-			})
+			}
+			preInitVolumeMountMap[artifactVolumeName] = corev1.VolumeMount{
+				Name:      artifactVolumeName,
+				MountPath: archiveMountPath,
+			}
 		case volume.Token != nil:
-			path := filepath.Join("/", "tmp", "token", name)
-			ctx.tokenToPath[volume.Token.Name] = path
-			spec.PodSpec.Volumes = append(spec.PodSpec.Volumes, corev1.Volume{
-				Name: name,
+			tokenVolumeName := volume.Name
+			tokenName := volume.Token.Name
+			tokenMountPath := filepath.Join("/", "tmp", "token", tokenVolumeName)
+			tokenNameToMountPath[tokenName] = tokenMountPath
+			for idx, vm := range c.VolumeMounts {
+				if vm.Name == tokenVolumeName {
+					tokenNameToOrgMountPath[tokenName] = vm.MountPath
+					c.VolumeMounts[idx].MountPath = tokenMountPath
+				}
+			}
+			podSpecVolumeMap[tokenVolumeName] = corev1.Volume{
+				Name: tokenVolumeName,
 				VolumeSource: corev1.VolumeSource{
 					EmptyDir: &corev1.EmptyDirVolumeSource{},
 				},
-			})
-			ctx.preInitVolumeMounts = append(ctx.preInitVolumeMounts, corev1.VolumeMount{
-				Name:      name,
-				MountPath: path,
-			})
-		}
-	}
-	setPreInitImage(ctx, spec)
-	ctx.spec = spec.PodSpec
-	return ctx
-}
-
-func setPreInitImage(ctx *TaskBuildContext, spec TestJobPodSpec) {
-	if len(ctx.preInitVolumeMounts) == 0 {
-		// no pre-initialization process required
-		return
-	}
-	mountName := ctx.preInitVolumeMounts[0].Name
-	for _, container := range spec.InitContainers {
-		for _, volumeMount := range container.VolumeMounts {
-			if volumeMount.Name == mountName {
-				ctx.preInitImage = container.Image
-				return
+			}
+			preInitVolumeMountMap[tokenVolumeName] = corev1.VolumeMount{
+				Name:      tokenVolumeName,
+				MountPath: tokenMountPath,
 			}
 		}
 	}
-	for _, container := range spec.Containers {
-		for _, volumeMount := range container.VolumeMounts {
-			if volumeMount.Name == mountName {
-				ctx.preInitImage = container.Image
-				return
-			}
-		}
+	return &TaskContainer{
+		container:                      c,
+		repoNameToArchiveMountPath:     repoNameToArchiveMountPath,
+		repoNameToOrgMountPath:         repoNameToOrgMountPath,
+		tokenNameToMountPath:           tokenNameToMountPath,
+		tokenNameToOrgMountPath:        tokenNameToOrgMountPath,
+		artifactNameToArchiveMountPath: artifactNameToArchiveMountPath,
+		artifactNameToOrgMountPath:     artifactNameToOrgMountPath,
+		podSpecVolumeMap:               podSpecVolumeMap,
+		preInitVolumeMountMap:          preInitVolumeMountMap,
 	}
 }

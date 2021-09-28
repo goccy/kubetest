@@ -38,7 +38,7 @@ type Runner struct {
 	cfg       *rest.Config
 	clientset *kubernetes.Clientset
 	runMode   RunMode
-	logger    *Logger
+	logger    Logger
 }
 
 func NewRunner(cfg *rest.Config, runMode RunMode) *Runner {
@@ -48,7 +48,7 @@ func NewRunner(cfg *rest.Config, runMode RunMode) *Runner {
 	}
 }
 
-func (r *Runner) SetLogger(logger *Logger) {
+func (r *Runner) SetLogger(logger Logger) {
 	r.logger = logger
 }
 
@@ -74,7 +74,7 @@ func (r *Runner) Run(ctx context.Context, testjob TestJob) (*Result, error) {
 	var result Result
 	for _, step := range testjob.Spec.PreSteps {
 		r.logger.Info("run prestep %s", step.Name)
-		task, err := builder.Build(step.Template)
+		task, err := builder.Build(ctx, step.Template)
 		if err != nil {
 			return nil, err
 		}
@@ -84,7 +84,7 @@ func (r *Runner) Run(ctx context.Context, testjob TestJob) (*Result, error) {
 		}
 		for _, result := range preStepResult.MainTaskResults() {
 			if err := result.Error(); err != nil {
-				return nil, fmt.Errorf("failed to run %s: %w", step.Name, err)
+				return nil, fmt.Errorf("kubetest: failed to run %s: %w", step.Name, err)
 			}
 		}
 		result.preStepResults = append(result.preStepResults, preStepResult)

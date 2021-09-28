@@ -3,6 +3,7 @@ package v1
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -13,8 +14,8 @@ import (
 
 func testjobObjectMeta() metav1.ObjectMeta {
 	return metav1.ObjectMeta{
-		Name:      "testjob",
-		Namespace: "default",
+		GenerateName: "testjob-",
+		Namespace:    "default",
 	}
 }
 
@@ -59,7 +60,7 @@ func TestRunner(t *testing.T) {
 						Repos: testRepos(),
 						Template: TestJobTemplateSpec{
 							ObjectMeta: metav1.ObjectMeta{
-								Name: "test",
+								GenerateName: "test",
 							},
 							Spec: TestJobPodSpec{
 								PodSpec: corev1.PodSpec{
@@ -84,6 +85,75 @@ func TestRunner(t *testing.T) {
 			})
 		}
 	})
+	t.Run("use token", func(t *testing.T) {
+		for _, runMode := range getRunModes() {
+			t.Run(runMode.String(), func(t *testing.T) {
+				runner := NewRunner(getConfig(), runMode)
+				runner.SetLogger(NewLogger(os.Stdout, LogLevelDebug))
+				if _, err := runner.Run(context.Background(), TestJob{
+					ObjectMeta: testjobObjectMeta(),
+					Spec: TestJobSpec{
+						Repos: testRepos(),
+						Tokens: []TokenSpec{
+							{
+								Name: "github-app-token",
+								Value: TokenSource{
+									GitHubApp: &GitHubAppTokenSource{
+										AppID:        134426,
+										Organization: "goccy",
+										KeyFile: &corev1.SecretKeySelector{
+											LocalObjectReference: corev1.LocalObjectReference{
+												Name: "github-app",
+											},
+											Key: "private-key",
+										},
+									},
+								},
+							},
+						},
+						Template: TestJobTemplateSpec{
+							ObjectMeta: metav1.ObjectMeta{
+								GenerateName: "test-",
+							},
+							Spec: TestJobPodSpec{
+								PodSpec: corev1.PodSpec{
+									Containers: []corev1.Container{
+										{
+											Name:       "test",
+											Image:      "alpine",
+											Command:    []string{"cat"},
+											Args:       []string{filepath.Join("/", "work", "github-token")},
+											WorkingDir: filepath.Join("/", "work"),
+											VolumeMounts: []corev1.VolumeMount{
+												testRepoVolumeMount(),
+												{
+													Name:      "token-volume",
+													MountPath: filepath.Join("/", "work", "github-token"),
+												},
+											},
+										},
+									},
+								},
+								Volumes: []TestJobVolume{
+									testRepoVolume(),
+									{
+										Name: "token-volume",
+										TestJobVolumeSource: TestJobVolumeSource{
+											Token: &TokenVolumeSource{
+												Name: "github-app-token",
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				}); err != nil {
+					t.Fatal(err)
+				}
+			})
+		}
+	})
 	t.Run("prestep", func(t *testing.T) {
 		for _, runMode := range getRunModes() {
 			t.Run(runMode.String(), func(t *testing.T) {
@@ -98,7 +168,7 @@ func TestRunner(t *testing.T) {
 								Name: "build",
 								Template: TestJobTemplateSpec{
 									ObjectMeta: metav1.ObjectMeta{
-										Name: "build",
+										GenerateName: "build-",
 									},
 									Spec: TestJobPodSpec{
 										Artifacts: []ArtifactSpec{
@@ -114,7 +184,7 @@ func TestRunner(t *testing.T) {
 											Containers: []corev1.Container{
 												{
 													Name:    "build",
-													Image:   "alpine",
+													Image:   "golang:1.17",
 													Command: []string{"go"},
 													Args: []string{
 														"test",
@@ -133,7 +203,7 @@ func TestRunner(t *testing.T) {
 						},
 						Template: TestJobTemplateSpec{
 							ObjectMeta: metav1.ObjectMeta{
-								Name: "test",
+								GenerateName: "test-",
 							},
 							Spec: TestJobPodSpec{
 								PodSpec: corev1.PodSpec{
@@ -142,7 +212,7 @@ func TestRunner(t *testing.T) {
 											Name:       "test",
 											Image:      "alpine",
 											Command:    []string{"ls"},
-											Args:       []string{"compiled.test"},
+											Args:       []string{"-alh", "./compiled.test"},
 											WorkingDir: filepath.Join("/", "work"),
 											VolumeMounts: []corev1.VolumeMount{
 												testRepoVolumeMount(),
@@ -197,7 +267,7 @@ func TestRunner(t *testing.T) {
 						},
 						Template: TestJobTemplateSpec{
 							ObjectMeta: metav1.ObjectMeta{
-								Name: "test",
+								GenerateName: "test-",
 							},
 							Spec: TestJobPodSpec{
 								PodSpec: corev1.PodSpec{
@@ -250,8 +320,18 @@ func TestRunner(t *testing.T) {
 														{
 															Name:    "list",
 															Image:   "alpine",
-															Command: []string{"sh", "-c"},
-															Args:    []string{`echo "A\nB\nC\nD"`},
+															Command: []string{"echo"},
+															Args: []string{
+																fmt.Sprintf(
+																	`"%s"`,
+																	string([]byte{
+																		'A', '\n',
+																		'B', '\n',
+																		'C', '\n',
+																		'D',
+																	}),
+																),
+															},
 														},
 													},
 												},
@@ -373,6 +453,7 @@ func TestRunner(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
+				t.Log(artifacts)
 				if len(artifacts) != 3 {
 					t.Fatalf("failed to find exported artifacts. artifacts num %d", len(artifacts))
 				}

@@ -63,7 +63,8 @@ func (m *ArtifactManager) LocalPathByName(name string) (string, error) {
 	if len(containerNames) > 1 {
 		return "", fmt.Errorf("kubetest: couldn't find local path for artifact %s. found multiple paths under the local artifact directory", name)
 	}
-	return filepath.Join(dir, containerNames[0], file), nil
+	containerName := filepath.Base(containerNames[0])
+	return filepath.Join(dir, containerName, file), nil
 }
 
 func (m *ArtifactManager) LocalPathByNameAndContainerName(name, containerName string) (string, error) {

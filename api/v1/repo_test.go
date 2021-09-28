@@ -25,14 +25,14 @@ func TestRepositoryManager(t *testing.T) {
 		if err := mgr.CloneAll(context.Background()); err != nil {
 			t.Fatal(err)
 		}
-		path, err := mgr.ClonedPathByRepoName("test")
+		path, err := mgr.ArchivePathByRepoName("test")
 		if err != nil {
 			t.Fatal(err)
 		}
 		if path == "" {
 			t.Fatal("failed to clone repository with branch")
 		}
-		t.Logf("checkout by branch. cloned path: %s", path)
+		t.Logf("checkout by branch. archive path: %s", path)
 	})
 	t.Run("checkout revision", func(t *testing.T) {
 		mgr := NewRepositoryManager([]RepositorySpec{
@@ -53,13 +53,13 @@ func TestRepositoryManager(t *testing.T) {
 		if err := mgr.CloneAll(context.Background()); err != nil {
 			t.Fatal(err)
 		}
-		path, err := mgr.ClonedPathByRepoName("test")
+		path, err := mgr.ArchivePathByRepoName("test")
 		if err != nil {
 			t.Fatal(err)
 		}
 		if path == "" {
 			t.Fatal("failed to clone repository with revision")
 		}
-		t.Logf("checkout by revision. cloned path: %s", path)
+		t.Logf("checkout by revision. archive path: %s", path)
 	})
 }

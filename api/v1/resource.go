@@ -50,7 +50,7 @@ func (m *ResourceManager) RepositoryPathByName(name string) (string, error) {
 	if !m.doneSetup {
 		return "", fmt.Errorf("kubetest: resource manager isn't setup")
 	}
-	return m.repoMgr.ClonedPathByRepoName(name)
+	return m.repoMgr.ArchivePathByRepoName(name)
 }
 
 func (m *ResourceManager) TokenPathByName(ctx context.Context, name string) (string, error) {
