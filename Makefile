@@ -11,12 +11,12 @@ export PATH=$(GOBIN):$(shell echo $$PATH)
 
 UNAME_OS := $(shell uname -s)
 
-$(BIN):
+$(GOBIN):
 	@mkdir -p $(GOBIN)
 
 KIND := $(GOBIN)/kind
 KIND_VERSION := v0.11.0
-$(KIND): | $(BIN)
+$(KIND): | $(GOBIN)
 	@curl -sSLo $(KIND) "https://kind.sigs.k8s.io/dl/$(KIND_VERSION)/kind-$(UNAME_OS)-amd64"
 	@chmod +x $(KIND)
 
