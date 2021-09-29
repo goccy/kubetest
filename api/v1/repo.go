@@ -78,6 +78,8 @@ func (m *RepositoryManager) CloneAll(ctx context.Context) error {
 }
 
 func (m *RepositoryManager) clone(ctx context.Context, clonedPath string, repo Repository) error {
+	LoggerFromContext(ctx).Info("clone repository: %s", repo.URL)
+
 	const (
 		defaultBaseBranchName = "master"
 		defaultRemoteName     = "origin"
@@ -93,6 +95,7 @@ func (m *RepositoryManager) clone(ctx context.Context, clonedPath string, repo R
 			return err
 		}
 		auth = &http.BasicAuth{
+			Username: "x-access-token",
 			Password: token.Value,
 		}
 	}
@@ -153,6 +156,7 @@ func (m *RepositoryManager) clone(ctx context.Context, clonedPath string, repo R
 		if err := tree.PullContext(ctx, &git.PullOptions{
 			ReferenceName: plumbing.NewBranchReferenceName(baseBranch),
 			SingleBranch:  true,
+			Auth:          auth,
 		}); err != nil && err != git.NoErrAlreadyUpToDate {
 			return fmt.Errorf("kubetest: failed to merge base branch: %w", err)
 		}

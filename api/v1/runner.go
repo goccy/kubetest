@@ -73,14 +73,14 @@ func (r *Runner) Run(ctx context.Context, testjob TestJob) (*Result, error) {
 	builder := NewTaskBuilder(r.cfg, resourceMgr, testjob.Namespace, r.runMode)
 	var result Result
 	for _, step := range testjob.Spec.PreSteps {
-		r.logger.Info("run prestep %s", step.Name)
+		r.logger.Info("run prestep: %s", step.Name)
 		task, err := builder.Build(ctx, step.Template)
 		if err != nil {
 			return nil, err
 		}
 		preStepResult, err := task.Run(ctx)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("kubetest: failed to run prestep %s: %w", step.Name, err)
 		}
 		for _, result := range preStepResult.MainTaskResults() {
 			if err := result.Error(); err != nil {

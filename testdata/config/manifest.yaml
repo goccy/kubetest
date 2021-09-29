@@ -43,8 +43,6 @@ rules:
       - secrets
     verbs:
       - get
-      - create # optional: create temporary secret for access token of githubApp base to access the private repository
-      - delete # optional: delete temporary secret for githubApp based access token
 ---
 kind: RoleBinding
 apiVersion: rbac.authorization.k8s.io/v1

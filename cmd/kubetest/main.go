@@ -26,9 +26,8 @@ type option struct {
 	Config    string            `description:"specify local kubeconfig path. ( default: $HOME/.kube/config )" short:"c" long:"config"`
 	List      string            `description:"specify path to get the list for test" long:"list"`
 	LogLevel  string            `description:"specify log level (debug/info/warn/error)" long:"log-level"`
-	File      string            `description:"specify yaml file path" short:"f" long:"file"`
 	DryRun    bool              `description:"specify dry run mode" long:"dry-run"`
-	Template  map[string]string `description:"specify template parameter for file specified with --file option" long:"template"`
+	Template  map[string]string `description:"specify template parameter for testjob file" long:"template"`
 }
 
 const (
@@ -174,7 +173,7 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(ExitWithFatalError)
 	}
-	b, err := json.Marshal(result)
+	b, err := json.MarshalIndent(result, "", "  ")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(ExitWithFatalError)

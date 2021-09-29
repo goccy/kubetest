@@ -182,9 +182,9 @@ func (b *TaskBuilder) build(ctx context.Context, tmpl TestJobTemplateSpec, strat
 		return nil
 	})
 
-	artifactMap := map[string]ArtifactSpec{}
+	artifactMap := map[string][]ArtifactSpec{}
 	for _, artifact := range spec.Artifacts {
-		artifactMap[artifact.Container.Name] = artifact
+		artifactMap[artifact.Container.Name] = append(artifactMap[artifact.Container.Name], artifact)
 	}
 	b.mgr.artifactMgr.AddArtifacts(spec.Artifacts)
 	copyArtifact := func(ctx context.Context, subtask *SubTask) error {
@@ -197,27 +197,31 @@ func (b *TaskBuilder) build(ctx context.Context, tmpl TestJobTemplateSpec, strat
 		} else {
 			containerName = subtask.exec.Container().Name
 		}
-		artifact, exists := artifactMap[containerName]
+		artifacts, exists := artifactMap[containerName]
 		if !exists {
 			return nil
 		}
-		localPath, err := b.mgr.ArtifactPathByNameAndContainerName(artifact.Name, subtask.exec.Container().Name)
-		if err != nil {
-			return err
+		for _, artifact := range artifacts {
+			localPath, err := b.mgr.ArtifactPathByNameAndContainerName(artifact.Name, subtask.exec.Container().Name)
+			if err != nil {
+				return err
+			}
+			if err := subtask.exec.CopyFrom(
+				ctx,
+				artifact.Container.Path,
+				localPath,
+			); err != nil {
+				return err
+			}
 		}
-		return subtask.exec.CopyFrom(
-			ctx,
-			artifact.Container.Path,
-			localPath,
-		)
+		return nil
 	}
 	return &Task{
-		OnFinishSubTask:        onFinishSubTask,
-		job:                    job,
-		copyArtifact:           copyArtifact,
-		artifactContainerNames: artifactMap,
-		strategyKey:            strategyKey,
-		mainContainerName:      mainContainer.Name,
+		OnFinishSubTask:   onFinishSubTask,
+		job:               job,
+		copyArtifact:      copyArtifact,
+		strategyKey:       strategyKey,
+		mainContainerName: mainContainer.Name,
 	}, nil
 }
 

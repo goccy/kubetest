@@ -1,4 +1,4 @@
-FROM golang:1.14-stretch
+FROM golang:1.16-stretch
 
 ENV GOPATH /go
 WORKDIR /go/src/github.com/goccy/kubetest

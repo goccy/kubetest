@@ -98,15 +98,9 @@ func (j *kubernetesJob) MountArtifact(cb func(context.Context, JobExecutor, bool
 	j.mountArtifactCallback = cb
 }
 
-func (j *kubernetesJob) SetInitContainerHook() {
-	j.job.SetInitContainerExecutionHandler(func(exec *kubejob.JobExecutor) error {
-		_, err := exec.ExecOnly()
-		return err
-	})
-}
-
 func (j *kubernetesJob) RunWithExecutionHandler(ctx context.Context, handler func([]JobExecutor) error) error {
 	j.preInitCallbackContext = ctx
+	j.job.DisableInitContainerLog()
 	j.job.SetInitContainerExecutionHandler(func(exec *kubejob.JobExecutor) error {
 		if j.mountRepoCallback != nil {
 			j.mountRepoCallback(ctx, &kubernetesJobExecutor{exec: exec}, true)

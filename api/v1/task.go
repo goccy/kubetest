@@ -6,19 +6,20 @@ package v1
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"sync"
 
+	"github.com/goccy/kubejob"
 	"golang.org/x/sync/errgroup"
 	corev1 "k8s.io/api/core/v1"
 )
 
 type Task struct {
-	OnFinishSubTask        func(*SubTask)
-	job                    Job
-	artifactContainerNames map[string]ArtifactSpec
-	copyArtifact           func(context.Context, *SubTask) error
-	strategyKey            *StrategyKey
-	mainContainerName      string
+	OnFinishSubTask   func(*SubTask)
+	job               Job
+	copyArtifact      func(context.Context, *SubTask) error
+	strategyKey       *StrategyKey
+	mainContainerName string
 }
 
 func (t *Task) Run(ctx context.Context) (*TaskResult, error) {
@@ -45,7 +46,11 @@ func (t *Task) Run(ctx context.Context) (*TaskResult, error) {
 		}
 		return nil
 	}); err != nil {
-		return nil, err
+		var failedJob *kubejob.FailedJob
+		if !errors.As(err, &failedJob) {
+			return nil, err
+		}
+		// ignore FailedJob error
 	}
 	return &result, nil
 }

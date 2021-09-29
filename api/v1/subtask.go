@@ -23,7 +23,7 @@ type SubTask struct {
 	copyArtifact func(context.Context, *SubTask) error
 }
 
-func (t *SubTask) Run(ctx context.Context) (*SubTaskResult, error) {
+func (t *SubTask) Run(ctx context.Context) *SubTaskResult {
 	logger := LoggerFromContext(ctx)
 	logGroup := logger.Group()
 	ctx = WithLogger(ctx, logGroup)
@@ -62,7 +62,7 @@ func (t *SubTask) Run(ctx context.Context) (*SubTaskResult, error) {
 		result.Status = TaskResultFailure
 		result.ArtifactErr = err
 	}
-	return result, nil
+	return result
 }
 
 type SubTaskGroup struct {
@@ -83,11 +83,7 @@ func (g *SubTaskGroup) Run(ctx context.Context) (*SubTaskResultGroup, error) {
 	for _, task := range g.tasks {
 		task := task
 		eg.Go(func() error {
-			result, err := task.Run(ctx)
-			if err != nil {
-				return err
-			}
-			rg.add(result)
+			rg.add(task.Run(ctx))
 			return nil
 		})
 	}
