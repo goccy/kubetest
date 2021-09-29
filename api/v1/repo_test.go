@@ -2,6 +2,7 @@ package v1
 
 import (
 	"context"
+	"os"
 	"testing"
 )
 
@@ -22,7 +23,7 @@ func TestRepositoryManager(t *testing.T) {
 				t.Fatal(err)
 			}
 		}()
-		if err := mgr.CloneAll(context.Background()); err != nil {
+		if err := mgr.CloneAll(WithLogger(context.Background(), NewLogger(os.Stdout, LogLevelInfo))); err != nil {
 			t.Fatal(err)
 		}
 		path, err := mgr.ArchivePathByRepoName("test")
@@ -50,7 +51,7 @@ func TestRepositoryManager(t *testing.T) {
 				t.Fatal(err)
 			}
 		}()
-		if err := mgr.CloneAll(context.Background()); err != nil {
+		if err := mgr.CloneAll(WithLogger(context.Background(), NewLogger(os.Stdout, LogLevelInfo))); err != nil {
 			t.Fatal(err)
 		}
 		path, err := mgr.ArchivePathByRepoName("test")
