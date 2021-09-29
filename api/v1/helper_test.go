@@ -41,7 +41,7 @@ func getRunModes() []RunMode {
 
 func TestMain(m *testing.M) {
 	result := func() int {
-		if kubecfg == nil {
+		if !inCluster {
 			os.Setenv(envKubebuilderPath, "../../bin/k8sbin")
 			testenv := envtest.Environment{}
 			cfg, err := testenv.Start()
