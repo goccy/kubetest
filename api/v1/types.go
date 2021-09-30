@@ -167,24 +167,8 @@ type TokenVolumeSource struct {
 type ExportArtifact struct {
 	// This must match the Name of a ArtifactSpec.
 	Name string `json:"name"`
-	// Output define output path for artifact.
-	Export ArtifactExportSpec `json:"export"`
-}
-
-// ArtifactOutputPathType
-type ArtifactExportPathType string
-
-const (
-	ArtifactExportPathContainer ArtifactExportPathType = "container"
-	ArtifactExportPathKey       ArtifactExportPathType = "key"
-)
-
-// ArtifactOutputSpec
-type ArtifactExportSpec struct {
 	// Path path to the artifact.
 	Path string `json:"path"`
-	// PathType type of intermediate directory name for export path. default type is container.
-	PathType ArtifactExportPathType `json:"pathType"`
 }
 
 // LogSpec

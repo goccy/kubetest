@@ -431,9 +431,7 @@ func TestRunner(t *testing.T) {
 						ExportArtifacts: []ExportArtifact{
 							{
 								Name: "export-artifact",
-								Export: ArtifactExportSpec{
-									Path: exportDir,
-								},
+								Path: exportDir,
 							},
 						},
 						Template: TestJobTemplateSpec{

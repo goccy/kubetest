@@ -330,15 +330,8 @@ func (v *Validator) ValidateExportArtifact(artifact ExportArtifact) error {
 	if _, exists := v.artifactNameMap[artifact.Name]; !exists {
 		return fmt.Errorf("kubetest: export artifact name %s is undefined", artifact.Name)
 	}
-	if err := v.ValidateArtifactExportSpec(artifact.Export); err != nil {
-		return err
-	}
-	return nil
-}
-
-func (v *Validator) ValidateArtifactExportSpec(spec ArtifactExportSpec) error {
-	if spec.Path == "" {
-		return fmt.Errorf("kubetest: exportArtifact.export.path must be specified")
+	if artifact.Path == "" {
+		return fmt.Errorf("kubetest: exportArtifact.path must be specified")
 	}
 	return nil
 }

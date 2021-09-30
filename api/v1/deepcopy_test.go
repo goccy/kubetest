@@ -196,10 +196,7 @@ func TestDeepCopy(t *testing.T) {
 			ExportArtifacts: []ExportArtifact{
 				{
 					Name: "prestep-artifact",
-					Export: ArtifactExportSpec{
-						Path:     filepath.Join("/", "tmp", "artifacts"),
-						PathType: ArtifactExportPathContainer,
-					},
+					Path: filepath.Join("/", "tmp", "artifacts"),
 				},
 			},
 			Log: LogSpec{
@@ -282,7 +279,6 @@ func TestDeepCopy(t *testing.T) {
 	}
 	for _, artifact := range job.Spec.ExportArtifacts {
 		_ = artifact.DeepCopy()
-		_ = artifact.Export.DeepCopy()
 	}
 	_ = job.Spec.Log.DeepCopy()
 }
