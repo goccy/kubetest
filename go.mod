@@ -6,7 +6,7 @@ require (
 	github.com/bradleyfalzon/ghinstallation v1.1.1
 	github.com/go-git/go-git/v5 v5.4.2
 	github.com/go-logr/logr v0.4.0
-	github.com/goccy/kubejob v0.2.9
+	github.com/goccy/kubejob v0.2.10-0.20210930113642-d4d987ff19b0
 	github.com/google/go-github/v29 v29.0.2
 	github.com/jessevdk/go-flags v1.5.0
 	github.com/onsi/ginkgo v1.16.2

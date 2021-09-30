@@ -87,6 +87,9 @@ func (m *ArtifactManager) ExportArtifacts(ctx context.Context) error {
 			return fmt.Errorf("kubetest: failed to get src path to export artifact: %w", err)
 		}
 		dst := export.Path
+		if err := os.MkdirAll(dst, 0755); err != nil {
+			return fmt.Errorf("kubetest: failed to create %s directory for export artifact: %w", dst, err)
+		}
 		paths, err := filepath.Glob(filepath.Join(src, "*"))
 		if err != nil {
 			return fmt.Errorf("kubetest: failed to get src path to export artifact: %w", err)

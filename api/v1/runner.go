@@ -102,6 +102,9 @@ func (r *Runner) Run(ctx context.Context, testjob TestJob) (*Result, error) {
 		return nil, err
 	}
 	result.Status = taskResult.Status()
+	result.TotalNum = taskResult.TotalNum()
+	result.SuccessNum = taskResult.SuccessNum()
+	result.FailureNum = taskResult.FailureNum()
 	result.taskResult = taskResult
 	result.StartedAt = startedAt
 	result.ElapsedTime = time.Since(startedAt)
@@ -133,6 +136,9 @@ type Result struct {
 	Status         ResultStatus
 	StartedAt      time.Time
 	ElapsedTime    time.Duration
+	TotalNum       int
+	SuccessNum     int
+	FailureNum     int
 	preStepResults []*TaskResult
 	taskResult     *TaskResultGroup
 	job            TestJob
@@ -141,11 +147,17 @@ type Result struct {
 func (r *Result) MarshalJSON() ([]byte, error) {
 	b, err := json.Marshal(struct {
 		Status         ResultStatus     `json:"status"`
+		TotalNum       int              `json:"totalNum"`
+		SuccessNum     int              `json:"successNum"`
+		FailureNum     int              `json:"failureNum"`
 		StartedAt      time.Time        `json:"startedAt"`
 		ElapsedTimeSec int64            `json:"elapsedTimeSec"`
 		Details        *TaskResultGroup `json:"details"`
 	}{
 		Status:         r.Status,
+		TotalNum:       r.TotalNum,
+		SuccessNum:     r.SuccessNum,
+		FailureNum:     r.FailureNum,
 		StartedAt:      r.StartedAt,
 		ElapsedTimeSec: int64(r.ElapsedTime.Seconds()),
 		Details:        r.taskResult,

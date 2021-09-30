@@ -105,8 +105,9 @@ func (b *TaskBuilder) build(ctx context.Context, tmpl TestJobTemplateSpec, strat
 		job.PreInit(b.preInitContainer(buildCtx), callback)
 	}
 	job.MountRepository(func(ctx context.Context, exec JobExecutor, isInitContainer bool) error {
-		LoggerFromContext(ctx).Debug("mount repositories")
-		taskContainer := buildCtx.taskContainer(exec.Container().Name, isInitContainer)
+		containerName := exec.Container().Name
+		LoggerFromContext(ctx).Debug("mount repositories: %s", containerName)
+		taskContainer := buildCtx.taskContainer(containerName, isInitContainer)
 		for repoName, archiveMountPath := range taskContainer.repoNameToArchiveMountPath {
 			orgMountPath, exists := taskContainer.repoNameToOrgMountPath[repoName]
 			if !exists {
@@ -119,7 +120,10 @@ func (b *TaskBuilder) build(ctx context.Context, tmpl TestJobTemplateSpec, strat
 				"-C",
 				orgMountPath,
 			}
-			LoggerFromContext(ctx).Debug("mount repository %s by '%s'", repoName, strings.Join(cmd, " "))
+			LoggerFromContext(ctx).Debug(
+				"mount repository %s on %s by '%s'",
+				containerName, repoName, strings.Join(cmd, " "),
+			)
 			out, err := exec.PrepareCommand(cmd)
 			if err != nil {
 				return fmt.Errorf("kubetest: failed to mount repository. %s: %w", string(out), err)
@@ -129,8 +133,9 @@ func (b *TaskBuilder) build(ctx context.Context, tmpl TestJobTemplateSpec, strat
 		return nil
 	})
 	job.MountToken(func(ctx context.Context, exec JobExecutor, isInitContainer bool) error {
-		LoggerFromContext(ctx).Debug("mount tokens")
-		taskContainer := buildCtx.taskContainer(exec.Container().Name, isInitContainer)
+		containerName := exec.Container().Name
+		LoggerFromContext(ctx).Debug("mount tokens: %s", containerName)
+		taskContainer := buildCtx.taskContainer(containerName, isInitContainer)
 		for tokenName, mountPath := range taskContainer.tokenNameToMountPath {
 			orgMountPath, exists := taskContainer.tokenNameToOrgMountPath[tokenName]
 			if !exists {
@@ -141,7 +146,10 @@ func (b *TaskBuilder) build(ctx context.Context, tmpl TestJobTemplateSpec, strat
 				filepath.Join(mountPath, "token"),
 				orgMountPath,
 			}
-			LoggerFromContext(ctx).Debug("mount token %s by '%s'", tokenName, strings.Join(cmd, " "))
+			LoggerFromContext(ctx).Debug(
+				"mount token %s on %s by '%s'",
+				containerName, tokenName, strings.Join(cmd, " "),
+			)
 			out, err := exec.PrepareCommand(cmd)
 			if err != nil {
 				return fmt.Errorf("kubetest: failed to mount token. %s: %w", string(out), err)
@@ -151,11 +159,12 @@ func (b *TaskBuilder) build(ctx context.Context, tmpl TestJobTemplateSpec, strat
 		return nil
 	})
 	job.MountArtifact(func(ctx context.Context, exec JobExecutor, isInitContainer bool) error {
-		LoggerFromContext(ctx).Debug("mount artifacts")
+		containerName := exec.Container().Name
+		LoggerFromContext(ctx).Debug("mount artifacts: %s", containerName)
 		if b.runMode == RunModeDryRun {
 			return nil
 		}
-		taskContainer := buildCtx.taskContainer(exec.Container().Name, isInitContainer)
+		taskContainer := buildCtx.taskContainer(containerName, isInitContainer)
 		for artifactName, mountPath := range taskContainer.artifactNameToArchiveMountPath {
 			orgMountPath, exists := taskContainer.artifactNameToOrgMountPath[artifactName]
 			if !exists {
@@ -172,12 +181,14 @@ func (b *TaskBuilder) build(ctx context.Context, tmpl TestJobTemplateSpec, strat
 				filepath.Join(mountPath, fileName),
 				orgMountPath,
 			}
-			LoggerFromContext(ctx).Debug("mount artifact %s by '%s'", artifactName, strings.Join(cmd, " "))
+			LoggerFromContext(ctx).Debug(
+				"mount artifact %s on %s by '%s'",
+				containerName, artifactName, strings.Join(cmd, " "),
+			)
 			out, err := exec.PrepareCommand(cmd)
 			if err != nil {
 				return fmt.Errorf("kubetest: failed to mount artifact. %s: %w", string(out), err)
 			}
-			return nil
 		}
 		return nil
 	})
@@ -232,7 +243,7 @@ func (b *TaskBuilder) addContainersByStrategyKey(podSpec corev1.PodSpec, mainCon
 	containers := []corev1.Container{}
 	for idx, key := range strategyKey.Keys {
 		container := *mainContainer.DeepCopy()
-		container.Name += fmt.Sprint(idx)
+		container.Name += fmt.Sprintf("%d-%d", strategyKey.ConcurrentIdx, idx)
 		container.Env = append(container.Env, corev1.EnvVar{
 			Name:  strategyKey.Env,
 			Value: key,
@@ -680,6 +691,11 @@ func newTaskContainer(c corev1.Container, volumes []TestJobVolume) *TaskContaine
 			preInitVolumeMountMap[tokenVolumeName] = corev1.VolumeMount{
 				Name:      tokenVolumeName,
 				MountPath: tokenMountPath,
+			}
+		default:
+			podSpecVolumeMap[volume.Name] = corev1.Volume{
+				Name:         volume.Name,
+				VolumeSource: volume.VolumeSource,
 			}
 		}
 	}

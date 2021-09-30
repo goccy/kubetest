@@ -25,6 +25,7 @@ func NewTaskScheduler(strategy *Strategy, builder *TaskBuilder) *TaskScheduler {
 }
 
 type StrategyKey struct {
+	ConcurrentIdx    int
 	Keys             []string
 	Env              string
 	SubTaskScheduler *SubTaskScheduler
@@ -53,6 +54,7 @@ func (s *TaskScheduler) Schedule(ctx context.Context, tmpl TestJobTemplateSpec) 
 	)
 	if len(keys) <= maxContainers {
 		task, err := s.builder.BuildWithKey(ctx, tmpl, &StrategyKey{
+			ConcurrentIdx:    0,
 			Keys:             keys,
 			SubTaskScheduler: subTaskScheduler,
 			Env:              s.strategy.Key.Env,
@@ -82,6 +84,7 @@ func (s *TaskScheduler) Schedule(ctx context.Context, tmpl TestJobTemplateSpec) 
 			taskKeys = keys[sum : sum+maxContainers]
 		}
 		task, err := s.builder.BuildWithKey(ctx, tmpl, &StrategyKey{
+			ConcurrentIdx:    i,
 			Keys:             taskKeys,
 			SubTaskScheduler: subTaskScheduler,
 			Env:              s.strategy.Key.Env,

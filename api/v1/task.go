@@ -182,6 +182,44 @@ type TaskResultGroup struct {
 	mu      sync.Mutex
 }
 
+func (g *TaskResultGroup) TotalNum() int {
+	num := 0
+	for _, result := range g.results {
+		for _, group := range result.groups {
+			num += len(group.results)
+		}
+	}
+	return num
+}
+
+func (g *TaskResultGroup) SuccessNum() int {
+	successNum := 0
+	for _, result := range g.results {
+		for _, group := range result.groups {
+			for _, subTaskResult := range group.results {
+				if subTaskResult.Status == TaskResultSuccess {
+					successNum++
+				}
+			}
+		}
+	}
+	return successNum
+}
+
+func (g *TaskResultGroup) FailureNum() int {
+	failureNum := 0
+	for _, result := range g.results {
+		for _, group := range result.groups {
+			for _, subTaskResult := range group.results {
+				if subTaskResult.Status == TaskResultFailure {
+					failureNum++
+				}
+			}
+		}
+	}
+	return failureNum
+}
+
 func (g *TaskResultGroup) Status() ResultStatus {
 	for _, result := range g.results {
 		for _, group := range result.groups {

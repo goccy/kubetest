@@ -171,11 +171,13 @@ func main() {
 	result, err := _main(args, opt)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
+		fmt.Fprintln(os.Stderr, "kubetest: fatal error")
 		os.Exit(ExitWithFatalError)
 	}
 	b, err := json.MarshalIndent(result, "", "  ")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
+		fmt.Fprintln(os.Stderr, "kubetest: fatal error")
 		os.Exit(ExitWithFatalError)
 	}
 	fmt.Fprintln(os.Stdout, string(b))

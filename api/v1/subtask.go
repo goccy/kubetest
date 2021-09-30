@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/goccy/kubejob"
 	"golang.org/x/sync/errgroup"
 	corev1 "k8s.io/api/core/v1"
 )
@@ -21,6 +22,26 @@ type SubTask struct {
 	exec         JobExecutor
 	isMain       bool
 	copyArtifact func(context.Context, *SubTask) error
+}
+
+func (t *SubTask) outputError(logGroup Logger, baseErr error) {
+	if baseErr == nil {
+		return
+	}
+	failedJob, ok := baseErr.(*kubejob.FailedJob)
+	if !ok {
+		logGroup.Log(baseErr.Error())
+	}
+	if failedJob.Reason == nil {
+		return
+	}
+	cmdErr, ok := failedJob.Reason.(*kubejob.CommandError)
+	if !ok {
+		logGroup.Log(failedJob.Reason.Error())
+	}
+	if !cmdErr.IsExitError() {
+		logGroup.Log(cmdErr.Error())
+	}
 }
 
 func (t *SubTask) Run(ctx context.Context) *SubTaskResult {
@@ -48,12 +69,13 @@ func (t *SubTask) Run(ctx context.Context) *SubTaskResult {
 		IsMain:      t.isMain,
 		KeyEnvName:  t.KeyEnvName,
 	}
-	logGroup.Info(result.Command())
+	logGroup.Debug("container: %s", t.exec.Container().Name)
+	logGroup.Log(result.Command())
 	logGroup.Log(string(out))
 	if err == nil {
 		result.Status = TaskResultSuccess
 	} else {
-		logGroup.Log(err.Error())
+		t.outputError(logGroup, err)
 		result.Status = TaskResultFailure
 	}
 	logGroup.Info("elapsed time: %f sec.", result.ElapsedTime.Seconds())
