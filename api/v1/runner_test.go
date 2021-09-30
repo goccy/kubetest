@@ -345,7 +345,7 @@ func TestRunner(t *testing.T) {
 														{
 															Name:    "list",
 															Image:   "alpine",
-															Command: []string{"sh", "-c"}, // []string{"echo"},
+															Command: []string{"sh", "-c"},
 															Args: []string{
 																fmt.Sprintf(
 																	`echo "%s"`,
