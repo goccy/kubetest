@@ -105,6 +105,10 @@ func (r *Runner) Run(ctx context.Context, testjob TestJob) (*Result, error) {
 	result.TotalNum = taskResult.TotalNum()
 	result.SuccessNum = taskResult.SuccessNum()
 	result.FailureNum = taskResult.FailureNum()
+	if result.TotalNum != (result.SuccessNum + result.FailureNum) {
+		result.Status = ResultStatusError
+		result.UnknownNum = result.TotalNum - (result.SuccessNum + result.FailureNum)
+	}
 	result.taskResult = taskResult
 	result.StartedAt = startedAt
 	result.ElapsedTime = time.Since(startedAt)
@@ -116,6 +120,7 @@ type ResultStatus int
 const (
 	ResultStatusSuccess ResultStatus = iota
 	ResultStatusFailure
+	ResultStatusError
 )
 
 func (s ResultStatus) String() string {
@@ -139,6 +144,7 @@ type Result struct {
 	TotalNum       int
 	SuccessNum     int
 	FailureNum     int
+	UnknownNum     int
 	preStepResults []*TaskResult
 	taskResult     *TaskResultGroup
 	job            TestJob
@@ -150,6 +156,7 @@ func (r *Result) MarshalJSON() ([]byte, error) {
 		TotalNum       int              `json:"totalNum"`
 		SuccessNum     int              `json:"successNum"`
 		FailureNum     int              `json:"failureNum"`
+		UnknownNum     int              `json:"unknownNum,omitempty"`
 		StartedAt      time.Time        `json:"startedAt"`
 		ElapsedTimeSec int64            `json:"elapsedTimeSec"`
 		Details        *TaskResultGroup `json:"details"`
@@ -158,6 +165,7 @@ func (r *Result) MarshalJSON() ([]byte, error) {
 		TotalNum:       r.TotalNum,
 		SuccessNum:     r.SuccessNum,
 		FailureNum:     r.FailureNum,
+		UnknownNum:     r.UnknownNum,
 		StartedAt:      r.StartedAt,
 		ElapsedTimeSec: int64(r.ElapsedTime.Seconds()),
 		Details:        r.taskResult,

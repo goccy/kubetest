@@ -20,6 +20,7 @@ import (
 type PreInitCallback func(context.Context, JobExecutor) error
 
 type Job interface {
+	Spec() batchv1.JobSpec
 	PreInit(corev1.Container, PreInitCallback)
 	RunWithExecutionHandler(context.Context, func([]JobExecutor) error) error
 	MountRepository(func(ctx context.Context, exec JobExecutor, isInitContainer bool) error)
@@ -78,6 +79,10 @@ type kubernetesJob struct {
 	mountRepoCallback      func(context.Context, JobExecutor, bool) error
 	mountTokenCallback     func(context.Context, JobExecutor, bool) error
 	mountArtifactCallback  func(context.Context, JobExecutor, bool) error
+}
+
+func (j *kubernetesJob) Spec() batchv1.JobSpec {
+	return j.job.Spec
 }
 
 func (j *kubernetesJob) PreInit(c corev1.Container, cb PreInitCallback) {
@@ -179,6 +184,10 @@ type localJob struct {
 	mountTokenCallback    func(context.Context, JobExecutor, bool) error
 	mountArtifactCallback func(context.Context, JobExecutor, bool) error
 	job                   *batchv1.Job
+}
+
+func (j *localJob) Spec() batchv1.JobSpec {
+	return j.job.Spec
 }
 
 func (j *localJob) PreInit(c corev1.Container, cb PreInitCallback) {
@@ -335,6 +344,10 @@ func (e *localJobExecutor) Pod() *corev1.Pod {
 
 type dryRunJob struct {
 	job *batchv1.Job
+}
+
+func (j *dryRunJob) Spec() batchv1.JobSpec {
+	return j.job.Spec
 }
 
 func (j *dryRunJob) PreInit(c corev1.Container, cb PreInitCallback) {}

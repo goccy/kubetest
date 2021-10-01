@@ -181,7 +181,7 @@ func main() {
 		os.Exit(ExitWithFatalError)
 	}
 	fmt.Fprintln(os.Stdout, string(b))
-	if result.Status == kubetestv1.ResultStatusFailure {
+	if result.Status != kubetestv1.ResultStatusSuccess {
 		os.Exit(ExitWithFailureTestJob)
 	}
 }

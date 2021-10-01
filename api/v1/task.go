@@ -20,6 +20,14 @@ type Task struct {
 	copyArtifact      func(context.Context, *SubTask) error
 	strategyKey       *StrategyKey
 	mainContainerName string
+func (t *Task) SubTaskNum() int {
+	subTaskNum := 0
+	for _, c := range t.job.Spec().Template.Spec.Containers {
+		if t.isMainContainer(c) {
+			subTaskNum++
+		}
+	}
+	return subTaskNum
 }
 
 func (t *Task) Run(ctx context.Context) (*TaskResult, error) {
@@ -96,7 +104,11 @@ func (t *Task) sideCarExecutors(executors []JobExecutor) []JobExecutor {
 }
 
 func (t *Task) isMainExecutor(exec JobExecutor) bool {
-	return t.mainContainerName == exec.Container().Name || t.hasKeyEnv(exec.Container())
+	return t.isMainContainer(exec.Container())
+}
+
+func (t *Task) isMainContainer(c corev1.Container) bool {
+	return t.mainContainerName == c.Name || t.hasKeyEnv(c)
 }
 
 func (t *Task) getKeyName(container corev1.Container) string {
@@ -140,6 +152,11 @@ func (g *TaskGroup) Run(ctx context.Context) (*TaskResultGroup, error) {
 		eg errgroup.Group
 		rg TaskResultGroup
 	)
+	totalSubTaskNum := 0
+	for _, task := range g.tasks {
+		totalSubTaskNum += task.SubTaskNum()
+	}
+	rg.totalSubTaskNum = totalSubTaskNum
 	for _, task := range g.tasks {
 		task := task
 		eg.Go(func() error {
@@ -178,18 +195,13 @@ func (r *TaskResult) add(group *SubTaskResultGroup) {
 }
 
 type TaskResultGroup struct {
-	results []*TaskResult
-	mu      sync.Mutex
+	totalSubTaskNum int
+	results         []*TaskResult
+	mu              sync.Mutex
 }
 
 func (g *TaskResultGroup) TotalNum() int {
-	num := 0
-	for _, result := range g.results {
-		for _, group := range result.groups {
-			num += len(group.results)
-		}
-	}
-	return num
+	return g.totalSubTaskNum
 }
 
 func (g *TaskResultGroup) SuccessNum() int {
