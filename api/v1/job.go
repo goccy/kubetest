@@ -159,12 +159,14 @@ func (e *kubernetesJobExecutor) Stop(_ context.Context) error {
 }
 
 func (e *kubernetesJobExecutor) CopyFrom(ctx context.Context, src string, dst string) error {
-	LoggerFromContext(ctx).Debug("copy from %s on container to %s on local", src, dst)
+	containerName := e.exec.Container.Name
+	LoggerFromContext(ctx).Debug("copy from %s on container(%s) to %s on local", src, containerName, dst)
 	return e.exec.CopyFromPod(src, dst)
 }
 
 func (e *kubernetesJobExecutor) CopyTo(ctx context.Context, src string, dst string) error {
-	LoggerFromContext(ctx).Debug("copy from %s on local to %s on container", src, dst)
+	containerName := e.exec.Container.Name
+	LoggerFromContext(ctx).Debug("copy from %s on local to %s on container(%s)", src, dst, containerName)
 	return e.exec.CopyToPod(src, dst)
 }
 
