@@ -8,8 +8,10 @@ import (
 	"encoding/json"
 	"errors"
 	"sync"
+	"time"
 
 	"github.com/goccy/kubejob"
+	"github.com/lestrrat-go/backoff"
 	"golang.org/x/sync/errgroup"
 	corev1 "k8s.io/api/core/v1"
 )
@@ -20,6 +22,9 @@ type Task struct {
 	copyArtifact      func(context.Context, *SubTask) error
 	strategyKey       *StrategyKey
 	mainContainerName string
+	createJob         func(context.Context) (Job, error)
+}
+
 func (t *Task) SubTaskNum() int {
 	subTaskNum := 0
 	for _, c := range t.job.Spec().Template.Spec.Containers {
@@ -31,6 +36,48 @@ func (t *Task) SubTaskNum() int {
 }
 
 func (t *Task) Run(ctx context.Context) (*TaskResult, error) {
+	return t.runWithRetry(ctx)
+}
+
+func (t *Task) runWithRetry(ctx context.Context) (*TaskResult, error) {
+	const taskRetryCount = 2
+
+	policy := backoff.NewExponential(
+		backoff.WithInterval(1*time.Second),
+		backoff.WithMaxRetries(taskRetryCount),
+	)
+	b, cancel := policy.Start(context.Background())
+	defer cancel()
+
+	var (
+		result     *TaskResult
+		err        error
+		retryCount int
+	)
+	for backoff.Continue(b) {
+		result, err = t.run(ctx)
+		if err != nil {
+			if _, ok := err.(*kubejob.PreInitError); ok {
+				LoggerFromContext(ctx).Warn(
+					"failed to copy to Pod because %s. retry %d/%d",
+					err, retryCount, taskRetryCount,
+				)
+				// Recreate the job because the internal state of the job has already changed.
+				job, err := t.createJob(ctx)
+				if err != nil {
+					return nil, err
+				}
+				t.job = job
+				retryCount++
+				continue
+			}
+		}
+		break
+	}
+	return result, err
+}
+
+func (t *Task) run(ctx context.Context) (*TaskResult, error) {
 	var result TaskResult
 	if err := t.job.RunWithExecutionHandler(ctx, func(executors []JobExecutor) error {
 		for _, sidecar := range t.sideCarExecutors(executors) {

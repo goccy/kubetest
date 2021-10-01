@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -42,11 +43,10 @@ func (b *TaskBuilder) Build(ctx context.Context, spec TestJobTemplateSpec) (*Tas
 }
 
 func (b *TaskBuilder) BuildWithKey(ctx context.Context, tmpl TestJobTemplateSpec, strategyKey *StrategyKey) (*Task, error) {
-
-	return b.build(ctx, tmpl, strategyKey)
+	return b.buildTask(ctx, tmpl, strategyKey)
 }
 
-func (b *TaskBuilder) build(ctx context.Context, tmpl TestJobTemplateSpec, strategyKey *StrategyKey) (*Task, error) {
+func (b *TaskBuilder) buildTask(ctx context.Context, tmpl TestJobTemplateSpec, strategyKey *StrategyKey) (*Task, error) {
 	mainContainer, err := getMainContainerFromTmpl(tmpl)
 	if err != nil {
 		return nil, err
@@ -54,6 +54,63 @@ func (b *TaskBuilder) build(ctx context.Context, tmpl TestJobTemplateSpec, strat
 	if mainContainer.Name == "" {
 		return nil, fmt.Errorf("kubetest: main container name must be specified")
 	}
+	createJob := func(ctx context.Context) (Job, error) {
+		return b.buildJob(ctx, mainContainer, tmpl, strategyKey)
+	}
+	job, err := createJob(ctx)
+	if err != nil {
+		return nil, err
+	}
+	spec := tmpl.Spec
+	artifactMap := map[string][]ArtifactSpec{}
+	for _, artifact := range spec.Artifacts {
+		artifactMap[artifact.Container.Name] = append(artifactMap[artifact.Container.Name], artifact)
+	}
+	b.mgr.artifactMgr.AddArtifacts(spec.Artifacts)
+	copyArtifact := func(ctx context.Context, subtask *SubTask) error {
+		if b.runMode == RunModeDryRun {
+			return nil
+		}
+		var containerName string
+		if subtask.isMain {
+			containerName = mainContainer.Name
+		} else {
+			containerName = subtask.exec.Container().Name
+		}
+		artifacts, exists := artifactMap[containerName]
+		if !exists {
+			return nil
+		}
+		for _, artifact := range artifacts {
+			localPath, err := b.mgr.ArtifactPathByNameAndContainerName(artifact.Name, subtask.exec.Container().Name)
+			if err != nil {
+				return err
+			}
+			if err := subtask.exec.CopyFrom(
+				ctx,
+				artifact.Container.Path,
+				localPath,
+			); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	var onFinishSubTask func(*SubTask)
+	if strategyKey != nil {
+		onFinishSubTask = strategyKey.OnFinishSubTask
+	}
+	return &Task{
+		OnFinishSubTask:   onFinishSubTask,
+		job:               job,
+		copyArtifact:      copyArtifact,
+		strategyKey:       strategyKey,
+		mainContainerName: mainContainer.Name,
+		createJob:         createJob,
+	}, nil
+}
+
+func (b *TaskBuilder) buildJob(ctx context.Context, mainContainer corev1.Container, tmpl TestJobTemplateSpec, strategyKey *StrategyKey) (Job, error) {
 	spec := tmpl.Spec
 	spec.PodSpec = b.addContainersByStrategyKey(spec.PodSpec, mainContainer, strategyKey)
 	buildCtx := &TaskBuildContext{
@@ -62,10 +119,6 @@ func (b *TaskBuilder) build(ctx context.Context, tmpl TestJobTemplateSpec, strat
 		spec:           spec,
 	}
 	podSpec := buildCtx.podSpec()
-	var onFinishSubTask func(*SubTask)
-	if strategyKey != nil {
-		onFinishSubTask = strategyKey.OnFinishSubTask
-	}
 	podMeta := tmpl.ObjectMeta
 	labels := map[string]string{}
 	for k, v := range podMeta.Labels {
@@ -192,48 +245,7 @@ func (b *TaskBuilder) build(ctx context.Context, tmpl TestJobTemplateSpec, strat
 		}
 		return nil
 	})
-
-	artifactMap := map[string][]ArtifactSpec{}
-	for _, artifact := range spec.Artifacts {
-		artifactMap[artifact.Container.Name] = append(artifactMap[artifact.Container.Name], artifact)
-	}
-	b.mgr.artifactMgr.AddArtifacts(spec.Artifacts)
-	copyArtifact := func(ctx context.Context, subtask *SubTask) error {
-		if b.runMode == RunModeDryRun {
-			return nil
-		}
-		var containerName string
-		if subtask.isMain {
-			containerName = mainContainer.Name
-		} else {
-			containerName = subtask.exec.Container().Name
-		}
-		artifacts, exists := artifactMap[containerName]
-		if !exists {
-			return nil
-		}
-		for _, artifact := range artifacts {
-			localPath, err := b.mgr.ArtifactPathByNameAndContainerName(artifact.Name, subtask.exec.Container().Name)
-			if err != nil {
-				return err
-			}
-			if err := subtask.exec.CopyFrom(
-				ctx,
-				artifact.Container.Path,
-				localPath,
-			); err != nil {
-				return err
-			}
-		}
-		return nil
-	}
-	return &Task{
-		OnFinishSubTask:   onFinishSubTask,
-		job:               job,
-		copyArtifact:      copyArtifact,
-		strategyKey:       strategyKey,
-		mainContainerName: mainContainer.Name,
-	}, nil
+	return job, nil
 }
 
 func (b *TaskBuilder) addContainersByStrategyKey(podSpec corev1.PodSpec, mainContainer corev1.Container, strategyKey *StrategyKey) corev1.PodSpec {
@@ -272,6 +284,8 @@ func (b *TaskBuilder) preInitContainer(buildCtx *TaskBuildContext) corev1.Contai
 }
 
 func (b *TaskBuilder) preInitCallback(ctx context.Context, buildCtx *TaskBuildContext) (PreInitCallback, error) {
+	var defaultCopyTimeout = 5 * time.Minute
+
 	type copyPath struct {
 		src string
 		dst string
@@ -295,7 +309,22 @@ func (b *TaskBuilder) preInitCallback(ctx context.Context, buildCtx *TaskBuildCo
 	}
 	return func(ctx context.Context, exec JobExecutor) error {
 		for _, path := range copyPaths {
-			if err := exec.CopyTo(ctx, path.src, path.dst); err != nil {
+			path := path
+			if err := func(path *copyPath) error {
+				ctx, timeout := context.WithTimeout(ctx, defaultCopyTimeout)
+				defer timeout()
+				errChan := make(chan error, 1)
+				go func() {
+					errChan <- exec.CopyTo(ctx, path.src, path.dst)
+				}()
+				select {
+				case <-ctx.Done():
+					return ctx.Err()
+				case err := <-errChan:
+					return err
+				}
+				return nil
+			}(path); err != nil {
 				return err
 			}
 		}
