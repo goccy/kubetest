@@ -165,7 +165,7 @@ func (b *TaskBuilder) build(ctx context.Context, tmpl TestJobTemplateSpec, strat
 			return nil
 		}
 		taskContainer := buildCtx.taskContainer(containerName, isInitContainer)
-		for artifactName, mountPath := range taskContainer.artifactNameToArchiveMountPath {
+		for artifactName, mountPath := range taskContainer.artifactNameToMountPath {
 			orgMountPath, exists := taskContainer.artifactNameToOrgMountPath[artifactName]
 			if !exists {
 				return fmt.Errorf("kubetest: failed to find org mount path by %s", artifactName)
@@ -336,7 +336,7 @@ func (b *TaskBuilder) getCopyPathForArtifact(buildCtx *TaskBuildContext, cb func
 		if err != nil {
 			return err
 		}
-		dst := buildCtx.artifactNameToArchiveMountPath(name)
+		dst := buildCtx.artifactNameToMountPath(name)
 		cb(src, dst)
 	}
 	return nil
@@ -419,12 +419,12 @@ func (g *TaskBuildContext) tokenNameToMountPath(name string) string {
 	return g.containers.tokenNameToMountPath(name)
 }
 
-func (g *TaskBuildContext) artifactNameToArchiveMountPath(name string) string {
-	path := g.initContainers.artifactNameToArchiveMountPath(name)
+func (g *TaskBuildContext) artifactNameToMountPath(name string) string {
+	path := g.initContainers.artifactNameToMountPath(name)
 	if path != "" {
 		return path
 	}
-	return g.containers.artifactNameToArchiveMountPath(name)
+	return g.containers.artifactNameToMountPath(name)
 }
 
 func (c *TaskBuildContext) needsToPreInit() bool {
@@ -506,7 +506,7 @@ func (g *TaskContainerGroup) tokenNames() []string {
 func (g *TaskContainerGroup) artifactNames() []string {
 	artifactNameMap := map[string]struct{}{}
 	for _, c := range g.containerMap {
-		for name := range c.artifactNameToArchiveMountPath {
+		for name := range c.artifactNameToMountPath {
 			artifactNameMap[name] = struct{}{}
 		}
 	}
@@ -538,9 +538,9 @@ func (g *TaskContainerGroup) tokenNameToMountPath(name string) string {
 	return ""
 }
 
-func (g *TaskContainerGroup) artifactNameToArchiveMountPath(name string) string {
+func (g *TaskContainerGroup) artifactNameToMountPath(name string) string {
 	for _, c := range g.containerMap {
-		path, exists := c.artifactNameToArchiveMountPath[name]
+		path, exists := c.artifactNameToMountPath[name]
 		if exists {
 			return path
 		}
@@ -597,16 +597,16 @@ func newTaskContainerGroup(containers []corev1.Container, volumes []TestJobVolum
 }
 
 type TaskContainer struct {
-	idx                            int
-	container                      corev1.Container
-	repoNameToArchiveMountPath     map[string]string
-	repoNameToOrgMountPath         map[string]string
-	tokenNameToMountPath           map[string]string
-	tokenNameToOrgMountPath        map[string]string
-	artifactNameToArchiveMountPath map[string]string
-	artifactNameToOrgMountPath     map[string]string
-	podSpecVolumeMap               map[string]corev1.Volume
-	preInitVolumeMountMap          map[string]corev1.VolumeMount
+	idx                        int
+	container                  corev1.Container
+	repoNameToArchiveMountPath map[string]string
+	repoNameToOrgMountPath     map[string]string
+	tokenNameToMountPath       map[string]string
+	tokenNameToOrgMountPath    map[string]string
+	artifactNameToMountPath    map[string]string
+	artifactNameToOrgMountPath map[string]string
+	podSpecVolumeMap           map[string]corev1.Volume
+	preInitVolumeMountMap      map[string]corev1.VolumeMount
 }
 
 func (c *TaskContainer) hasTestVolumeMount() bool {
@@ -620,7 +620,7 @@ func newTaskContainer(c corev1.Container, volumes []TestJobVolume) *TaskContaine
 	tokenNameToMountPath := map[string]string{}
 	tokenNameToOrgMountPath := map[string]string{}
 
-	artifactNameToArchiveMountPath := map[string]string{}
+	artifactNameToMountPath := map[string]string{}
 	artifactNameToOrgMountPath := map[string]string{}
 
 	podSpecVolumeMap := map[string]corev1.Volume{}
@@ -654,7 +654,7 @@ func newTaskContainer(c corev1.Container, volumes []TestJobVolume) *TaskContaine
 			artifactVolumeName := volume.Name
 			artifactName := volume.Artifact.Name
 			archiveMountPath := filepath.Join("/", "tmp", "artifact-archive", artifactVolumeName)
-			artifactNameToArchiveMountPath[artifactName] = archiveMountPath
+			artifactNameToMountPath[artifactName] = archiveMountPath
 			for idx, vm := range c.VolumeMounts {
 				if vm.Name == artifactVolumeName {
 					artifactNameToOrgMountPath[artifactName] = vm.MountPath
@@ -700,14 +700,14 @@ func newTaskContainer(c corev1.Container, volumes []TestJobVolume) *TaskContaine
 		}
 	}
 	return &TaskContainer{
-		container:                      c,
-		repoNameToArchiveMountPath:     repoNameToArchiveMountPath,
-		repoNameToOrgMountPath:         repoNameToOrgMountPath,
-		tokenNameToMountPath:           tokenNameToMountPath,
-		tokenNameToOrgMountPath:        tokenNameToOrgMountPath,
-		artifactNameToArchiveMountPath: artifactNameToArchiveMountPath,
-		artifactNameToOrgMountPath:     artifactNameToOrgMountPath,
-		podSpecVolumeMap:               podSpecVolumeMap,
-		preInitVolumeMountMap:          preInitVolumeMountMap,
+		container:                  c,
+		repoNameToArchiveMountPath: repoNameToArchiveMountPath,
+		repoNameToOrgMountPath:     repoNameToOrgMountPath,
+		tokenNameToMountPath:       tokenNameToMountPath,
+		tokenNameToOrgMountPath:    tokenNameToOrgMountPath,
+		artifactNameToMountPath:    artifactNameToMountPath,
+		artifactNameToOrgMountPath: artifactNameToOrgMountPath,
+		podSpecVolumeMap:           podSpecVolumeMap,
+		preInitVolumeMountMap:      preInitVolumeMountMap,
 	}
 }
