@@ -167,7 +167,7 @@ func (r *SubTaskResult) Command() string {
 	cmd := strings.Join(append(r.Container.Command, r.Container.Args...), " ")
 	envName := r.KeyEnvName
 	if envName != "" {
-		return fmt.Sprintf("%s=%s; ", envName, r.Name) + cmd
+		return fmt.Sprintf("[%s:%s] ", envName, r.Name) + cmd
 	}
 	return cmd
 }
