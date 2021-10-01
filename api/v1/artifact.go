@@ -39,7 +39,7 @@ func (m *ArtifactManager) AddArtifacts(artifacts []ArtifactSpec) error {
 func (m *ArtifactManager) ExportPathByName(name string) (string, error) {
 	dir, exists := m.nameToLocalDirs[name]
 	if !exists {
-		return "", errInvalidArtifactName(name)
+		return "", fmt.Errorf("kubetest: failed to find src path to export artifact by %s", name)
 	}
 	return dir, nil
 }
@@ -47,11 +47,11 @@ func (m *ArtifactManager) ExportPathByName(name string) (string, error) {
 func (m *ArtifactManager) LocalPathByName(name string) (string, error) {
 	dir, exists := m.nameToLocalDirs[name]
 	if !exists {
-		return "", errInvalidArtifactName(name)
+		return "", fmt.Errorf("kubetest: failed to find local artifact directory by %s", name)
 	}
 	file, exists := m.nameToLocalFiles[name]
 	if !exists {
-		return "", errInvalidArtifactName(name)
+		return "", fmt.Errorf("kubetest: failed to find local artitfact file by %s", name)
 	}
 	containerNames, err := filepath.Glob(filepath.Join(dir, "*"))
 	if err != nil {
@@ -70,11 +70,11 @@ func (m *ArtifactManager) LocalPathByName(name string) (string, error) {
 func (m *ArtifactManager) LocalPathByNameAndContainerName(name, containerName string) (string, error) {
 	dir, exists := m.nameToLocalDirs[name]
 	if !exists {
-		return "", errInvalidArtifactName(name)
+		return "", fmt.Errorf("kubetest: failed to find local artifact directory by %s", name)
 	}
 	file, exists := m.nameToLocalFiles[name]
 	if !exists {
-		return "", errInvalidArtifactName(name)
+		return "", fmt.Errorf("kubetest: failed to find local artifact file by %s", name)
 	}
 	return filepath.Join(dir, containerName, file), nil
 }

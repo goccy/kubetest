@@ -13,7 +13,6 @@ import (
 
 	"github.com/bradleyfalzon/ghinstallation"
 	"github.com/google/go-github/v29/github"
-	"golang.org/x/xerrors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 )
@@ -47,7 +46,7 @@ func (m *TokenManager) TokenByName(ctx context.Context, name string) (*Token, er
 
 	source, exists := m.tokenMap[name]
 	if !exists {
-		return nil, errInvalidTokenName(name)
+		return nil, fmt.Errorf("kubetest: failed to find token name %s", name)
 	}
 	value, err := m.cli.AccessToken(ctx, source)
 	if err != nil {
@@ -91,38 +90,32 @@ func (c *TokenClient) tokenFromGitHubToken(ctx context.Context, source *GitHubTo
 		Secrets(c.namespace).
 		Get(ctx, source.Name, metav1.GetOptions{})
 	if err != nil {
-		return "", xerrors.Errorf("failed to read secret for token by %s: %w", source.Name, err)
+		return "", fmt.Errorf("kubetest: failed to read secret for token by %s: %w", source.Name, err)
 	}
 	data, exists := secret.Data[source.Key]
 	if !exists {
-		return "", xerrors.Errorf("failed to find token data: %s", source.Key)
+		return "", fmt.Errorf("kubetest: failed to find token data: %s", source.Key)
 	}
 	return strings.TrimSpace(string(data)), nil
 }
 
 func (c *TokenClient) tokenFromGitHubApp(ctx context.Context, source *GitHubAppTokenSource) (string, error) {
-	if source.AppID == 0 {
-		return "", xerrors.Errorf("invalid param. appId is required to get token by github app settings")
-	}
-	if source.KeyFile == nil {
-		return "", xerrors.Errorf("invalid param. keyFile is required to get token by github app settings")
-	}
-	if source.Organization == "" && source.InstallationID == 0 {
-		return "", xerrors.Errorf("invalid param. organization or installationId is required to get token by github app settings")
+	if err := NewValidator().ValidateGitHubAppTokenSource(source); err != nil {
+		return "", err
 	}
 	privateKey, err := c.clientset.CoreV1().
 		Secrets(c.namespace).
 		Get(ctx, source.KeyFile.Name, metav1.GetOptions{})
 	if err != nil {
-		return "", xerrors.Errorf("failed to read private key from secret %s: %w", source.KeyFile.Name, err)
+		return "", fmt.Errorf("kubetest: failed to read private key from secret %s: %w", source.KeyFile.Name, err)
 	}
 	privateKeyData, exists := privateKey.Data[source.KeyFile.Key]
 	if !exists {
-		return "", xerrors.Errorf("failed to find private key data: %s", source.KeyFile.Key)
+		return "", fmt.Errorf("kubetest: failed to find private key data: %s", source.KeyFile.Key)
 	}
 	token, err := c.tokenFromGitHubAppWithParam(ctx, source.AppID, source.InstallationID, source.Organization, privateKeyData)
 	if err != nil {
-		return "", xerrors.Errorf("failed to get token from github app params: %w", err)
+		return "", fmt.Errorf("kubetset: failed to get token from github app params: %w", err)
 	}
 	return token, nil
 }
@@ -130,19 +123,19 @@ func (c *TokenClient) tokenFromGitHubApp(ctx context.Context, source *GitHubAppT
 func (c *TokenClient) tokenFromGitHubAppWithParam(ctx context.Context, appID, installationID int64, org string, privateKey []byte) (string, error) {
 	appsTransport, err := ghinstallation.NewAppsTransport(http.DefaultTransport, appID, privateKey)
 	if err != nil {
-		return "", xerrors.Errorf("failed to initialize apps transport from %d: %w", appID, err)
+		return "", fmt.Errorf("failed to initialize apps transport from %d: %w", appID, err)
 	}
 	githubClient := github.NewClient(&http.Client{Transport: appsTransport})
 	if installationID == 0 {
 		id, err := c.getInstallationID(ctx, githubClient, org)
 		if err != nil {
-			return "", xerrors.Errorf("failed to get installation id by %s: %w", org, err)
+			return "", fmt.Errorf("failed to get installation id by %s: %w", org, err)
 		}
 		installationID = id
 	}
 	token, _, err := githubClient.Apps.CreateInstallationToken(ctx, installationID, nil)
 	if err != nil {
-		return "", xerrors.Errorf("failed to create installation token: %w", err)
+		return "", fmt.Errorf("failed to create installation token: %w", err)
 	}
 	return token.GetToken(), nil
 }
@@ -155,7 +148,7 @@ func (c *TokenClient) getInstallationID(ctx context.Context, githubClient *githu
 	for {
 		ins, resp, err := githubClient.Apps.ListInstallations(ctx, opt)
 		if err != nil {
-			return 0, xerrors.Errorf("failed to fetch installations: %w", err)
+			return 0, fmt.Errorf("failed to fetch installations: %w", err)
 		}
 		for _, in := range ins {
 			if org == in.GetAccount().GetLogin() {
@@ -163,7 +156,7 @@ func (c *TokenClient) getInstallationID(ctx context.Context, githubClient *githu
 			}
 		}
 		if resp.LastPage == 0 || opt.Page == resp.LastPage {
-			return 0, xerrors.Errorf("failed to find %s in installations", org)
+			return 0, fmt.Errorf("failed to find %s in installations", org)
 		}
 		opt.Page++
 	}
