@@ -163,12 +163,8 @@ github.com/go-openapi/swag v0.19.2/go.mod h1:POnQmlKehdgb5mhVOsnJFsivZCEZ/vjK9gh
 github.com/go-openapi/swag v0.19.5/go.mod h1:POnQmlKehdgb5mhVOsnJFsivZCEZ/vjK9gh66Z9tfKk=
 github.com/go-stack/stack v1.8.0/go.mod h1:v0f6uXyyMGvRgIKkXu+yp6POWl0qKG85gN/melR3HDY=
 github.com/go-task/slim-sprig v0.0.0-20210107165309-348f09dbbbc0/go.mod h1:fyg7847qk6SyHyPtNmDHnmrv/HOrqktSC+C9fM+CJOE=
-github.com/goccy/kubejob v0.2.9 h1:IkwwIv9NWqekHg6SN5NlrIQMuyiiKhc6zjZid2eHbr0=
-github.com/goccy/kubejob v0.2.9/go.mod h1:VRKVeIFQ3Fm+b7w9kq3J6a0A7+hJxEK8KDp7uMFDBAc=
-github.com/goccy/kubejob v0.2.10-0.20210930111810-3ec3750156db h1:KbIzl8MY8yPI0uJcATCvCm+lIAxquozU4k+cWIohXGQ=
-github.com/goccy/kubejob v0.2.10-0.20210930111810-3ec3750156db/go.mod h1:VRKVeIFQ3Fm+b7w9kq3J6a0A7+hJxEK8KDp7uMFDBAc=
-github.com/goccy/kubejob v0.2.10-0.20210930113642-d4d987ff19b0 h1:/GcYNYvXhvoUvO3qTXz+wtVOzlxHCdnZIJFOb05/TwY=
-github.com/goccy/kubejob v0.2.10-0.20210930113642-d4d987ff19b0/go.mod h1:VRKVeIFQ3Fm+b7w9kq3J6a0A7+hJxEK8KDp7uMFDBAc=
+github.com/goccy/kubejob v0.2.10 h1:4CGW/IK4SZpb7SDrdzBKd7KweDYOy9n2tN+CwuGhc1M=
+github.com/goccy/kubejob v0.2.10/go.mod h1:VRKVeIFQ3Fm+b7w9kq3J6a0A7+hJxEK8KDp7uMFDBAc=
 github.com/gogo/protobuf v1.1.1/go.mod h1:r8qH/GZQm5c6nD/R0oafs1akxWv10x8SbQlK7atdtwQ=
 github.com/gogo/protobuf v1.2.1/go.mod h1:hp+jE20tsWTFYpLwKvXlhS1hjn+gTNwPg2I6zVXpSg4=
 github.com/gogo/protobuf v1.3.1/go.mod h1:SlYgWuQ5SjCEi6WLHjHCa1yvBfUnHcTbrrZtXPKa29o=
