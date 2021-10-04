@@ -75,6 +75,7 @@ func main() {
 
 	if err = (&controllers.TestJobReconciler{
 		Client:    mgr.GetClient(),
+		Config:    cfg,
 		ClientSet: clientset,
 		Log:       ctrl.Log.WithName("controllers").WithName("TestJob"),
 		Scheme:    mgr.GetScheme(),

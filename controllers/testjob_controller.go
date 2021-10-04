@@ -22,19 +22,19 @@ import (
 	"strings"
 
 	"github.com/go-logr/logr"
-	"golang.org/x/xerrors"
+	kubetestv1 "github.com/goccy/kubetest/api/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-
-	kubetestv1 "github.com/goccy/kubetest/api/v1"
 )
 
 // TestJobReconciler reconciles a TestJob object
 type TestJobReconciler struct {
 	client.Client
+	Config    *rest.Config
 	ClientSet *kubernetes.Clientset
 	Log       logr.Logger
 	Scheme    *runtime.Scheme
@@ -85,10 +85,7 @@ func (r *TestJobReconciler) runTestJob(ctx context.Context, job kubetestv1.TestJ
 			}
 		}
 	}()
-	if err := kubetestv1.NewTestJobRunner(r.ClientSet).Run(ctx, job); err != nil {
-		if xerrors.Is(err, kubetestv1.ErrFailedTestJob) {
-			return nil
-		}
+	if _, err := kubetestv1.NewRunner(r.Config, kubetestv1.RunModeKubernetes).Run(ctx, job); err != nil {
 		return err
 	}
 	return nil

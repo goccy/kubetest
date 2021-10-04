@@ -4,30 +4,37 @@ IMG ?= controller:latest
 # Produce CRDs that work back to Kubernetes 1.11 (no version conversion)
 CRD_OPTIONS ?= "crd:trivialVersions=true"
 
-# Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
-ifeq (,$(shell go env GOBIN))
-GOBIN=$(shell go env GOPATH)/bin
-else
-GOBIN=$(shell go env GOBIN)
-endif
-
-BIN := $(CURDIR)/.bin
-PATH := $(abspath $(BIN)):$(PATH)
+OS := $(shell go env GOOS)
+ARCH ?= $(shell go env GOARCH)
+export GOBIN=$(CURDIR)/bin
+export PATH=$(GOBIN):$(shell echo $$PATH)
 
 UNAME_OS := $(shell uname -s)
 
-$(BIN):
-	@mkdir -p $(BIN)
+$(GOBIN):
+	@mkdir -p $(GOBIN)
 
-KIND := $(BIN)/kind
+KIND := $(GOBIN)/kind
 KIND_VERSION := v0.11.0
-$(KIND): | $(BIN)
+$(KIND): | $(GOBIN)
 	@curl -sSLo $(KIND) "https://kind.sigs.k8s.io/dl/$(KIND_VERSION)/kind-$(UNAME_OS)-amd64"
 	@chmod +x $(KIND)
 
 CLUSTER_NAME ?= kubetest-cluster
 KUBECONFIG ?= $(CURDIR)/.kube/config
 export KUBECONFIG
+
+.PHONY: tools
+tools:
+	go install sigs.k8s.io/controller-runtime/tools/setup-envtest@latest
+	make tools/envtest
+
+K8S_VERSION := 1.19.2
+tools/envtest: ./bin/k8s/$(K8S_VERSION)-$(OS)-$(ARCH)
+
+./bin/k8s/$(K8S_VERSION)-$(OS)-$(ARCH):
+	./bin/setup-envtest use --bin-dir ./bin --os $(OS) --arch $(ARCH) $(K8S_VERSION)
+	ln -sf k8s/$(K8S_VERSION)-$(OS)-$(ARCH) bin/k8sbin
 
 all: manager
 

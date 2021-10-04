@@ -41,12 +41,8 @@ func TestListOpt(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			job := kubetestv1.TestJob{
-				Spec: kubetestv1.TestJobSpec{
-					DistributedTest: &kubetestv1.DistributedTestSpec{},
-				},
-			}
-			if err := assignListNames(&job, opt); err == nil {
+			var job kubetestv1.TestJob
+			if err := assignStaticKeys(&job, opt); err == nil {
 				t.Fatal("expected error")
 			}
 		})
@@ -72,12 +68,8 @@ func TestListOpt(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			job := kubetestv1.TestJob{
-				Spec: kubetestv1.TestJobSpec{
-					DistributedTest: &kubetestv1.DistributedTestSpec{},
-				},
-			}
-			if err := assignListNames(&job, opt); err == nil {
+			var job kubetestv1.TestJob
+			if err := assignStaticKeys(&job, opt); err == nil {
 				t.Fatal("expected error")
 			}
 		})
