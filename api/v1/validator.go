@@ -307,7 +307,7 @@ func (v *Validator) ValidateStrategyKeySource(source StrategyKeySource) error {
 }
 
 func (v *Validator) ValidateStrategyDynamicKeySource(source *StrategyDynamicKeySource) error {
-	if err := v.ValidateTestJobTemplateSpec(source.Spec); err != nil {
+	if err := v.ValidateTestJobTemplateSpec(source.Template); err != nil {
 		return err
 	}
 	return nil

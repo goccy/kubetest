@@ -204,7 +204,7 @@ type StrategyKeySource struct {
 
 type StrategyDynamicKeySource struct {
 	// Spec
-	Spec TestJobTemplateSpec `json:"source"`
+	Template TestJobTemplateSpec `json:"template"`
 	// Delimiter for strategy keys ( default: new line character ( \n ) )
 	Delim string `json:"delimiter,omitempty"`
 	// Filter filter got strategy keys ( use regular expression )

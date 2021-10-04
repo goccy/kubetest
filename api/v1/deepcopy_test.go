@@ -63,7 +63,7 @@ func TestDeepCopy(t *testing.T) {
 					Env: "TEST",
 					Source: StrategyKeySource{
 						Dynamic: &StrategyDynamicKeySource{
-							Spec: TestJobTemplateSpec{
+							Template: TestJobTemplateSpec{
 								ObjectMeta: metav1.ObjectMeta{
 									Name: "list",
 								},
