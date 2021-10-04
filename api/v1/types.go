@@ -99,16 +99,16 @@ type TestJobTemplateSpec struct {
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 	// Main is the main container name ( not sidecar container ).
 	// If used multiple containers, this parameter must be specified.
-	Main string `json:"main"`
+	Main string `json:"main,omitempty"`
 	// Spec specification of the desired behavior of the pod for TestJob.
 	Spec TestJobPodSpec `json:"spec"`
 }
 
 // TestJobPodSpec
 type TestJobPodSpec struct {
-	corev1.PodSpec
-	Volumes   []TestJobVolume `json:"volumes"`
-	Artifacts []ArtifactSpec  `json:"artifacts"`
+	corev1.PodSpec `json:",inline"`
+	Volumes        []TestJobVolume `json:"volumes,omitempty"`
+	Artifacts      []ArtifactSpec  `json:"artifacts,omitempty"`
 }
 
 // ArtifactSpec describes the specification of artifact for each process.
@@ -136,7 +136,7 @@ type TestJobVolume struct {
 
 // TestJobVolumeSource describes volume sources for TestJob.
 type TestJobVolumeSource struct {
-	corev1.VolumeSource
+	corev1.VolumeSource `json:",inline"`
 	// Repo volume source for repository.
 	Repo *RepositoryVolumeSource `json:"repo,omitempty"`
 	// Artifact volume source for artifact.
