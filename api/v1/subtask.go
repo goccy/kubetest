@@ -80,7 +80,7 @@ func (t *SubTask) Run(ctx context.Context) *SubTaskResult {
 	}
 	logGroup.Info("elapsed time: %f sec.", result.ElapsedTime.Seconds())
 	if err := t.copyArtifact(ctx, t); err != nil {
-		logGroup.Warn("failed to copy artifact: %s", err.Error())
+		logGroup.Error("failed to copy artifact: %s", err.Error())
 		result.Status = TaskResultFailure
 		result.ArtifactErr = err
 	}
