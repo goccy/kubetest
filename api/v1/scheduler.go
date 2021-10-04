@@ -121,7 +121,7 @@ func (s *TaskScheduler) getScheduleKeys(ctx context.Context, source StrategyKeyS
 }
 
 func (s *TaskScheduler) dynamicKeys(ctx context.Context, source *StrategyDynamicKeySource) ([]string, error) {
-	keyTask, err := s.builder.Build(ctx, source.Spec)
+	keyTask, err := s.builder.Build(ctx, source.Template)
 	if err != nil {
 		return nil, err
 	}
