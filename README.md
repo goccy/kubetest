@@ -693,7 +693,197 @@ Artifacts are created under the directory `<Container Name><Pod Index>-<Containe
     `-- result.txt
 ```
 
-## ServiceAccount
+# Specification of TestJob
+
+## TestJob
+
+| field | type | description |
+| ---- | ---- | ---- |
+| spec | TestJobSpec | specification of TestJob |
+
+## TestJobSpec
+
+| field | type | description |
+| ---- | ---- | ---- |
+| repos | []RepositorySpec | Array of repository specifications |
+| tokens | []TokenSpec | Array of token specifications |
+| preSteps | []PreStep | Array of prestep specifications |
+| exportArtifacts | []ExportArtifact | Array of exportArtifact specifications |
+| strategy | Strategy | strategy specification for distributed processing |
+| log | LogSpec | log specification |
+
+## RepositorySpec
+
+| field | type | description |
+| ---- | ---- | ---- |
+| name | string | specify the name to be used when referencing the repository in the TestJob spec. This name must be unique within the TestJob spec. |
+|  value  | Repository | |
+
+## Repository
+
+| field | type | description |
+| ---- | ---- | ---- |
+| url | string | url to the repository like `https://github.com/goccy/kubetest.git` |
+| branch | string | branch name |
+| rev | string | revision |
+| token | string | token name. This must match the name of a Token |
+| merge | MergeSpec | specify base branch name to merge before task processing |
+
+## MergeSpec
+
+| field | type | description |
+| ---- | ---- | ---- |
+| base | string | base branch name |
+
+## TokenSpec
+
+| field | type | description |
+| ---- | ---- | ---- |
+| name | string |  |
+| value | TokenSource |  |
+
+
+## TokenSource
+
+| field | type | description |
+| ---- | ---- | ---- |
+| githubApp | GitHubAppTokenSource |  |
+| githubToken | SecretKeySelector |  |
+
+## GitHubAppTokenSource
+
+| field | type | description |
+| ---- | ---- | ---- |
+| organization | string |  |
+| appId | number |  |
+| installationId | number | |
+| keyFile | SecretKeySelector | |
+
+## SecretKeySelector
+
+| field | type | description |
+| ---- | ---- | ---- |
+| name | string | secret name to the secret data |
+| key | string | key name to the secret data |
+
+## PreStep
+
+| field | type | description |
+| ---- | ---- | ---- |
+| name | string | name of prestep |
+| template | TestJobTemplateSpec | template specification of prestep |
+
+## TestJobTemplateSpec
+
+| field | type | description |
+| ---- | ---- | ---- |
+| metadata | ObjectMeta | the metadata |
+| main | string | The main container name ( not sidecar container ). If used multiple containers, this parameter must be specified |
+| spec | TestJobPodSpec | specification of the desired behavior of the Pod for TestJob |
+
+## TestJobPodSpec
+
+| field | type | description |
+| ---- | ---- | ---- |
+| volumes | []TestJobVolume | |
+| artifacts | []ArtifactSpec | |
+
+And all PodSpec fields.
+
+## ArtifactSpec
+
+| field | type | description |
+| ---- | ---- | ---- |
+| name | string | |
+| container | ArtifactContainer | |
+
+## ArtifactContainer
+
+| field | type | description |
+| ---- | ---- | ---- |
+| name | string | The name for the container |
+| path | string | The path to the artifact |
+
+## TestJobVolume
+
+| field | type | description |
+| ---- | ---- | ---- |
+| name | string | |
+| repo | RepositoryVolumeSource | |
+| artifact | ArtifactVolumeSource | |
+| token | TokenVolumeSource | |
+
+And default volume types ( See: https://kubernetes.io/docs/concepts/storage/volumes/#volume-types )
+
+## RepositoryVolumeSource
+
+| field | type | description |
+| ---- | ---- | ---- |
+| name | string | |
+
+## ArtifactVolumeSource
+
+| field | type | description |
+| ---- | ---- | ---- |
+| name | string | |
+
+## TokenVolumeSource
+
+| field | type | description |
+| ---- | ---- | ---- |
+| name | string | |
+
+## ExportArtifact
+
+| field | type | description |
+| ---- | ---- | ---- |
+| name | string | |
+| path | string | |
+
+## LogSpec
+
+| field | type | description |
+| ---- | ---- | ---- |
+| extParam | Object | key/value pairs to add the result log |
+
+## Strategy
+
+| field | type | description |
+| ---- | ---- | ---- |
+| key | StrategyKeySpec | |
+| scheduler | Scheduler | |
+| retest | boolean | |
+
+## StrategyKeySpec
+
+| field | type | description |
+| ---- | ---- | ---- |
+| env | string | |
+| source | StrategyKeySource | |
+
+## StrategyKeySource
+
+| field | type | description |
+| ---- | ---- | ---- |
+| static | []string | Array of distributed key names |
+| dynamic | StrategyDynamicKeySource | |
+
+## StrategyDynamicKeySource
+
+| field | type | description |
+| ---- | ---- | ---- |
+| template | TestJobTemplateSpec | |
+| delimiter | string | Delimiter for strategy keys ( default: new line character (`\n`) ) |
+| filter | string | filter got strategy keys ( use regular expression ) |
+
+## Scheduler
+
+| field | type | description |
+| ---- | ---- | ---- |
+| maxContainersPerPod | number | |
+| maxConcurrentNumPerPod | number | |
+
+# Requirements
 
 The ServiceAccount settings that need to be assigned to Pod that use the kubetest CLI is as follows.
 
@@ -757,6 +947,11 @@ subjects:
   name: kubetest
 ---
 ```
+
+
+# How it works
+
+Coming soon...
 
 # License
 
