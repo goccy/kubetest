@@ -1,0 +1,18 @@
+apiVersion: kubetest.io/v1
+kind: TestJob
+metadata:
+  name: simple-testjob
+  namespace: default
+spec:
+  template:
+    metadata:
+      generateName: simple-testjob-
+    spec:
+      containers:
+        - name: test
+          image: alpine
+          workingDir: /go/src
+          command:
+            - echo
+          args:
+            - "hello"

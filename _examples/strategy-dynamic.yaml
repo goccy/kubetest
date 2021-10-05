@@ -1,0 +1,41 @@
+apiVersion: kubetest.io/v1
+kind: TestJob
+metadata:
+  name: strategy-dynamic-testjob
+  namespace: default
+spec:
+  strategy:
+    key:
+      env: TASK_KEY
+      source:
+        dynamic:
+          template:
+            metadata:
+              generateName: strategy-dynamic-keys-
+            spec:
+              containers:
+                - name: key
+                  image: alpine
+                  command: ["sh", "-c"]
+                  args:
+                    - |
+                      echo -n "
+                      TASK_KEY_1
+                      TASK_KEY_2
+                      TASK_KEY_3
+                      TASK_KEY_4"
+    scheduler:
+      maxContainersPerPod: 10
+      maxConcurrentNumPerPod: 10
+  template:
+    metadata:
+      generateName: strategy-dynamic-testjob-
+    spec:
+      containers:
+        - name: test
+          image: alpine
+          workingDir: /work
+          command:
+            - echo
+          args:
+            - $TASK_KEY

@@ -1,0 +1,42 @@
+apiVersion: kubetest.io/v1
+kind: TestJob
+metadata:
+  name: private-repo-testjob
+  namespace: default
+spec:
+  tokens:
+    - name: github-app-token
+      value:
+        githubApp:
+          organization: goccy
+          appId: 134426
+          keyFile:
+            name: github-app
+            key: private-key
+  repos:
+    - name: kubetest-repo
+      value:
+        # specify the private repository url
+        url: https://github.com/goccy/kubetest.git
+        branch: master
+        token: github-app-token
+  template:
+    metadata:
+      generateName: private-repo-testjob-
+    spec:
+      containers:
+        - name: test
+          image: alpine
+          workingDir: /work
+          command:
+            - ls
+          args:
+            - README.md
+          volumeMounts:
+            - name: repo
+              mountPath: /work
+      volumes:
+        - name: repo
+          repo:
+            name: kubetest-repo
+

@@ -1,0 +1,29 @@
+apiVersion: kubetest.io/v1
+kind: TestJob
+metadata:
+  name: strategy-static-testjob
+  namespace: default
+spec:
+  strategy:
+    key:
+      env: TASK_KEY
+      source:
+        static:
+          - TASK_KEY_1
+          - TASK_KEY_2
+          - TASK_KEY_3
+    scheduler:
+      maxContainersPerPod: 10
+      maxConcurrentNumPerPod: 10
+  template:
+    metadata:
+      generateName: strategy-static-testjob-
+    spec:
+      containers:
+        - name: test
+          image: alpine
+          workingDir: /work
+          command:
+            - echo
+          args:
+            - $TASK_KEY

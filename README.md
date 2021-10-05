@@ -5,445 +5,887 @@
 [![codecov](https://codecov.io/gh/goccy/kubetest/branch/master/graph/badge.svg)](https://codecov.io/gh/goccy/kubetest)
 
 
-CLI and Go library with Custom Resource for ( distributed ) testing on Kubernetes
+A CLI for efficient use of Kubernetes Cluster resources for distributed processing of time-consuming task processing.
 
-# Status
+This tool is developed based on the following concept.
 
-WIP
+- Distributed processing: divide time-consuming tasks based on certain rules, and efficient use of cluster resources by processing each task using different pods
+- One container per task: since the divided tasks are processed in different containers, they are less affected by the processing of different tasks.
 
 # Installation
 
-## Install as a CLI
-
 ```bash
-$ go get github.com/goccy/kubetest/cmd/kubetest
+$ go install github.com/goccy/kubetest/cmd/kubetest
 ```
 
-# How to use CLI
+# How to use
 
 ```
 Usage:
   kubetest [OPTIONS]
 
 Application Options:
-  -n, --namespace=              specify namespace (default: default)
-      --in-cluster              specify whether in cluster
-  -c, --config=                 specify local kubeconfig path. ( default: $HOME/.kube/config )
-  -i, --image=                  specify container image
-      --repo=                   specify repository name
-  -b, --branch=                 specify branch name
-      --rev=                    specify revision ( commit hash )
-      --token-from-secret=      specify github auth token from secret resource. specify ( name.key ) style
-      --image-pull-secret=      specify image pull secret name
-      --max-containers-per-pod= specify max number of container per pod
-      --list=                   specify command for listing test
-      --list-delimiter=         specify delimiter for list command
-      --pattern=                specify test name patter
-      --retest                  specify enabled retest if exists failed tests
-      --retest-delimiter=       specify delimiter for failed tests at retest command
-  -f, --file=                   specify yaml file path
-      --template=               specify template parameter for file specified with --file option
+  -n, --namespace=  specify namespace (default: default)
+      --in-cluster  specify whether in cluster
+  -c, --config=     specify local kubeconfig path. ( default: $HOME/.kube/config )
+      --list=       specify path to get the list for test
+      --log-level=  specify log level (debug/info/warn/error)
+      --dry-run     specify dry run mode
+      --template=   specify template parameter for testjob file
 
 Help Options:
-  -h, --help                    Show this help message
+  -h, --help        Show this help message
 ```
 
-# Custom Resource Definition
+## 1. Run simple task
 
-## 1. Testing
+First, We will introduce a sample that performs the simplest task processing.
+
+Describe the manifest file of task processing as follows and execute it by passing it as an argument of kubetest CLI.
+
+If you've already written a Kubernetes Job, you've probably noticed that the simplest example is the same as using a Kubernetes Job :)
+
+- _examples/simple.yaml
 
 ```yaml
 apiVersion: kubetest.io/v1
 kind: TestJob
 metadata:
-  name: testJobName
-  namespace: namespaceName
+  name: simple-testjob
+  namespace: default
 spec:
-  git:
-    repo: github.com/goccy/kubetest
-    branch: master
   template:
+    metadata:
+      generateName: simple-testjob-
     spec:
       containers:
         - name: test
-          image: golang:1.15
+          image: alpine
+          workingDir: /go/src
           command:
-            - go
+            - echo
           args:
-            - test
-            - ./
+            - "hello"
 ```
 
-## 2. Distributed Testing
+### Run CLI with manifest
 
-This is Go language example.
+```console
+kubetest --log-level=info _examples/simple.yaml
+```
+
+### Output
+
+The content consists of the following elements.
+
+- Command
+- Log of command
+- Elapsed time of running command
+- Summary of all tasks ( JSON format )
+
+```console
+echo hello
+hello
+
+[INFO] elapsed time: 0.184144 sec.
+{
+  "details": [
+    {
+      "elapsedTimeSec": 0,
+      "name": "test",
+      "status": "success"
+    }
+  ],
+  "elapsedTimeSec": 10,
+  "failureNum": 0,
+  "startedAt": "2021-10-05T07:36:07.893339674Z",
+  "status": "success",
+  "successNum": 1,
+  "totalNum": 1
+}
+```
+
+## 2. Run task with public repository
+
+You'll want to use versioned data and code by `git` when processing tasks.
+In kubetest, you can write the repository definition in `repos` and specify it in ` volumes`. The repository defined in `volumes` can be mounted in any container by using `volumeMounts` like `emptyDir` .
+
+- _examples/public-repo.yaml
 
 ```yaml
 apiVersion: kubetest.io/v1
 kind: TestJob
 metadata:
-  name: testjob
+  name: public-repo-testjob
+  namespace: default
 spec:
-  git:
-    repo: github.com/goccy/kubetest
-    checkout: false
+  repos:
+    - name: kubetest-repo
+      value:
+        url: https://github.com/goccy/kubetest.git
+        branch: master
   template:
+    metadata:
+      generateName: public-repo-testjob-
     spec:
       containers:
         - name: test
-          image: golang:1.15
+          image: alpine
+          workingDir: /work
           command:
-            - go
+            - ls
           args:
-            - test
-            - -v
-            - ./
-            - -run
-            - $TEST
-          workingDir: /go/src/github.com/goccy/kubetest/_examples
-  distributedTest:
-    containerName: test
-    maxContainersPerPod: 6
-    list:
-      command:
-        - go
-      args:
-        - test
-        - -list
-        - .
-      pattern: ^Test
+            - README.md
+          volumeMounts:
+            - name: repo
+              mountPath: /work
+      volumes:
+        - name: repo
+          repo:
+            name: kubetest-repo
 ```
 
-# How it Works
+### Run CLI with manifest
 
-## Distributed Test
+```console
+kubetest --log-level=info _examples/public-repo.yaml
+```
+### Output
 
-`kubetest` has a mechanism to efficiently use Kubernetes resources to perform distributed testing in order to run fast tests.
-Here is an example of how kubetest does distributed testing, using an example in [e2e/testjob.yaml](https://github.com/goccy/kubetest/blob/master/e2e/testjob.yaml).
+```console
+[INFO] clone repository: https://github.com/goccy/kubetest.git
+ls README.md
+README.md
 
-The `testjob.yaml` is written as follows:
+[INFO] elapsed time: 0.050960 sec.
+{
+  "details": [
+    {
+      "elapsedTimeSec": 0,
+      "name": "test",
+      "status": "success"
+    }
+  ],
+  "elapsedTimeSec": 14,
+  "failureNum": 0,
+  "startedAt": "2021-10-05T07:41:51.54612701Z",
+  "status": "success",
+  "successNum": 1,
+  "totalNum": 1
+}
+```
+
+## 3. Run task with private repository
+
+You can also use a private repository with kubetest.
+You can define GitHub personal token or token by GitHub App in `tokens` .
+GitHub persoanl token data or GitHub App key data are managed by Kubernetes Secrets.
+`kubetest` get token by referring to them.
+By describing the name of the token to be used in the definition of private repository in the form of `token: github-app-token`, the repository will be cloned using that token.
+
+In addition, the token can be mounted on any path using `volumeMounts` by writing the following in `volumes`. By combining this with `prestep`, which will be described later, you can devise so that you do not need a token when processing the main task. This makes task processing more secure.
+
+```yaml
+volumes:
+- name: token-volume
+  token:
+    name: <defined token name>
+```
+
+- _examples/private-repo.yaml
 
 ```yaml
 apiVersion: kubetest.io/v1
 kind: TestJob
 metadata:
-  name: testjob
+  name: private-repo-testjob
+  namespace: default
 spec:
-  git:
-    repo: github.com/goccy/kubetest
-    checkout: false
+  tokens:
+    - name: github-app-token
+      value:
+        githubApp:
+          organization: goccy
+          appId: 134426
+          keyFile:
+            name: github-app
+            key: private-key
+  repos:
+    - name: kubetest-repo
+      value:
+        # specify the private repository url
+        url: https://github.com/goccy/kubetest.git
+        branch: master
+        token: github-app-token
   template:
+    metadata:
+      generateName: private-repo-testjob-
     spec:
       containers:
         - name: test
-          image: golang:1.15
+          image: alpine
+          workingDir: /work
           command:
-            - go
+            - ls
           args:
-            - test
-            - -v
-            - ./
-            - -run
-            - $TEST
-          workingDir: /go/src/github.com/goccy/kubetest/_examples
-  distributedTest:
-    containerName: test
-    maxContainersPerPod: 6
-    list:
-      command:
-        - go
-      args:
-        - test
-        - -list
-        - .
-      pattern: ^Test
+            - README.md
+          volumeMounts:
+            - name: repo
+              mountPath: /work
+      volumes:
+        - name: repo
+          repo:
+            name: kubetest-repo
 ```
 
-Running `make deploy` under the `e2e` directory and then `make test` will run the tests using the `testjob.yaml` on your local Kubernetes cluster.
+### Output
 
-In `make test`, after attaching to the test container, the following command is executed.
+```console
+[INFO] clone repository: https://github.com/goccy/kubetest.git
+ls README.md
+README.md
 
-```bash
-$ kubetest --in-cluster -f testjob.yaml
-```
-
-The `kubetest` CLI reads the definition of `TestJob`, which is a CRD of Kubernetes, and executes the test for the specified Kubernetes cluster.
-
-When the `--in-cluster` option is specified, it means the CLI is executed in the target Kubernetes cluster and works according to the privileges of ServiceAccount specified in the pod running the `kubetest` CLI.
-(See [here](https://github.com/goccy/kubetest/blob/master/README.md#serviceaccount) for permissions required to run `kubetest`)
-
-The `testjob.yaml` passed to the argument of the `-f` option is the same as the one shown above.
-
-### Execution flow of kubetest
-
-The `kubetest` is divided into the following two phases.
-
-1. **List Phase**: get a list of testing.
-2. **Test Phase**: Divide the test list into multiple pods according to the specified parameters and execute them in multiple pods.
-
-In the `testjob.yaml` example, we move into the `_examples` directory to run the tests. In the `_examples` directory, there is test code like this: 
-
-- `_examples/go_test.go`
-
-```go
-package test
-
-import (
-	"testing"
-	"time"
-)
-
-func Test_A(t *testing.T) {
-	t.Log("Test A")
-	time.Sleep(time.Second)
-}
-
-func Test_B(t *testing.T) {
-	t.Log("Test B")
-	time.Sleep(time.Second)
-}
-
-func Test_C(t *testing.T) {
-	t.Log("Test C")
-	time.Sleep(time.Second)
-}
-
-func Test_D(t *testing.T) {
-	t.Log("Test D")
-	time.Sleep(time.Second)
-}
-
-func Test_E(t *testing.T) {
-	t.Log("Test E")
-	time.Sleep(time.Second)
-}
-
-func Test_F(t *testing.T) {
-	t.Log("Test F")
-	time.Sleep(time.Second)
-}
-
-func Test_G(t *testing.T) {
-	t.Log("Test G")
-	time.Sleep(time.Second)
-}
-
-func Test_H(t *testing.T) {
-	t.Log("Test H")
-	time.Sleep(time.Second)
-}
-
-func Test_I(t *testing.T) {
-	t.Log("Test I")
-	time.Sleep(time.Second)
-}
-
-func Test_J(t *testing.T) {
-	t.Log("Test J")
-	time.Sleep(time.Second)
-}
-
-func Test_K(t *testing.T) {
-	t.Log("Test K")
-	time.Sleep(time.Second)
-}
-
-func Test_L(t *testing.T) {
-	t.Log("Test L")
-	time.Sleep(time.Second)
-}
-
-func Test_M(t *testing.T) {
-	t.Log("Test M")
-	time.Sleep(time.Second)
-}
-
-func Test_N(t *testing.T) {
-	t.Log("Test N")
-	time.Sleep(time.Second)
+[INFO] elapsed time: 0.055823 sec.
+{
+  "details": [
+    {
+      "elapsedTimeSec": 0,
+      "name": "test",
+      "status": "success"
+    }
+  ],
+  "elapsedTimeSec": 14,
+  "failureNum": 0,
+  "startedAt": "2021-10-05T07:43:34.607701724Z",
+  "status": "success",
+  "successNum": 1,
+  "totalNum": 1
 }
 ```
 
-There are tests from `Test_A` to `Test_N`, and each test case is designed to sleep for 1 second, so it would take almost 14 seconds to run a normal test.
+## 4. Run task with prestep
 
-If we run a distributed test against this test code, we get the following figure.
+If there is any pre-processing required before performing the main task processing, you can define it in `preSteps` and pass only the processing result to the subsequent tasks.
+By making effective use of this step, the pre-processing required for each distributed process can be limited to one time, and the resources of the cluster can be used efficiently.
+Since multiple preSteps can be defined and executed in order, the result of the previous step can be used to execute the next step.
 
-<img width="968" alt="kubetest workflow" src="https://user-images.githubusercontent.com/209884/97277516-ecee0d00-187b-11eb-9bcd-76b898d0e230.png">
+The artifacts created by `preStep` can be reused in the subsequent task processing by describing the container name and path where the artifacts exists in `artifacts` spec.
 
-#### List Phase
-
-First, we use the parameters specified in the `distributedTest.list`, we run the `go test -list .` under the `_examples` directory to get a list of tests. Then we filter the results of the `go test -list .` according to the rules described in `distributedTest.list.pattern`. By default, it splits the output into a single line of output, starting with `Test`, since the output is split by `\n` by default.
-This gives you a list of names from `Test_A` to `Test_N`.
-
-#### Test Phase
-
-In the Test Phase, we first distribute the list of test obtained in the **List Phase** to `distributedTest.maxContainersPerPod` with the specified number. In this example, `6` is specified, so there will be `6` test containers running for each pod.
-In this example, the total number of tests is `14` from `A` to `N`, so there are three pods with `6` / `6` / `2` containers running.
-
-Environment variables for each test container are set in the `template.spec.containers`.
-The container specified here will be the one with the name specified by the `distributedTest.containerName`.
-
-The `kubetest` sets the environment variable **`TEST`** to the environment variables of each container. This variable is the name of the test obtained from the **List Phase**, and unit tests are run with this value. 
-Since `Go` can specify the test target with `-run`, you can run the tests individually by writing the following command.
-
-```bash
-$ go test -v ./ -run $(TEST)
-```
-
-You will get the following results when executing `kubetest`.
-
-```
-kubetest --in-cluster -f testjob.yaml
-get listing of tests...
-list: elapsed time 3.635022 sec
-[POD 0] TEST=Test_N go test -v ./ -run $(TEST)
-[POD 0] === RUN   Test_N
-[POD 0]     go_test.go:74: Test N
-[POD 0] --- PASS: Test_N (1.00s)
-[POD 0] PASS
-[POD 0] ok      github.com/goccy/kubetest/_examples     1.005s
-
-[POD 1] TEST=Test_G go test -v ./ -run $(TEST)
-[POD 1] === RUN   Test_G
-[POD 1]     go_test.go:39: Test G
-[POD 1] --- PASS: Test_G (1.00s)
-[POD 1] PASS
-[POD 1] ok      github.com/goccy/kubetest/_examples     1.018s
-
-[POD 2] TEST=Test_B go test -v ./ -run $(TEST)
-[POD 2] === RUN   Test_B
-[POD 2]     go_test.go:14: Test B
-[POD 2] --- PASS: Test_B (1.00s)
-[POD 2] PASS
-[POD 2] ok      github.com/goccy/kubetest/_examples     1.010s
-
-[POD 2] TEST=Test_C go test -v ./ -run $(TEST)
-[POD 2] === RUN   Test_C
-[POD 2]     go_test.go:19: Test C
-[POD 2] --- PASS: Test_C (1.00s)
-[POD 2] PASS
-[POD 2] ok      github.com/goccy/kubetest/_examples     1.009s
-
-[POD 0] TEST=Test_M go test -v ./ -run $(TEST)
-[POD 0] === RUN   Test_M
-[POD 0]     go_test.go:69: Test M
-[POD 0] --- PASS: Test_M (1.00s)
-[POD 0] PASS
-[POD 0] ok      github.com/goccy/kubetest/_examples     1.006s
-
-[POD 1] TEST=Test_H go test -v ./ -run $(TEST)
-[POD 1] === RUN   Test_H
-[POD 1]     go_test.go:44: Test H
-[POD 1] --- PASS: Test_H (1.00s)
-[POD 1] PASS
-[POD 1] ok      github.com/goccy/kubetest/_examples     1.011s
-
-[POD 2] TEST=Test_E go test -v ./ -run $(TEST)
-[POD 2] === RUN   Test_E
-[POD 2]     go_test.go:29: Test E
-[POD 2] --- PASS: Test_E (1.00s)
-[POD 2] PASS
-[POD 2] ok      github.com/goccy/kubetest/_examples     1.005s
-
-[POD 2] TEST=Test_A go test -v ./ -run $(TEST)
-[POD 2] === RUN   Test_A
-[POD 2]     go_test.go:9: Test A
-[POD 2] --- PASS: Test_A (1.00s)
-[POD 2] PASS
-[POD 2] ok      github.com/goccy/kubetest/_examples     1.009s
-
-[POD 1] TEST=Test_I go test -v ./ -run $(TEST)
-[POD 1] === RUN   Test_I
-[POD 1]     go_test.go:49: Test I
-[POD 1] --- PASS: Test_I (1.00s)
-[POD 1] PASS
-[POD 1] ok      github.com/goccy/kubetest/_examples     1.004s
-
-[POD 1] TEST=Test_L go test -v ./ -run $(TEST)
-[POD 1] === RUN   Test_L
-[POD 1]     go_test.go:64: Test L
-[POD 1] --- PASS: Test_L (1.00s)
-[POD 1] PASS
-[POD 1] ok      github.com/goccy/kubetest/_examples     1.005s
-
-[POD 2] TEST=Test_F go test -v ./ -run $(TEST)
-[POD 2] === RUN   Test_F
-[POD 2]     go_test.go:34: Test F
-[POD 2] --- PASS: Test_F (1.00s)
-[POD 2] PASS
-[POD 2] ok      github.com/goccy/kubetest/_examples     1.004s
-
-[POD 1] TEST=Test_J go test -v ./ -run $(TEST)
-[POD 1] === RUN   Test_J
-[POD 1]     go_test.go:54: Test J
-[POD 1] --- PASS: Test_J (1.00s)
-[POD 1] PASS
-[POD 1] ok      github.com/goccy/kubetest/_examples     1.005s
-
-[POD 1] TEST=Test_K go test -v ./ -run $(TEST)
-[POD 1] === RUN   Test_K
-[POD 1]     go_test.go:59: Test K
-[POD 1] --- PASS: Test_K (1.00s)
-[POD 1] PASS
-[POD 1] ok      github.com/goccy/kubetest/_examples     1.003s
-
-[POD 2] TEST=Test_D go test -v ./ -run $(TEST)
-[POD 2] === RUN   Test_D
-[POD 2]     go_test.go:24: Test D
-[POD 2] --- PASS: Test_D (1.00s)
-[POD 2] PASS
-[POD 2] ok      github.com/goccy/kubetest/_examples     1.003s
-
-test: elapsed time 12.042257 sec
-{"details":{"tests":[{"elapsedTimeSec":8,"name":"Test_N","testResult":"success"},{"elapsedTimeSec":9,"name":"Test_G","testResult":"success"},{"elapsedTimeSec":8,"name":"Test_C","testResult":"success"},{"elapsedTimeSec":9,"name":"Test_K","testResult":"success"},{"elapsedTimeSec":10,"name":"Test_D","testResult":"success"},{"elapsedTimeSec":9,"name":"Test_B","testResult":"success"},{"elapsedTimeSec":9,"name":"Test_E","testResult":"success"},{"elapsedTimeSec":9,"name":"Test_I","testResult":"success"},{"elapsedTimeSec":10,"name":"Test_J","testResult":"success"},{"elapsedTimeSec":10,"name":"Test_M","testResult":"success"},{"elapsedTimeSec":9,"name":"Test_H","testResult":"success"},{"elapsedTimeSec":10,"name":"Test_A","testResult":"success"},{"elapsedTimeSec":9,"name":"Test_L","testResult":"success"},{"elapsedTimeSec":9,"name":"Test_F","testResult":"success"}]},"elapsedTimeSec":15,"job":"testjob","startedAt":"2020-10-27T09:28:10.3624005Z","testResult":"success"}
-```
-
-The `[POD 0]` in the output shows the executed `Pod` with the index. Since three `Pods` are used in the example, the output has three indices: `0`, `1`, and `2`.
-
-At the end of the execution result, the test result is output as a JSON log and you can see the execution result and elapsed time of each test case.
-
-### Pod Content
-
-This section describes what goes on in the Pod for the test execution during a distributed test run.
-
-<img width="388" alt="pod" src="https://user-images.githubusercontent.com/209884/97283569-59203f00-1883-11eb-99fc-f1ad3374b25d.png">
-
-As shown in the above figure, when a pod is launched, `Init Containers` , `Containers` are launched in that order. The `Init Containers` is run to prep the pod for testing, and is used for `git clone` `git switch` to checkout to a particular revision of the repository under test and to build a cache to be shared by the containers, as shown in the figure.
-The `checkoutDir` specified here is `volumeMount` as an `emptyDir` and the same directory is mounted as `volumes` to make it reusable by the containers.
+If you want to use the already created artifacts, you can write the name of the defined artifact in `volumes` as follows. As with the repository, you can use `volumeMounts` to mount it on any path.
 
 ```yaml
-spec:
-  git:
-    repo: github.com/goccy/kubetest
-    revision: abcdefg
-    checkoutDir: /home/workspace
+volumes:
+- name: artifact-volume
+  artifact:
+    name: <defined artifact name>
 ```
 
-As shown above, the `.spec.git.repo` and `.spec.git.revision` will work as shown in the figure. You can also specify the `branch` name instead of the `revision`.
-
-If the code to be tested is already pre-installed in image, as in the example, you can run the test without using `Init Containers` by specifying the following.
+- _examples/prestep.yaml
 
 ```yaml
+apiVersion: kubetest.io/v1
+kind: TestJob
+metadata:
+  name: prestep-testjob
+  namespace: default
 spec:
-  git:
-    checkout: false
-```
-
-When you run a test, you may want to run a different container as a sidecar. In this case, you can write the following to start a `mysql` container as a sidecar in each pod.
-
-```yaml
-spec:
+  repos:
+    - name: kubetest-repo
+      value:
+        url: https://github.com/goccy/kubetest.git
+        branch: master
+  preSteps:
+    - name: create-awesome-stuff
+      template:
+        metadata:
+          generateName: create-awesome-stuff-
+        spec:
+          artifacts:
+            - name: awesome-stuff
+              container:
+                name: create-awesome-stuff-container
+                path: /work/awesome-stuff
+          containers:
+            - name: create-awesome-stuff-container
+              image: alpine
+              workingDir: /work
+              command: ["sh", "-c"]
+              args:
+                - |
+                  echo "AWESOME!!!" > awesome-stuff
+              volumeMounts:
+                - name: repo
+                  mountPath: /work
+          volumes:
+            - name: repo
+              repo:
+                name: kubetest-repo
   template:
+    metadata:
+      generateName: prestep-testjob-
     spec:
       containers:
-        - name: sidecar
-          image: mysql
         - name: test
-distributedTest:
-  containerName: test
+          image: alpine
+          workingDir: /work
+          command:
+            - cat
+          args:
+            - awesome-stuff
+          volumeMounts:
+            - name: repo
+              mountPath: /work
+            - name: prestep-artifact
+              mountPath: /work/awesome-stuff
+      volumes:
+        - name: repo
+          repo:
+            name: kubetest-repo
+        - name: prestep-artifact
+          artifact:
+            name: awesome-stuff
 ```
 
-## ServiceAccount
+### Output
+
+```console
+[INFO] clone repository: https://github.com/goccy/kubetest.git
+[INFO] run prestep: create-awesome-stuff
+sh -c echo "AWESOME!!!" > awesome-stuff
+
+[INFO] elapsed time: 0.062056 sec.
+cat awesome-stuff
+AWESOME!!!
+
+[INFO] elapsed time: 0.053780 sec.
+{
+  "details": [
+    {
+      "elapsedTimeSec": 0,
+      "name": "test",
+      "status": "success"
+    }
+  ],
+  "elapsedTimeSec": 24,
+  "failureNum": 0,
+  "startedAt": "2021-10-05T08:00:43.033808187Z",
+  "status": "success",
+  "successNum": 1,
+  "totalNum": 1
+}
+```
+
+## 5. Run distributed task with static keys
+
+Describes the distributed processing, which is the main feature of kubetest.
+Distributed processing is realized by defining a **`distributed key`** and passing that value as an environment variable to different tasks.
+The `distributed key` can be determined statically or dynamically.
+In the following, we will explain using the static determination pattern.
+
+- _examples/strategy-static.yaml
+
+```yaml
+apiVersion: kubetest.io/v1
+kind: TestJob
+metadata:
+  name: strategy-static-testjob
+  namespace: default
+spec:
+  strategy:
+    key:
+      env: TASK_KEY
+      source:
+        static:
+          - TASK_KEY_1
+          - TASK_KEY_2
+          - TASK_KEY_3
+    scheduler:
+      maxContainersPerPod: 10
+      maxConcurrentNumPerPod: 10
+  template:
+    metadata:
+      generateName: strategy-static-testjob-
+    spec:
+      containers:
+        - name: test
+          image: alpine
+          workingDir: /work
+          command:
+            - echo
+          args:
+            - $TASK_KEY
+```
+
+Describe the definition of distributed execution under `strategy` as described above.
+`key` defines the name of the environment variable to be referenced as the distribution key and the value of the distribution key itself.
+
+In this example, if you refer to the environment variable named `TASK_KEY`, you can get one of the values ​​from `TASK_KEY_1` to `TASK_KEY_3`.
+After that, define a command that uses the value of this environment variable in `spec.template.spec.containers[].command`.
+
+In `strategy.scheduler`, define the resources such as `Pod` and `Container` used for distributed execution.
+In this example, `maxContainersPerPod` is `10`, which means that up to `10` containers can be launched per Pod, and `maxConcurrentNumPerPod` is also `10`, which means that `10` containers can process tasks at the same time per Pod.
+Since the number of distributed keys is `3`, only one Pod will be launched, but if the number of distributed keys exceeds `10`, two Pods will be launched and processed.
+Similarly, if you set the number of `maxContainersPerPod` to `1`, only one container will be started per Pod, so three Pods will be started and processed.
+
+### Output
+
+```console
+[INFO] found 3 static keys to start distributed task
+[TASK_KEY:TASK_KEY_1] echo $TASK_KEY
+TASK_KEY_1
+
+[INFO] elapsed time: 0.194488 sec.
+[INFO] 1/3 (33.333336%) finished.
+[TASK_KEY:TASK_KEY_3] echo $TASK_KEY
+TASK_KEY_3
+
+[INFO] elapsed time: 0.194521 sec.
+[INFO] 2/3 (66.666672%) finished.
+[TASK_KEY:TASK_KEY_2] echo $TASK_KEY
+TASK_KEY_2
+
+[INFO] elapsed time: 0.304037 sec.
+[INFO] 3/3 (100.000000%) finished.
+{
+  "details": [
+    {
+      "elapsedTimeSec": 0,
+      "name": "TASK_KEY_1",
+      "status": "success"
+    },
+    {
+      "elapsedTimeSec": 0,
+      "name": "TASK_KEY_3",
+      "status": "success"
+    },
+    {
+      "elapsedTimeSec": 0,
+      "name": "TASK_KEY_2",
+      "status": "success"
+    }
+  ],
+  "elapsedTimeSec": 13,
+  "failureNum": 0,
+  "startedAt": "2021-10-05T08:23:11.568491828Z",
+  "status": "success",
+  "successNum": 3,
+  "totalNum": 3
+}
+```
+
+## 6. Run distributed task with dynamic keys
+
+Use `strategy.key.source.dynamic` to create a distributed key dynamically.
+The `distributed key` is the output result of the command defined here divided by the line feed character. ( There is also a way of splitting and a method of filtering unnecessary output results )
+
+- _examples/strategy-dynamic.yaml
+
+```yaml
+apiVersion: kubetest.io/v1
+kind: TestJob
+metadata:
+  name: strategy-dynamic-testjob
+  namespace: default
+spec:
+  strategy:
+    key:
+      env: TASK_KEY
+      source:
+        dynamic:
+          template:
+            metadata:
+              generateName: strategy-dynamic-keys-
+            spec:
+              containers:
+                - name: key
+                  image: alpine
+                  command: ["sh", "-c"]
+                  args:
+                    - |
+                      echo -n "
+                      TASK_KEY_1
+                      TASK_KEY_2
+                      TASK_KEY_3
+                      TASK_KEY_4"
+    scheduler:
+      maxContainersPerPod: 10
+      maxConcurrentNumPerPod: 10
+  template:
+    metadata:
+      generateName: strategy-dynamic-testjob-
+    spec:
+      containers:
+        - name: test
+          image: alpine
+          workingDir: /work
+          command:
+            - echo
+          args:
+            - $TASK_KEY
+```
+
+### Output
+
+```console
+sh -c echo -n "
+TASK_KEY_1
+TASK_KEY_2
+TASK_KEY_3
+TASK_KEY_4"
+
+
+TASK_KEY_1
+TASK_KEY_2
+TASK_KEY_3
+TASK_KEY_4
+[INFO] elapsed time: 0.103151 sec.
+[INFO] found 4 dynamic keys to start distributed task. elapsed time 0.103151 sec
+[TASK_KEY:TASK_KEY_2] echo $TASK_KEY
+TASK_KEY_2
+
+[INFO] elapsed time: 0.163853 sec.
+[INFO] 1/4 (25.000000%) finished.
+[TASK_KEY:TASK_KEY_3] echo $TASK_KEY
+TASK_KEY_3
+
+[INFO] elapsed time: 0.201432 sec.
+[INFO] 2/4 (50.000000%) finished.
+[TASK_KEY:TASK_KEY_4] echo $TASK_KEY
+TASK_KEY_4
+
+[INFO] elapsed time: 0.352685 sec.
+[INFO] 3/4 (75.000000%) finished.
+[TASK_KEY:TASK_KEY_1] echo $TASK_KEY
+TASK_KEY_1
+
+[INFO] elapsed time: 0.351710 sec.
+[INFO] 4/4 (100.000000%) finished.
+{
+  "details": [
+    {
+      "elapsedTimeSec": 0,
+      "name": "TASK_KEY_2",
+      "status": "success"
+    },
+    {
+      "elapsedTimeSec": 0,
+      "name": "TASK_KEY_3",
+      "status": "success"
+    },
+    {
+      "elapsedTimeSec": 0,
+      "name": "TASK_KEY_4",
+      "status": "success"
+    },
+    {
+      "elapsedTimeSec": 0,
+      "name": "TASK_KEY_1",
+      "status": "success"
+    }
+  ],
+  "elapsedTimeSec": 21,
+  "failureNum": 0,
+  "startedAt": "2021-10-05T08:40:25.441356613Z",
+  "status": "success",
+  "successNum": 4,
+  "totalNum": 4
+}
+```
+
+## 7. Export Artifacts
+
+If you want to get the artifacts of task processing, use `exportArtifacts`.
+
+- _examples/export-artifact.yaml
+
+```yaml
+apiVersion: kubetest.io/v1
+kind: TestJob
+metadata:
+  name: strategy-static-testjob
+  namespace: default
+spec:
+  strategy:
+    key:
+      env: TASK_KEY
+      source:
+        static:
+          - TASK_KEY_1
+          - TASK_KEY_2
+          - TASK_KEY_3
+    scheduler:
+      maxContainersPerPod: 10
+      maxConcurrentNumPerPod: 10
+  exportArtifacts:
+    - name: result
+      path: /tmp/artifacts
+  template:
+    metadata:
+      generateName: strategy-static-testjob-
+    spec:
+      artifacts:
+        - name: result
+          container:
+            name: test
+            path: /work/result.txt
+      containers:
+        - name: test
+          image: alpine
+          workingDir: /work
+          command:
+            - touch
+          args:
+            - result.txt
+```
+
+### Output
+
+```console
+[INFO] found 3 static keys to start distributed task
+[TASK_KEY:TASK_KEY_2] touch result.txt
+[INFO] elapsed time: 0.191768 sec.
+[INFO] 1/3 (33.333336%) finished.
+[TASK_KEY:TASK_KEY_3] touch result.txt
+[INFO] elapsed time: 0.191810 sec.
+[INFO] 2/3 (66.666672%) finished.
+[TASK_KEY:TASK_KEY_1] touch result.txt
+[INFO] elapsed time: 0.191841 sec.
+[INFO] 3/3 (100.000000%) finished.
+[INFO] export artifact result
+{
+  "details": [
+    {
+      "elapsedTimeSec": 0,
+      "name": "TASK_KEY_2",
+      "status": "success"
+    },
+    {
+      "elapsedTimeSec": 0,
+      "name": "TASK_KEY_3",
+      "status": "success"
+    },
+    {
+      "elapsedTimeSec": 0,
+      "name": "TASK_KEY_1",
+      "status": "success"
+    }
+  ],
+  "elapsedTimeSec": 14,
+  "failureNum": 0,
+  "startedAt": "2021-10-05T09:12:18.296041274Z",
+  "status": "success",
+  "successNum": 3,
+  "totalNum": 3
+}
+```
+
+#### Path Rule
+
+Artifacts are created under the directory `<Container Name><Pod Index>-<Container Index>` .
+
+```console
+/tmp/artifacts
+|-- test0-0
+|   `-- result.txt
+|-- test0-1
+|   `-- result.txt
+`-- test0-2
+    `-- result.txt
+```
+
+# Specification of TestJob
+
+## TestJob
+
+| field | type | description |
+| ---- | ---- | ---- |
+| spec | TestJobSpec | specification of TestJob |
+
+## TestJobSpec
+
+| field | type | description |
+| ---- | ---- | ---- |
+| repos | []RepositorySpec | Array of repository specifications |
+| tokens | []TokenSpec | Array of token specifications |
+| preSteps | []PreStep | Array of prestep specifications |
+| exportArtifacts | []ExportArtifact | Array of exportArtifact specifications |
+| strategy | Strategy | strategy specification for distributed processing |
+| log | LogSpec | log specification |
+
+## RepositorySpec
+
+| field | type | description |
+| ---- | ---- | ---- |
+| name | string | specify the name to be used when referencing the repository in the TestJob spec. This name must be unique within the TestJob spec. |
+|  value  | Repository | |
+
+## Repository
+
+| field | type | description |
+| ---- | ---- | ---- |
+| url | string | url to the repository like `https://github.com/goccy/kubetest.git` |
+| branch | string | branch name |
+| rev | string | revision |
+| token | string | token name. This must match the name of a Token |
+| merge | MergeSpec | specify base branch name to merge before task processing |
+
+## MergeSpec
+
+| field | type | description |
+| ---- | ---- | ---- |
+| base | string | base branch name |
+
+## TokenSpec
+
+| field | type | description |
+| ---- | ---- | ---- |
+| name | string |  |
+| value | TokenSource |  |
+
+
+## TokenSource
+
+| field | type | description |
+| ---- | ---- | ---- |
+| githubApp | GitHubAppTokenSource |  |
+| githubToken | SecretKeySelector |  |
+
+## GitHubAppTokenSource
+
+| field | type | description |
+| ---- | ---- | ---- |
+| organization | string |  |
+| appId | number |  |
+| installationId | number | |
+| keyFile | SecretKeySelector | |
+
+## SecretKeySelector
+
+| field | type | description |
+| ---- | ---- | ---- |
+| name | string | secret name to the secret data |
+| key | string | key name to the secret data |
+
+## PreStep
+
+| field | type | description |
+| ---- | ---- | ---- |
+| name | string | name of prestep |
+| template | TestJobTemplateSpec | template specification of prestep |
+
+## TestJobTemplateSpec
+
+| field | type | description |
+| ---- | ---- | ---- |
+| metadata | ObjectMeta | the metadata |
+| main | string | The main container name ( not sidecar container ). If used multiple containers, this parameter must be specified |
+| spec | TestJobPodSpec | specification of the desired behavior of the Pod for TestJob |
+
+## TestJobPodSpec
+
+| field | type | description |
+| ---- | ---- | ---- |
+| volumes | []TestJobVolume | |
+| artifacts | []ArtifactSpec | |
+
+And all PodSpec fields.
+
+## ArtifactSpec
+
+| field | type | description |
+| ---- | ---- | ---- |
+| name | string | |
+| container | ArtifactContainer | |
+
+## ArtifactContainer
+
+| field | type | description |
+| ---- | ---- | ---- |
+| name | string | The name for the container |
+| path | string | The path to the artifact |
+
+## TestJobVolume
+
+| field | type | description |
+| ---- | ---- | ---- |
+| name | string | |
+| repo | RepositoryVolumeSource | |
+| artifact | ArtifactVolumeSource | |
+| token | TokenVolumeSource | |
+
+And default volume types ( See: https://kubernetes.io/docs/concepts/storage/volumes/#volume-types )
+
+## RepositoryVolumeSource
+
+| field | type | description |
+| ---- | ---- | ---- |
+| name | string | |
+
+## ArtifactVolumeSource
+
+| field | type | description |
+| ---- | ---- | ---- |
+| name | string | |
+
+## TokenVolumeSource
+
+| field | type | description |
+| ---- | ---- | ---- |
+| name | string | |
+
+## ExportArtifact
+
+| field | type | description |
+| ---- | ---- | ---- |
+| name | string | |
+| path | string | |
+
+## LogSpec
+
+| field | type | description |
+| ---- | ---- | ---- |
+| extParam | Object | key/value pairs to add the result log |
+
+## Strategy
+
+| field | type | description |
+| ---- | ---- | ---- |
+| key | StrategyKeySpec | |
+| scheduler | Scheduler | |
+| retest | boolean | |
+
+## StrategyKeySpec
+
+| field | type | description |
+| ---- | ---- | ---- |
+| env | string | |
+| source | StrategyKeySource | |
+
+## StrategyKeySource
+
+| field | type | description |
+| ---- | ---- | ---- |
+| static | []string | Array of distributed key names |
+| dynamic | StrategyDynamicKeySource | |
+
+## StrategyDynamicKeySource
+
+| field | type | description |
+| ---- | ---- | ---- |
+| template | TestJobTemplateSpec | |
+| delimiter | string | Delimiter for strategy keys ( default: new line character (`\n`) ) |
+| filter | string | filter got strategy keys ( use regular expression ) |
+
+## Scheduler
+
+| field | type | description |
+| ---- | ---- | ---- |
+| maxContainersPerPod | number | |
+| maxConcurrentNumPerPod | number | |
+
+# Requirements
+
+The ServiceAccount settings that need to be assigned to Pod that use the kubetest CLI is as follows.
 
 ```yaml
 kind: ServiceAccount
@@ -452,7 +894,7 @@ metadata:
   name: kubetest
 ---
 kind: Role
-apiVersion: rbac.authorization.k8s.io/v1beta1
+apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: kubetest
 rules:
@@ -493,7 +935,7 @@ rules:
       - get
 ---
 kind: RoleBinding
-apiVersion: rbac.authorization.k8s.io/v1beta1
+apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: kubetest
 roleRef:
@@ -505,3 +947,12 @@ subjects:
   name: kubetest
 ---
 ```
+
+
+# How it works
+
+Coming soon...
+
+# License
+
+MIT
