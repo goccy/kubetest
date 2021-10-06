@@ -167,11 +167,9 @@ func (b *TaskBuilder) buildJob(ctx context.Context, mainContainer corev1.Contain
 				return fmt.Errorf("kubetest: failed to find org mount path by %s", repoName)
 			}
 			cmd := []string{
-				"tar",
-				"-zxvf",
-				filepath.Join(archiveMountPath, "repo.tar.gz"),
-				"-C",
-				orgMountPath,
+				"mkdir", "-p", orgMountPath,
+				"&&",
+				"tar", "-zxvf", filepath.Join(archiveMountPath, "repo.tar.gz"), "-C", orgMountPath,
 			}
 			LoggerFromContext(ctx).Debug(
 				"mount repository %s on %s by '%s'",
@@ -181,7 +179,6 @@ func (b *TaskBuilder) buildJob(ctx context.Context, mainContainer corev1.Contain
 			if err != nil {
 				return fmt.Errorf("kubetest: failed to mount repository. %s: %w", string(out), err)
 			}
-			return nil
 		}
 		return nil
 	})
@@ -207,7 +204,6 @@ func (b *TaskBuilder) buildJob(ctx context.Context, mainContainer corev1.Contain
 			if err != nil {
 				return fmt.Errorf("kubetest: failed to mount token. %s: %w", string(out), err)
 			}
-			return nil
 		}
 		return nil
 	})

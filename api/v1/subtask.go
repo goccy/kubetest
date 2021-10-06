@@ -31,6 +31,7 @@ func (t *SubTask) outputError(logGroup Logger, baseErr error) {
 	failedJob, ok := baseErr.(*kubejob.FailedJob)
 	if !ok {
 		logGroup.Log(baseErr.Error())
+		return
 	}
 	if failedJob.Reason == nil {
 		return

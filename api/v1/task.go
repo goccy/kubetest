@@ -39,6 +39,19 @@ func (t *Task) Run(ctx context.Context) (*TaskResult, error) {
 	return t.runWithRetry(ctx)
 }
 
+func (t *Task) retryableError(err error) bool {
+	if err == nil {
+		return false
+	}
+	switch err.(type) {
+	case *kubejob.PreInitError:
+		return true
+	case *kubejob.PendingPhaseTimeoutError:
+		return true
+	}
+	return false
+}
+
 func (t *Task) runWithRetry(ctx context.Context) (*TaskResult, error) {
 	const taskRetryCount = 2
 
@@ -57,9 +70,9 @@ func (t *Task) runWithRetry(ctx context.Context) (*TaskResult, error) {
 	for backoff.Continue(b) {
 		result, err = t.run(ctx)
 		if err != nil {
-			if _, ok := err.(*kubejob.PreInitError); ok {
+			if t.retryableError(err) {
 				LoggerFromContext(ctx).Warn(
-					"failed to copy to Pod because %s. retry %d/%d",
+					"failed to run task because %s. retry %d/%d",
 					err, retryCount, taskRetryCount,
 				)
 				// Recreate the job because the internal state of the job has already changed.
@@ -105,7 +118,7 @@ func (t *Task) run(ctx context.Context) (*TaskResult, error) {
 		if !errors.As(err, &failedJob) {
 			return nil, err
 		}
-		// ignore FailedJob error
+		result.Err = err
 	}
 	return &result, nil
 }
@@ -222,6 +235,7 @@ func (g *TaskGroup) Run(ctx context.Context) (*TaskResultGroup, error) {
 }
 
 type TaskResult struct {
+	Err    error
 	groups []*SubTaskResultGroup
 }
 

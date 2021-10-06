@@ -201,7 +201,7 @@ func TestRunner(t *testing.T) {
 												Name: "build-test",
 												Container: ArtifactContainer{
 													Name: "build",
-													Path: filepath.Join("/", "work", "v1.test"),
+													Path: filepath.Join("/", "work", "build.log"),
 												},
 											},
 										},
@@ -209,12 +209,10 @@ func TestRunner(t *testing.T) {
 											Containers: []corev1.Container{
 												{
 													Name:    "build",
-													Image:   "golang:1.17",
-													Command: []string{"go"},
+													Image:   "alpine",
+													Command: []string{"sh", "-c"},
 													Args: []string{
-														"test",
-														"-c",
-														"./api/v1",
+														`echo "build" > build.log`,
 													},
 													WorkingDir:   filepath.Join("/", "work"),
 													VolumeMounts: []corev1.VolumeMount{testRepoVolumeMount()},
@@ -237,13 +235,13 @@ func TestRunner(t *testing.T) {
 											Name:       "test",
 											Image:      "alpine",
 											Command:    []string{"ls"},
-											Args:       []string{"-alh", "./compiled.test"},
+											Args:       []string{"-alh", "./build-log"},
 											WorkingDir: filepath.Join("/", "work"),
 											VolumeMounts: []corev1.VolumeMount{
 												testRepoVolumeMount(),
 												{
 													Name:      "build-artifact",
-													MountPath: filepath.Join("/", "work", "compiled.test"),
+													MountPath: filepath.Join("/", "work", "build-log"),
 												},
 											},
 										},
