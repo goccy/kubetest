@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/goccy/kubejob"
 	batchv1 "k8s.io/api/batch/v1"
@@ -106,15 +107,22 @@ func (j *kubernetesJob) MountArtifact(cb func(context.Context, JobExecutor, bool
 func (j *kubernetesJob) RunWithExecutionHandler(ctx context.Context, handler func([]JobExecutor) error) error {
 	j.preInitCallbackContext = ctx
 	j.job.DisableInitContainerLog()
+	j.job.SetPendingPhaseTimeout(5 * time.Minute)
 	j.job.SetInitContainerExecutionHandler(func(exec *kubejob.JobExecutor) error {
 		if j.mountRepoCallback != nil {
-			j.mountRepoCallback(ctx, &kubernetesJobExecutor{exec: exec}, true)
+			if err := j.mountRepoCallback(ctx, &kubernetesJobExecutor{exec: exec}, true); err != nil {
+				return err
+			}
 		}
 		if j.mountTokenCallback != nil {
-			j.mountTokenCallback(ctx, &kubernetesJobExecutor{exec: exec}, true)
+			if err := j.mountTokenCallback(ctx, &kubernetesJobExecutor{exec: exec}, true); err != nil {
+				return err
+			}
 		}
 		if j.mountArtifactCallback != nil {
-			j.mountArtifactCallback(ctx, &kubernetesJobExecutor{exec: exec}, true)
+			if err := j.mountArtifactCallback(ctx, &kubernetesJobExecutor{exec: exec}, true); err != nil {
+				return err
+			}
 		}
 		_, err := exec.ExecOnly()
 		return err
@@ -124,13 +132,19 @@ func (j *kubernetesJob) RunWithExecutionHandler(ctx context.Context, handler fun
 		for _, exec := range execs {
 			e := &kubernetesJobExecutor{exec: exec}
 			if j.mountRepoCallback != nil {
-				j.mountRepoCallback(ctx, e, false)
+				if err := j.mountRepoCallback(ctx, e, false); err != nil {
+					return err
+				}
 			}
 			if j.mountTokenCallback != nil {
-				j.mountTokenCallback(ctx, e, false)
+				if err := j.mountTokenCallback(ctx, e, false); err != nil {
+					return err
+				}
 			}
 			if j.mountArtifactCallback != nil {
-				j.mountArtifactCallback(ctx, e, false)
+				if err := j.mountArtifactCallback(ctx, e, false); err != nil {
+					return err
+				}
 			}
 			converted = append(converted, e)
 		}
