@@ -21,7 +21,10 @@ type TestJobSpec struct {
 	// so the resources of kubernetes cluster can be used efficiently.
 	// +optional
 	PreSteps []PreStep `json:"preSteps,omitempty"`
-	// FinalArtifacts export what was saved as an artifact to any path.
+	// PostSteps defines post-processing to export artifacts.
+	// +optional
+	PostSteps []PostStep `json:"postSteps,omitempty"`
+	// ExportArtifacts export what was saved as an artifact to any path.
 	// +optional
 	ExportArtifacts []ExportArtifact `json:"exportArtifacts,omitempty"`
 	// Log extend parameter to output log.
@@ -89,6 +92,12 @@ type GitHubTokenSource corev1.SecretKeySelector
 
 // PreStep defines pre-processing to prepare files for testing that are not included in the repository.
 type PreStep struct {
+	Name     string              `json:"name"`
+	Template TestJobTemplateSpec `json:"template"`
+}
+
+// PostStep defines post-processing to export artifacts.
+type PostStep struct {
 	Name     string              `json:"name"`
 	Template TestJobTemplateSpec `json:"template"`
 }

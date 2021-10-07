@@ -219,7 +219,7 @@ func (b *TaskBuilder) buildJob(ctx context.Context, mainContainer corev1.Contain
 			if !exists {
 				return fmt.Errorf("kubetest: failed to find org mount path by %s", artifactName)
 			}
-			localArtifactPath, err := b.mgr.ArtifactPathByName(artifactName)
+			localArtifactPath, err := b.mgr.ArtifactPathByName(ctx, artifactName)
 			if err != nil {
 				return err
 			}
@@ -298,7 +298,7 @@ func (b *TaskBuilder) preInitCallback(ctx context.Context, buildCtx *TaskBuildCo
 	}); err != nil {
 		return nil, err
 	}
-	if err := b.getCopyPathForArtifact(buildCtx, func(src, dst string) {
+	if err := b.getCopyPathForArtifact(ctx, buildCtx, func(src, dst string) {
 		copyPaths = append(copyPaths, &copyPath{src: src, dst: dst})
 	}); err != nil {
 		return nil, err
@@ -352,12 +352,12 @@ func (b *TaskBuilder) getCopyPathForToken(ctx context.Context, buildCtx *TaskBui
 	return nil
 }
 
-func (b *TaskBuilder) getCopyPathForArtifact(buildCtx *TaskBuildContext, cb func(src, dst string)) error {
+func (b *TaskBuilder) getCopyPathForArtifact(ctx context.Context, buildCtx *TaskBuildContext, cb func(src, dst string)) error {
 	if b.runMode == RunModeDryRun {
 		return nil
 	}
 	for _, name := range buildCtx.artifactNames() {
-		src, err := b.mgr.ArtifactPathByName(name)
+		src, err := b.mgr.ArtifactPathByName(ctx, name)
 		if err != nil {
 			return err
 		}

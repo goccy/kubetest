@@ -64,11 +64,11 @@ func (m *ResourceManager) TokenPathByName(ctx context.Context, name string) (str
 	return token.File, nil
 }
 
-func (m *ResourceManager) ArtifactPathByName(name string) (string, error) {
+func (m *ResourceManager) ArtifactPathByName(ctx context.Context, name string) (string, error) {
 	if !m.doneSetup {
 		return "", fmt.Errorf("kubetest: resource manager isn't setup")
 	}
-	return m.artifactMgr.LocalPathByName(name)
+	return m.artifactMgr.LocalPathByName(ctx, name)
 }
 
 func (m *ResourceManager) ArtifactPathByNameAndContainerName(name, containerName string) (string, error) {
