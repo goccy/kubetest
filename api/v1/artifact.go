@@ -44,7 +44,7 @@ func (m *ArtifactManager) ExportPathByName(name string) (string, error) {
 	return dir, nil
 }
 
-func (m *ArtifactManager) LocalPathByName(name string) (string, error) {
+func (m *ArtifactManager) LocalPathByName(ctx context.Context, name string) (string, error) {
 	dir, exists := m.nameToLocalDirs[name]
 	if !exists {
 		return "", fmt.Errorf("kubetest: failed to find local artifact directory by %s", name)
@@ -61,7 +61,12 @@ func (m *ArtifactManager) LocalPathByName(name string) (string, error) {
 		return "", fmt.Errorf("kubetest: couldn't find local path for artifact %s", name)
 	}
 	if len(containerNames) > 1 {
-		return "", fmt.Errorf("kubetest: couldn't find local path for artifact %s. found multiple paths under the local artifact directory", name)
+		LoggerFromContext(ctx).Info(
+			"multiple paths to artifact were found. As for the copy destination path, %s ~ %s directories are placed as an intermediate directory",
+			filepath.Base(containerNames[0]),
+			filepath.Base(containerNames[len(containerNames)-1]),
+		)
+		return dir, nil
 	}
 	containerName := filepath.Base(containerNames[0])
 	return filepath.Join(dir, containerName, file), nil

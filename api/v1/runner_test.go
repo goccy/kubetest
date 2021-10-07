@@ -486,4 +486,101 @@ func TestRunner(t *testing.T) {
 			})
 		}
 	})
+	t.Run("post steps", func(t *testing.T) {
+		for _, runMode := range getRunModes() {
+			t.Run(runMode.String(), func(t *testing.T) {
+				runner := NewRunner(getConfig(), runMode)
+				runner.SetLogger(NewLogger(os.Stdout, LogLevelDebug))
+				_, err := runner.Run(context.Background(), TestJob{
+					ObjectMeta: testjobObjectMeta(),
+					Spec: TestJobSpec{
+						Strategy: &Strategy{
+							Key: StrategyKeySpec{
+								Env: "TEST",
+								Source: StrategyKeySource{
+									Static: []string{"A", "B", "C"},
+								},
+							},
+							Scheduler: Scheduler{
+								MaxContainersPerPod:    10,
+								MaxConcurrentNumPerPod: 10,
+							},
+						},
+						Template: TestJobTemplateSpec{
+							ObjectMeta: metav1.ObjectMeta{
+								Name: "test",
+							},
+							Spec: TestJobPodSpec{
+								Artifacts: []ArtifactSpec{
+									{
+										Name: "export-artifact",
+										Container: ArtifactContainer{
+											Name: "test",
+											Path: filepath.Join("/", "work", "artifact"),
+										},
+									},
+								},
+								PodSpec: corev1.PodSpec{
+									Containers: []corev1.Container{
+										{
+											Name:       "test",
+											Image:      "alpine",
+											Command:    []string{"touch"},
+											Args:       []string{"artifact"},
+											WorkingDir: filepath.Join("/", "work"),
+										},
+									},
+								},
+							},
+						},
+						PostSteps: []PostStep{
+							{
+								Name: "post-step",
+								Template: TestJobTemplateSpec{
+									ObjectMeta: metav1.ObjectMeta{
+										Name: "post",
+									},
+									Spec: TestJobPodSpec{
+										PodSpec: corev1.PodSpec{
+											Containers: []corev1.Container{
+												{
+													Name:    "post",
+													Image:   "alpine",
+													Command: []string{"sh", "-c"},
+													Args: []string{
+														`pwd;find . | sort | sed '1d;s/^\.//;s/\/\([^/]*\)$/|--\1/;s/\/[^/|]*/| /g'`,
+													},
+													WorkingDir: filepath.Join("/", "work"),
+													VolumeMounts: []corev1.VolumeMount{
+														{
+															Name:      "artifact",
+															MountPath: filepath.Join("/", "work", "artifact"),
+														},
+													},
+												},
+											},
+										},
+										Volumes: []TestJobVolume{
+											{
+												Name: "artifact",
+												TestJobVolumeSource: TestJobVolumeSource{
+													Artifact: &ArtifactVolumeSource{
+														Name: "export-artifact",
+													},
+												},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+			})
+		}
+	})
+
 }

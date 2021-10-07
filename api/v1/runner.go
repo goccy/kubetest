@@ -98,6 +98,23 @@ func (r *Runner) Run(ctx context.Context, testjob TestJob) (*Result, error) {
 	if err != nil {
 		return nil, err
 	}
+	for _, step := range testjob.Spec.PostSteps {
+		r.logger.Info("run poststep: %s", step.Name)
+		task, err := builder.Build(ctx, step.Template)
+		if err != nil {
+			return nil, err
+		}
+		postStepResult, err := task.Run(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("kubetest: failed to run poststep %s: %w", step.Name, err)
+		}
+		for _, result := range postStepResult.MainTaskResults() {
+			if err := result.Error(); err != nil {
+				return nil, fmt.Errorf("kubetest: failed to run %s: %w", step.Name, err)
+			}
+		}
+		result.postStepResults = append(result.postStepResults, postStepResult)
+	}
 	if err := resourceMgr.ExportArtifacts(ctx); err != nil {
 		return nil, err
 	}
@@ -138,16 +155,17 @@ func (s ResultStatus) MarshalJSON() ([]byte, error) {
 }
 
 type Result struct {
-	Status         ResultStatus
-	StartedAt      time.Time
-	ElapsedTime    time.Duration
-	TotalNum       int
-	SuccessNum     int
-	FailureNum     int
-	UnknownNum     int
-	preStepResults []*TaskResult
-	taskResult     *TaskResultGroup
-	job            TestJob
+	Status          ResultStatus
+	StartedAt       time.Time
+	ElapsedTime     time.Duration
+	TotalNum        int
+	SuccessNum      int
+	FailureNum      int
+	UnknownNum      int
+	preStepResults  []*TaskResult
+	postStepResults []*TaskResult
+	taskResult      *TaskResultGroup
+	job             TestJob
 }
 
 func (r *Result) MarshalJSON() ([]byte, error) {
