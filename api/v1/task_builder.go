@@ -167,8 +167,13 @@ func (b *TaskBuilder) buildJob(ctx context.Context, mainContainer corev1.Contain
 				return fmt.Errorf("kubetest: failed to find org mount path by %s", repoName)
 			}
 			cmd := []string{
+				// remove the mount point path if it already exists.
+				"rm", "-rf", orgMountPath,
+				"&&",
+				// create empty mount point directory.
 				"mkdir", "-p", orgMountPath,
 				"&&",
+				// extract the repository files under the mount point directory.
 				"tar", "-zxvf", filepath.Join(archiveMountPath, "repo.tar.gz"), "-C", orgMountPath,
 			}
 			LoggerFromContext(ctx).Debug(
@@ -192,9 +197,11 @@ func (b *TaskBuilder) buildJob(ctx context.Context, mainContainer corev1.Contain
 				return fmt.Errorf("kubetest: failed to find org mount path by %s", tokenName)
 			}
 			cmd := []string{
-				"cp",
-				filepath.Join(mountPath, "token"),
-				orgMountPath,
+				// create mount point base directory if it doesn't exist.
+				"mkdir", "-p", filepath.Dir(orgMountPath),
+				"&&",
+				// copy token file to the mount point path.
+				"cp", filepath.Join(mountPath, "token"), orgMountPath,
 			}
 			LoggerFromContext(ctx).Debug(
 				"mount token %s on %s by '%s'",
@@ -225,10 +232,14 @@ func (b *TaskBuilder) buildJob(ctx context.Context, mainContainer corev1.Contain
 			}
 			fileName := filepath.Base(localArtifactPath)
 			cmd := []string{
-				"cp",
-				"-rf",
-				filepath.Join(mountPath, fileName),
-				orgMountPath,
+				// create base directory for the mount point path.
+				"mkdir", "-p", filepath.Dir(orgMountPath),
+				"&&",
+				// remove the mount point path if it already exists.
+				"rm", "-rf", orgMountPath,
+				"&&",
+				// copy artifacts to the mount point path.
+				"cp", "-rf", filepath.Join(mountPath, fileName), orgMountPath,
 			}
 			LoggerFromContext(ctx).Debug(
 				"mount artifact %s on %s by '%s'",

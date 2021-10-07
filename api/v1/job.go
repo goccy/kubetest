@@ -61,13 +61,13 @@ func (b *JobBuilder) BuildWithJob(jobSpec *batchv1.Job) (Job, error) {
 		if err != nil {
 			return nil, err
 		}
-		return &kubernetesJob{job: job}, nil
+		return newKubernetesJob(job), nil
 	case RunModeLocal:
 		rootDir, err := os.MkdirTemp("", "root")
 		if err != nil {
 			return nil, fmt.Errorf("kubetest: failed to create working directory for running on local file system")
 		}
-		return &localJob{rootDir: rootDir, job: jobSpec}, nil
+		return newLocalJob(rootDir, jobSpec), nil
 	case RunModeDryRun:
 		return &dryRunJob{job: jobSpec}, nil
 	}
@@ -80,6 +80,17 @@ type kubernetesJob struct {
 	mountRepoCallback      func(context.Context, JobExecutor, bool) error
 	mountTokenCallback     func(context.Context, JobExecutor, bool) error
 	mountArtifactCallback  func(context.Context, JobExecutor, bool) error
+}
+
+var defaultMountCallback = func(context.Context, JobExecutor, bool) error { return nil }
+
+func newKubernetesJob(job *kubejob.Job) *kubernetesJob {
+	return &kubernetesJob{
+		job:                   job,
+		mountRepoCallback:     defaultMountCallback,
+		mountTokenCallback:    defaultMountCallback,
+		mountArtifactCallback: defaultMountCallback,
+	}
 }
 
 func (j *kubernetesJob) Spec() batchv1.JobSpec {
@@ -109,20 +120,15 @@ func (j *kubernetesJob) RunWithExecutionHandler(ctx context.Context, handler fun
 	j.job.DisableInitContainerLog()
 	j.job.SetPendingPhaseTimeout(5 * time.Minute)
 	j.job.SetInitContainerExecutionHandler(func(exec *kubejob.JobExecutor) error {
-		if j.mountRepoCallback != nil {
-			if err := j.mountRepoCallback(ctx, &kubernetesJobExecutor{exec: exec}, true); err != nil {
-				return err
-			}
+		e := &kubernetesJobExecutor{exec: exec}
+		if err := j.mountRepoCallback(ctx, e, true); err != nil {
+			return err
 		}
-		if j.mountTokenCallback != nil {
-			if err := j.mountTokenCallback(ctx, &kubernetesJobExecutor{exec: exec}, true); err != nil {
-				return err
-			}
+		if err := j.mountTokenCallback(ctx, e, true); err != nil {
+			return err
 		}
-		if j.mountArtifactCallback != nil {
-			if err := j.mountArtifactCallback(ctx, &kubernetesJobExecutor{exec: exec}, true); err != nil {
-				return err
-			}
+		if err := j.mountArtifactCallback(ctx, e, true); err != nil {
+			return err
 		}
 		_, err := exec.ExecOnly()
 		return err
@@ -131,20 +137,14 @@ func (j *kubernetesJob) RunWithExecutionHandler(ctx context.Context, handler fun
 		converted := make([]JobExecutor, 0, len(execs))
 		for _, exec := range execs {
 			e := &kubernetesJobExecutor{exec: exec}
-			if j.mountRepoCallback != nil {
-				if err := j.mountRepoCallback(ctx, e, false); err != nil {
-					return err
-				}
+			if err := j.mountRepoCallback(ctx, e, false); err != nil {
+				return err
 			}
-			if j.mountTokenCallback != nil {
-				if err := j.mountTokenCallback(ctx, e, false); err != nil {
-					return err
-				}
+			if err := j.mountTokenCallback(ctx, e, false); err != nil {
+				return err
 			}
-			if j.mountArtifactCallback != nil {
-				if err := j.mountArtifactCallback(ctx, e, false); err != nil {
-					return err
-				}
+			if err := j.mountArtifactCallback(ctx, e, false); err != nil {
+				return err
 			}
 			converted = append(converted, e)
 		}
@@ -202,6 +202,16 @@ type localJob struct {
 	job                   *batchv1.Job
 }
 
+func newLocalJob(rootDir string, job *batchv1.Job) *localJob {
+	return &localJob{
+		rootDir:               rootDir,
+		job:                   job,
+		mountRepoCallback:     defaultMountCallback,
+		mountTokenCallback:    defaultMountCallback,
+		mountArtifactCallback: defaultMountCallback,
+	}
+}
+
 func (j *localJob) Spec() batchv1.JobSpec {
 	return j.job.Spec
 }
@@ -243,14 +253,14 @@ func (j *localJob) RunWithExecutionHandler(ctx context.Context, handler func([]J
 			rootDir:   j.rootDir,
 			container: container,
 		}
-		if j.mountRepoCallback != nil {
-			j.mountRepoCallback(ctx, e, false)
+		if err := j.mountRepoCallback(ctx, e, false); err != nil {
+			return err
 		}
-		if j.mountTokenCallback != nil {
-			j.mountTokenCallback(ctx, e, false)
+		if err := j.mountTokenCallback(ctx, e, false); err != nil {
+			return err
 		}
-		if j.mountArtifactCallback != nil {
-			j.mountArtifactCallback(ctx, e, false)
+		if err := j.mountArtifactCallback(ctx, e, false); err != nil {
+			return err
 		}
 		execs = append(execs, e)
 	}
@@ -288,8 +298,7 @@ func (e *localJobExecutor) PrepareCommand(cmdarr []string) ([]byte, error) {
 			filteredCmd = append(filteredCmd, c)
 		}
 	}
-	fmt.Println(strings.Join(filteredCmd, " "))
-	cmd, err := e.cmd(filteredCmd)
+	cmd, err := e.cmd([]string{"sh", "-c", strings.Join(filteredCmd, " ")})
 	if err != nil {
 		return nil, err
 	}

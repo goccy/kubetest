@@ -53,19 +53,22 @@ func (r *Runner) SetLogger(logger Logger) {
 }
 
 func (r *Runner) Run(ctx context.Context, testjob TestJob) (*Result, error) {
+	if r.logger == nil {
+		r.logger = NewLogger(os.Stdout, LogLevelInfo)
+	}
+	r.logger.Info("start kubetest")
+	r.logger.Debug("run validation")
 	if err := testjob.Validate(); err != nil {
 		return nil, err
 	}
 	startedAt := time.Now()
-	if r.logger == nil {
-		r.logger = NewLogger(os.Stdout, LogLevelInfo)
-	}
 	ctx = WithLogger(ctx, r.logger)
 	clientset, err := kubernetes.NewForConfig(r.cfg)
 	if err != nil {
 		return nil, err
 	}
 	resourceMgr := NewResourceManager(clientset, testjob)
+	r.logger.Debug("setup resource manager")
 	if err := resourceMgr.Setup(ctx); err != nil {
 		return nil, err
 	}
@@ -84,7 +87,7 @@ func (r *Runner) Run(ctx context.Context, testjob TestJob) (*Result, error) {
 		}
 		for _, result := range preStepResult.MainTaskResults() {
 			if err := result.Error(); err != nil {
-				return nil, fmt.Errorf("kubetest: failed to run %s: %w", step.Name, err)
+				return nil, fmt.Errorf("kubetest: failed to run prestep %s: %w", step.Name, err)
 			}
 		}
 		result.preStepResults = append(result.preStepResults, preStepResult)
@@ -110,7 +113,7 @@ func (r *Runner) Run(ctx context.Context, testjob TestJob) (*Result, error) {
 		}
 		for _, result := range postStepResult.MainTaskResults() {
 			if err := result.Error(); err != nil {
-				return nil, fmt.Errorf("kubetest: failed to run %s: %w", step.Name, err)
+				return nil, fmt.Errorf("kubetest: failed to run poststep %s: %w", step.Name, err)
 			}
 		}
 		result.postStepResults = append(result.postStepResults, postStepResult)

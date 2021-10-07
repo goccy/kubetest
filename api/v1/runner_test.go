@@ -548,6 +548,7 @@ func TestRunner(t *testing.T) {
 													Image:   "alpine",
 													Command: []string{"sh", "-c"},
 													Args: []string{
+														// tree command
 														`pwd;find . | sort | sed '1d;s/^\.//;s/\/\([^/]*\)$/|--\1/;s/\/[^/|]*/| /g'`,
 													},
 													WorkingDir: filepath.Join("/", "work"),
