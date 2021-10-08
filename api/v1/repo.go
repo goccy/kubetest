@@ -154,6 +154,18 @@ func (m *RepositoryManager) clone(ctx context.Context, clonedPath string, repo R
 		if repo.Merge.Base != "" {
 			baseBranch = repo.Merge.Base
 		}
+		if cfg.User.Name == "" || cfg.User.Email == "" {
+			cfg.User.Name = "kubetest"
+			cfg.User.Email = "user@kubetest.com"
+			LoggerFromContext(ctx).Debug(
+				"set git config: user.name=%s and user.email=%s",
+				cfg.User.Name,
+				cfg.User.Email,
+			)
+			if err := gitRepo.SetConfig(cfg); err != nil {
+				return fmt.Errorf("kubetest: failed to set git config: user.name and user.email: %w", err)
+			}
+		}
 		// we'd like to use '--ff' strategy ( merge's default behavior ).
 		// go-git doesn't support yet, so we use git client command.
 		LoggerFromContext(ctx).Info("merge base branch: git pull %s %s", remote, baseBranch)
