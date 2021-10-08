@@ -161,7 +161,7 @@ func (m *RepositoryManager) clone(ctx context.Context, clonedPath string, repo R
 		}
 		// we'd like to use '--ff' strategy ( merge's default behavior ).
 		// go-git doesn't support yet, so we use git client command.
-		LoggerFromContext(ctx).Debug("merge base branch: git pull %s %s", remoteName, baseBranch)
+		LoggerFromContext(ctx).Info("merge base branch: git pull %s %s", remoteName, baseBranch)
 		cmd := exec.Command("git", "pull", remoteName, baseBranch)
 		cmd.Dir = clonedPath
 		out, err := cmd.CombinedOutput()
