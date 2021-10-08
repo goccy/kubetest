@@ -168,7 +168,7 @@ func (m *RepositoryManager) clone(ctx context.Context, clonedPath string, repo R
 		if err != nil {
 			return fmt.Errorf("kubetest: failed to merge base branch %s: %w", string(out), err)
 		}
-		LoggerFromContext(ctx).Info("%s", string(out))
+		LoggerFromContext(ctx).Info(string(out))
 	}
 	return nil
 }
