@@ -23,7 +23,7 @@ func TestRepositoryManager(t *testing.T) {
 				t.Fatal(err)
 			}
 		}()
-		if err := mgr.CloneAll(WithLogger(context.Background(), NewLogger(os.Stdout, LogLevelInfo))); err != nil {
+		if err := mgr.CloneAll(WithLogger(context.Background(), NewLogger(os.Stdout, LogLevelDebug))); err != nil {
 			t.Fatal(err)
 		}
 		path, err := mgr.ArchivePathByRepoName("test")
@@ -51,7 +51,7 @@ func TestRepositoryManager(t *testing.T) {
 				t.Fatal(err)
 			}
 		}()
-		if err := mgr.CloneAll(WithLogger(context.Background(), NewLogger(os.Stdout, LogLevelInfo))); err != nil {
+		if err := mgr.CloneAll(WithLogger(context.Background(), NewLogger(os.Stdout, LogLevelDebug))); err != nil {
 			t.Fatal(err)
 		}
 		path, err := mgr.ArchivePathByRepoName("test")
