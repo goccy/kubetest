@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -153,13 +154,21 @@ func (m *RepositoryManager) clone(ctx context.Context, clonedPath string, repo R
 		if repo.Merge.Base != "" {
 			baseBranch = repo.Merge.Base
 		}
-		if err := tree.PullContext(ctx, &git.PullOptions{
-			ReferenceName: plumbing.NewBranchReferenceName(baseBranch),
-			SingleBranch:  true,
-			Auth:          auth,
-		}); err != nil && err != git.NoErrAlreadyUpToDate {
-			return fmt.Errorf("kubetest: failed to merge base branch: %w", err)
+		var remoteName string
+		for _, remote := range cfg.Remotes {
+			remoteName = remote.Name
+			break
 		}
+		// we'd like to use '--ff' strategy ( merge's default behavior ).
+		// go-git doesn't support yet, so we use git client command.
+		LoggerFromContext(ctx).Debug("merge base branch: git pull %s %s", remoteName, baseBranch)
+		cmd := exec.Command("git", "pull", remoteName, baseBranch)
+		cmd.Dir = clonedPath
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("kubetest: failed to merge base branch %s: %w", string(out), err)
+		}
+		LoggerFromContext(ctx).Info("%s", string(out))
 	}
 	return nil
 }
