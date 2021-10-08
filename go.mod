@@ -3,7 +3,7 @@ module github.com/goccy/kubetest
 go 1.16
 
 require (
-	github.com/bradleyfalzon/ghinstallation v1.1.1
+	github.com/bradleyfalzon/ghinstallation/v2 v2.0.3
 	github.com/go-git/go-git/v5 v5.4.2
 	github.com/go-logr/logr v0.4.0
 	github.com/goccy/kubejob v0.2.11
