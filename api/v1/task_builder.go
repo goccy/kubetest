@@ -282,11 +282,12 @@ func (b *TaskBuilder) addContainersByStrategyKey(podSpec corev1.PodSpec, mainCon
 
 func (b *TaskBuilder) preInitContainer(buildCtx *TaskBuildContext) corev1.Container {
 	return corev1.Container{
-		Name:         "preinit",
-		Image:        buildCtx.preInitImage(),
-		Command:      []string{"echo"},
-		Args:         []string{"-n", "preinit"},
-		VolumeMounts: buildCtx.preInitVolumeMounts(),
+		Name:            "preinit",
+		Image:           buildCtx.preInitImage(),
+		Command:         []string{"echo"},
+		Args:            []string{"-n", "preinit"},
+		VolumeMounts:    buildCtx.preInitVolumeMounts(),
+		ImagePullPolicy: buildCtx.preInitImagePullPolicy(),
 	}
 }
 
@@ -505,6 +506,14 @@ func (c *TaskBuildContext) preInitImage() string {
 	return c.containers.preInitImage()
 }
 
+func (c *TaskBuildContext) preInitImagePullPolicy() corev1.PullPolicy {
+	policy := c.initContainers.preInitImagePullPolicy()
+	if policy != "" {
+		return policy
+	}
+	return c.containers.preInitImagePullPolicy()
+}
+
 type TaskContainerGroup struct {
 	containerMap map[string]*TaskContainer
 }
@@ -617,6 +626,15 @@ func (g *TaskContainerGroup) preInitImage() string {
 	for _, c := range g.containerMap {
 		if c.hasTestVolumeMount() {
 			return c.container.Image
+		}
+	}
+	return ""
+}
+
+func (g *TaskContainerGroup) preInitImagePullPolicy() corev1.PullPolicy {
+	for _, c := range g.containerMap {
+		if c.hasTestVolumeMount() {
+			return c.container.ImagePullPolicy
 		}
 	}
 	return ""
