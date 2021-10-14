@@ -34,7 +34,7 @@ type StrategyKey struct {
 
 func (s *TaskScheduler) Schedule(ctx context.Context, tmpl TestJobTemplateSpec) (*TaskGroup, error) {
 	if s.strategy == nil {
-		task, err := s.builder.Build(ctx, tmpl)
+		task, err := s.builder.Build(ctx, &MainStep{tmpl})
 		if err != nil {
 			return nil, err
 		}
@@ -53,7 +53,7 @@ func (s *TaskScheduler) Schedule(ctx context.Context, tmpl TestJobTemplateSpec) 
 		onFinishMu     sync.Mutex
 	)
 	if len(keys) <= maxContainers {
-		task, err := s.builder.BuildWithKey(ctx, tmpl, &StrategyKey{
+		task, err := s.builder.BuildWithKey(ctx, &MainStep{tmpl}, &StrategyKey{
 			ConcurrentIdx:    0,
 			Keys:             keys,
 			SubTaskScheduler: subTaskScheduler,
@@ -83,7 +83,7 @@ func (s *TaskScheduler) Schedule(ctx context.Context, tmpl TestJobTemplateSpec) 
 		} else {
 			taskKeys = keys[sum : sum+maxContainers]
 		}
-		task, err := s.builder.BuildWithKey(ctx, tmpl, &StrategyKey{
+		task, err := s.builder.BuildWithKey(ctx, &MainStep{tmpl}, &StrategyKey{
 			ConcurrentIdx:    i,
 			Keys:             taskKeys,
 			SubTaskScheduler: subTaskScheduler,
@@ -122,7 +122,7 @@ func (s *TaskScheduler) getScheduleKeys(ctx context.Context, source StrategyKeyS
 
 func (s *TaskScheduler) dynamicKeys(ctx context.Context, source *StrategyDynamicKeySource) ([]string, error) {
 	LoggerFromContext(ctx).Info("start to get dynamic task keys for running distributed task")
-	keyTask, err := s.builder.Build(ctx, source.Template)
+	keyTask, err := s.builder.Build(ctx, &MainStep{source.Template})
 	if err != nil {
 		return nil, err
 	}

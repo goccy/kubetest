@@ -549,13 +549,21 @@ func TestRunner(t *testing.T) {
 													Command: []string{"sh", "-c"},
 													Args: []string{
 														// tree command
-														`pwd;find . | sort | sed '1d;s/^\.//;s/\/\([^/]*\)$/|--\1/;s/\/[^/|]*/| /g'`,
+														`pwd;find . | sort | sed '1d;s/^\.//;s/\/\([^/]*\)$/|--\1/;s/\/[^/|]*/| /g'; echo "cat kubetest.log"; cat kubetest.log; echo "cat report.json"; cat report.json`,
 													},
 													WorkingDir: filepath.Join("/", "work"),
 													VolumeMounts: []corev1.VolumeMount{
 														{
 															Name:      "artifact",
 															MountPath: filepath.Join("/", "work", "artifact"),
+														},
+														{
+															Name:      "log",
+															MountPath: filepath.Join("/", "work", "kubetest.log"),
+														},
+														{
+															Name:      "report",
+															MountPath: filepath.Join("/", "work", "report.json"),
 														},
 													},
 												},
@@ -567,6 +575,20 @@ func TestRunner(t *testing.T) {
 												TestJobVolumeSource: TestJobVolumeSource{
 													Artifact: &ArtifactVolumeSource{
 														Name: "export-artifact",
+													},
+												},
+											},
+											{
+												Name: "log",
+												TestJobVolumeSource: TestJobVolumeSource{
+													Log: &LogVolumeSource{},
+												},
+											},
+											{
+												Name: "report",
+												TestJobVolumeSource: TestJobVolumeSource{
+													Report: &ReportVolumeSource{
+														Format: ReportFormatTypeJSON,
 													},
 												},
 											},

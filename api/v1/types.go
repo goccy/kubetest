@@ -90,16 +90,71 @@ type GitHubAppTokenSource struct {
 // GitHubTokenSource describes the specification of github token.
 type GitHubTokenSource corev1.SecretKeySelector
 
+type StepType string
+
+const (
+	PreStepType  StepType = "preStep"
+	MainStepType          = "mainStep"
+	PostStepType          = "postStep"
+)
+
+type Step interface {
+	GetName() string
+	GetType() StepType
+	GetTemplate() TestJobTemplateSpec
+}
+
 // PreStep defines pre-processing to prepare files for testing that are not included in the repository.
 type PreStep struct {
 	Name     string              `json:"name"`
 	Template TestJobTemplateSpec `json:"template"`
 }
 
+func (s *PreStep) GetName() string {
+	return s.Name
+}
+
+func (s *PreStep) GetType() StepType {
+	return PreStepType
+}
+
+func (s *PreStep) GetTemplate() TestJobTemplateSpec {
+	return s.Template
+}
+
+// MainStep defines main process
+type MainStep struct {
+	Template TestJobTemplateSpec `json:"template"`
+}
+
+func (s *MainStep) GetName() string {
+	return ""
+}
+
+func (s *MainStep) GetType() StepType {
+	return MainStepType
+}
+
+func (s *MainStep) GetTemplate() TestJobTemplateSpec {
+	return s.Template
+}
+
 // PostStep defines post-processing to export artifacts.
 type PostStep struct {
 	Name     string              `json:"name"`
 	Template TestJobTemplateSpec `json:"template"`
+}
+
+func (s *PostStep) GetName() string {
+	return s.Name
+}
+
+func (s *PostStep) GetType() StepType {
+	return PostStepType
+}
+
+func (s *PostStep) GetTemplate() TestJobTemplateSpec {
+	return s.Template
 }
 
 // TestJobTemplateSpec
@@ -152,6 +207,10 @@ type TestJobVolumeSource struct {
 	Artifact *ArtifactVolumeSource `json:"artifact,omitempty"`
 	// Token volume source for token.
 	Token *TokenVolumeSource `json:"token,omitempty"`
+	// Log volume source for captured all logs
+	Log *LogVolumeSource `json:"log,omitempty"`
+	// Report volume source for result of kubetest
+	Report *ReportVolumeSource `json:"report,omitempty"`
 }
 
 // RepositoryVolumeSource
@@ -170,6 +229,21 @@ type ArtifactVolumeSource struct {
 type TokenVolumeSource struct {
 	// This must match the Name of a TokenSpec.
 	Name string `json:"name"`
+}
+
+// LogVolumeSource
+type LogVolumeSource struct{}
+
+// ReportFormatType format type of report
+type ReportFormatType string
+
+const (
+	ReportFormatTypeJSON ReportFormatType = "json"
+)
+
+// ReportVolumeSource
+type ReportVolumeSource struct {
+	Format ReportFormatType `json:"format"`
 }
 
 // ExportArtifact

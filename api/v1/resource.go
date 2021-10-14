@@ -5,7 +5,10 @@ package v1
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sync"
 
 	"k8s.io/client-go/kubernetes"
@@ -17,6 +20,8 @@ type ResourceManager struct {
 	artifactMgr *ArtifactManager
 	setupOnce   sync.Once
 	doneSetup   bool
+	logPath     string
+	reportPath  string
 }
 
 func NewResourceManager(clientset *kubernetes.Clientset, testjob TestJob) *ResourceManager {
@@ -44,6 +49,68 @@ func (m *ResourceManager) Setup(ctx context.Context) error {
 		err = m.repoMgr.CloneAll(ctx)
 	})
 	return err
+}
+
+func (m *ResourceManager) WriteLog(logger Logger) error {
+	mainLogger, ok := logger.(*mainLogger)
+	if !ok {
+		return fmt.Errorf("kubetest: failed to write log. logger must be mainLogger instance: %T", logger)
+	}
+	logPath, err := m.LogPath()
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(logPath, mainLogger.buf.Bytes(), 0644); err != nil {
+		return fmt.Errorf("kubetest: failed to create log file: %w", err)
+	}
+	return nil
+}
+
+func (m *ResourceManager) LogPath() (string, error) {
+	if m.logPath != "" {
+		return m.logPath, nil
+	}
+	dir, err := os.MkdirTemp("", "log")
+	if err != nil {
+		return "", fmt.Errorf("kubetest: failed to create temporary directory for log: %w", err)
+	}
+	m.logPath = filepath.Join(dir, "kubetest.log")
+	return m.logPath, nil
+}
+
+const (
+	reportJSONFile = "report.json"
+)
+
+func (m *ResourceManager) WriteReport(result *Result) error {
+	reportPath, err := m.ReportPath(ReportFormatTypeJSON)
+	if err != nil {
+		return err
+	}
+	b, err := json.Marshal(result)
+	if err != nil {
+		return fmt.Errorf("kubetest: failed to encode result to json: %w", err)
+	}
+	if err := os.WriteFile(reportPath, b, 0644); err != nil {
+		return fmt.Errorf("kubetest: failed to create report.json: %w", err)
+	}
+	return nil
+}
+
+func (m *ResourceManager) ReportPath(format ReportFormatType) (string, error) {
+	if m.reportPath == "" {
+		dir, err := os.MkdirTemp("", "report")
+		if err != nil {
+			return "", fmt.Errorf("kubetest: failed to create temporary directory for report: %w", err)
+		}
+		m.reportPath = dir
+	}
+	switch format {
+	case ReportFormatTypeJSON:
+		return filepath.Join(m.reportPath, reportJSONFile), nil
+	default:
+		return filepath.Join(m.reportPath, "report"), nil
+	}
 }
 
 func (m *ResourceManager) RepositoryPathByName(name string) (string, error) {

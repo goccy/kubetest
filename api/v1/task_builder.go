@@ -22,6 +22,13 @@ const (
 	keysAnnotation = "kubetest.io/strategyKeys"
 )
 
+var (
+	logMountPath        = filepath.Join("/", "tmp", "log")
+	logMountFilePath    = filepath.Join(logMountPath, "kubetest.log")
+	reportMountPath     = filepath.Join("/", "tmp", "report")
+	reportMountFilePath = filepath.Join(reportMountPath, "report")
+)
+
 type TaskBuilder struct {
 	cfg       *rest.Config
 	mgr       *ResourceManager
@@ -38,15 +45,12 @@ func NewTaskBuilder(cfg *rest.Config, mgr *ResourceManager, namespace string, ru
 	}
 }
 
-func (b *TaskBuilder) Build(ctx context.Context, spec TestJobTemplateSpec) (*Task, error) {
-	return b.BuildWithKey(ctx, spec, nil)
+func (b *TaskBuilder) Build(ctx context.Context, step Step) (*Task, error) {
+	return b.BuildWithKey(ctx, step, nil)
 }
 
-func (b *TaskBuilder) BuildWithKey(ctx context.Context, tmpl TestJobTemplateSpec, strategyKey *StrategyKey) (*Task, error) {
-	return b.buildTask(ctx, tmpl, strategyKey)
-}
-
-func (b *TaskBuilder) buildTask(ctx context.Context, tmpl TestJobTemplateSpec, strategyKey *StrategyKey) (*Task, error) {
+func (b *TaskBuilder) BuildWithKey(ctx context.Context, step Step, strategyKey *StrategyKey) (*Task, error) {
+	tmpl := step.GetTemplate()
 	mainContainer, err := getMainContainerFromTmpl(tmpl)
 	if err != nil {
 		return nil, err
@@ -157,102 +161,168 @@ func (b *TaskBuilder) buildJob(ctx context.Context, mainContainer corev1.Contain
 		}
 		job.PreInit(b.preInitContainer(buildCtx), callback)
 	}
-	job.MountRepository(func(ctx context.Context, exec JobExecutor, isInitContainer bool) error {
+	job.Mount(func(ctx context.Context, exec JobExecutor, isInitContainer bool) error {
 		containerName := exec.Container().Name
-		LoggerFromContext(ctx).Debug("mount repositories: %s", containerName)
 		taskContainer := buildCtx.taskContainer(containerName, isInitContainer)
-		for repoName, archiveMountPath := range taskContainer.repoNameToArchiveMountPath {
-			orgMountPath, exists := taskContainer.repoNameToOrgMountPath[repoName]
-			if !exists {
-				return fmt.Errorf("kubetest: failed to find org mount path by %s", repoName)
-			}
-			cmd := []string{
-				// remove the mount point path if it already exists.
-				"rm", "-rf", orgMountPath,
-				"&&",
-				// create empty mount point directory.
-				"mkdir", "-p", orgMountPath,
-				"&&",
-				// extract the repository files under the mount point directory.
-				"tar", "-zxvf", filepath.Join(archiveMountPath, "repo.tar.gz"), "-C", orgMountPath,
-			}
-			LoggerFromContext(ctx).Debug(
-				"mount repository %s on %s by '%s'",
-				containerName, repoName, strings.Join(cmd, " "),
-			)
-			out, err := exec.PrepareCommand(cmd)
-			if err != nil {
-				return fmt.Errorf("kubetest: failed to mount repository. %s: %w", string(out), err)
-			}
+		if err := b.mountRepository(ctx, taskContainer, exec); err != nil {
+			return err
 		}
-		return nil
-	})
-	job.MountToken(func(ctx context.Context, exec JobExecutor, isInitContainer bool) error {
-		containerName := exec.Container().Name
-		LoggerFromContext(ctx).Debug("mount tokens: %s", containerName)
-		taskContainer := buildCtx.taskContainer(containerName, isInitContainer)
-		for tokenName, mountPath := range taskContainer.tokenNameToMountPath {
-			orgMountPath, exists := taskContainer.tokenNameToOrgMountPath[tokenName]
-			if !exists {
-				return fmt.Errorf("kubetest: failed to find org mount path by %s", tokenName)
-			}
-			cmd := []string{
-				// create mount point base directory if it doesn't exist.
-				"mkdir", "-p", filepath.Dir(orgMountPath),
-				"&&",
-				// copy token file to the mount point path.
-				"cp", filepath.Join(mountPath, "token"), orgMountPath,
-			}
-			LoggerFromContext(ctx).Debug(
-				"mount token %s on %s by '%s'",
-				containerName, tokenName, strings.Join(cmd, " "),
-			)
-			out, err := exec.PrepareCommand(cmd)
-			if err != nil {
-				return fmt.Errorf("kubetest: failed to mount token. %s: %w", string(out), err)
-			}
+		if err := b.mountToken(ctx, taskContainer, exec); err != nil {
+			return err
 		}
-		return nil
-	})
-	job.MountArtifact(func(ctx context.Context, exec JobExecutor, isInitContainer bool) error {
-		containerName := exec.Container().Name
-		LoggerFromContext(ctx).Debug("mount artifacts: %s", containerName)
-		if b.runMode == RunModeDryRun {
-			return nil
+		if err := b.mountArtifact(ctx, taskContainer, exec); err != nil {
+			return err
 		}
-		taskContainer := buildCtx.taskContainer(containerName, isInitContainer)
-		for artifactName, mountPath := range taskContainer.artifactNameToMountPath {
-			orgMountPath, exists := taskContainer.artifactNameToOrgMountPath[artifactName]
-			if !exists {
-				return fmt.Errorf("kubetest: failed to find org mount path by %s", artifactName)
-			}
-			localArtifactPath, err := b.mgr.ArtifactPathByName(ctx, artifactName)
-			if err != nil {
-				return err
-			}
-			fileName := filepath.Base(localArtifactPath)
-			cmd := []string{
-				// create base directory for the mount point path.
-				"mkdir", "-p", filepath.Dir(orgMountPath),
-				"&&",
-				// remove the mount point path if it already exists.
-				"rm", "-rf", orgMountPath,
-				"&&",
-				// copy artifacts to the mount point path.
-				"cp", "-rf", filepath.Join(mountPath, fileName), orgMountPath,
-			}
-			LoggerFromContext(ctx).Debug(
-				"mount artifact %s on %s by '%s'",
-				containerName, artifactName, strings.Join(cmd, " "),
-			)
-			out, err := exec.PrepareCommand(cmd)
-			if err != nil {
-				return fmt.Errorf("kubetest: failed to mount artifact. %s: %w", string(out), err)
-			}
+		if err := b.mountLog(ctx, taskContainer, exec); err != nil {
+			return err
+		}
+		if err := b.mountReport(ctx, taskContainer, exec); err != nil {
+			return err
 		}
 		return nil
 	})
 	return job, nil
+}
+
+func (b *TaskBuilder) mountRepository(ctx context.Context, taskContainer *TaskContainer, exec JobExecutor) error {
+	containerName := exec.Container().Name
+	LoggerFromContext(ctx).Debug("mount repositories: %s", containerName)
+	for repoName, archiveMountPath := range taskContainer.repoNameToArchiveMountPath {
+		orgMountPath, exists := taskContainer.repoNameToOrgMountPath[repoName]
+		if !exists {
+			return fmt.Errorf("kubetest: failed to find org mount path by %s", repoName)
+		}
+		cmd := []string{
+			// remove the mount point path if it already exists.
+			"rm", "-rf", orgMountPath,
+			"&&",
+			// create empty mount point directory.
+			"mkdir", "-p", orgMountPath,
+			"&&",
+			// extract the repository files under the mount point directory.
+			"tar", "-zxvf", filepath.Join(archiveMountPath, "repo.tar.gz"), "-C", orgMountPath,
+		}
+		LoggerFromContext(ctx).Debug(
+			"mount repository %s on %s by '%s'",
+			containerName, repoName, strings.Join(cmd, " "),
+		)
+		out, err := exec.PrepareCommand(cmd)
+		if err != nil {
+			return fmt.Errorf("kubetest: failed to mount repository. %s: %w", string(out), err)
+		}
+	}
+	return nil
+}
+
+func (b *TaskBuilder) mountToken(ctx context.Context, taskContainer *TaskContainer, exec JobExecutor) error {
+	containerName := exec.Container().Name
+	LoggerFromContext(ctx).Debug("mount tokens: %s", containerName)
+	for tokenName, mountPath := range taskContainer.tokenNameToMountPath {
+		orgMountPath, exists := taskContainer.tokenNameToOrgMountPath[tokenName]
+		if !exists {
+			return fmt.Errorf("kubetest: failed to find org mount path by %s", tokenName)
+		}
+		cmd := []string{
+			// create mount point base directory if it doesn't exist.
+			"mkdir", "-p", filepath.Dir(orgMountPath),
+			"&&",
+			// copy token file to the mount point path.
+			"cp", filepath.Join(mountPath, "token"), orgMountPath,
+		}
+		LoggerFromContext(ctx).Debug(
+			"mount token %s on %s by '%s'",
+			containerName, tokenName, strings.Join(cmd, " "),
+		)
+		out, err := exec.PrepareCommand(cmd)
+		if err != nil {
+			return fmt.Errorf("kubetest: failed to mount token. %s: %w", string(out), err)
+		}
+	}
+	return nil
+}
+
+func (b *TaskBuilder) mountArtifact(ctx context.Context, taskContainer *TaskContainer, exec JobExecutor) error {
+	containerName := exec.Container().Name
+	LoggerFromContext(ctx).Debug("mount artifacts: %s", containerName)
+	if b.runMode == RunModeDryRun {
+		return nil
+	}
+	for artifactName, mountPath := range taskContainer.artifactNameToMountPath {
+		orgMountPath, exists := taskContainer.artifactNameToOrgMountPath[artifactName]
+		if !exists {
+			return fmt.Errorf("kubetest: failed to find org mount path by %s", artifactName)
+		}
+		localArtifactPath, err := b.mgr.ArtifactPathByName(ctx, artifactName)
+		if err != nil {
+			return err
+		}
+		fileName := filepath.Base(localArtifactPath)
+		cmd := []string{
+			// create base directory for the mount point path.
+			"mkdir", "-p", filepath.Dir(orgMountPath),
+			"&&",
+			// remove the mount point path if it already exists.
+			"rm", "-rf", orgMountPath,
+			"&&",
+			// copy artifacts to the mount point path.
+			"cp", "-rf", filepath.Join(mountPath, fileName), orgMountPath,
+		}
+		LoggerFromContext(ctx).Debug(
+			"mount artifact %s on %s by '%s'",
+			containerName, artifactName, strings.Join(cmd, " "),
+		)
+		out, err := exec.PrepareCommand(cmd)
+		if err != nil {
+			return fmt.Errorf("kubetest: failed to mount artifact. %s: %w", string(out), err)
+		}
+	}
+	return nil
+}
+
+func (b *TaskBuilder) mountLog(ctx context.Context, taskContainer *TaskContainer, exec JobExecutor) error {
+	containerName := exec.Container().Name
+	LoggerFromContext(ctx).Debug("mount log: %s", containerName)
+	for _, mountPath := range taskContainer.logOrgMountPaths {
+		cmd := []string{
+			// create mount point base directory if it doesn't exist.
+			"mkdir", "-p", filepath.Dir(mountPath),
+			"&&",
+			// copy log file to the mount point path.
+			"cp", logMountFilePath, mountPath,
+		}
+		LoggerFromContext(ctx).Debug(
+			"mount log on %s by '%s'",
+			containerName, strings.Join(cmd, " "),
+		)
+		out, err := exec.PrepareCommand(cmd)
+		if err != nil {
+			return fmt.Errorf("kubetest: failed to mount log. %s: %w", string(out), err)
+		}
+	}
+	return nil
+}
+
+func (b *TaskBuilder) mountReport(ctx context.Context, taskContainer *TaskContainer, exec JobExecutor) error {
+	containerName := exec.Container().Name
+	LoggerFromContext(ctx).Debug("mount report: %s", containerName)
+	for _, mountPath := range taskContainer.reportOrgMountPaths {
+		cmd := []string{
+			// create mount point base directory if it doesn't exist.
+			"mkdir", "-p", filepath.Dir(mountPath),
+			"&&",
+			// copy report file to the mount point path.
+			"cp", filepath.Join(reportMountPath, "report.json"), mountPath,
+		}
+		LoggerFromContext(ctx).Debug(
+			"mount report on %s by '%s'",
+			containerName, strings.Join(cmd, " "),
+		)
+		out, err := exec.PrepareCommand(cmd)
+		if err != nil {
+			return fmt.Errorf("kubetest: failed to mount report. %s: %w", string(out), err)
+		}
+	}
+	return nil
 }
 
 func (b *TaskBuilder) addContainersByStrategyKey(podSpec corev1.PodSpec, mainContainer corev1.Container, strategyKey *StrategyKey) corev1.PodSpec {
@@ -311,6 +381,16 @@ func (b *TaskBuilder) preInitCallback(ctx context.Context, buildCtx *TaskBuildCo
 		return nil, err
 	}
 	if err := b.getCopyPathForArtifact(ctx, buildCtx, func(src, dst string) {
+		copyPaths = append(copyPaths, &copyPath{src: src, dst: dst})
+	}); err != nil {
+		return nil, err
+	}
+	if err := b.getCopyPathForLog(ctx, buildCtx, func(src, dst string) {
+		copyPaths = append(copyPaths, &copyPath{src: src, dst: dst})
+	}); err != nil {
+		return nil, err
+	}
+	if err := b.getCopyPathForReport(ctx, buildCtx, func(src, dst string) {
 		copyPaths = append(copyPaths, &copyPath{src: src, dst: dst})
 	}); err != nil {
 		return nil, err
@@ -379,6 +459,34 @@ func (b *TaskBuilder) getCopyPathForArtifact(ctx context.Context, buildCtx *Task
 	return nil
 }
 
+func (b *TaskBuilder) getCopyPathForLog(ctx context.Context, buildCtx *TaskBuildContext, cb func(src, dst string)) error {
+	if b.runMode == RunModeDryRun {
+		return nil
+	}
+	if buildCtx.isUsedLogVolume() {
+		logPath, err := b.mgr.LogPath()
+		if err != nil {
+			return err
+		}
+		cb(logPath, logMountFilePath)
+	}
+	return nil
+}
+
+func (b *TaskBuilder) getCopyPathForReport(ctx context.Context, buildCtx *TaskBuildContext, cb func(src, dst string)) error {
+	if b.runMode == RunModeDryRun {
+		return nil
+	}
+	if buildCtx.isUsedReportVolume() {
+		reportPath, err := b.mgr.ReportPath(ReportFormatTypeJSON)
+		if err != nil {
+			return err
+		}
+		cb(reportPath, filepath.Join(reportMountPath, filepath.Base(reportPath)))
+	}
+	return nil
+}
+
 type TaskBuildContext struct {
 	initContainers *TaskContainerGroup
 	containers     *TaskContainerGroup
@@ -390,6 +498,34 @@ func (c *TaskBuildContext) taskContainer(name string, isInitContainer bool) *Tas
 		return c.initContainers.containerMap[name]
 	}
 	return c.containers.containerMap[name]
+}
+
+func (c *TaskBuildContext) isUsedLogVolume() bool {
+	for _, container := range c.initContainers.containerMap {
+		if len(container.logOrgMountPaths) > 0 {
+			return true
+		}
+	}
+	for _, container := range c.containers.containerMap {
+		if len(container.logOrgMountPaths) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func (c *TaskBuildContext) isUsedReportVolume() bool {
+	for _, container := range c.initContainers.containerMap {
+		if len(container.reportOrgMountPaths) > 0 {
+			return true
+		}
+	}
+	for _, container := range c.containers.containerMap {
+		if len(container.reportOrgMountPaths) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func (c *TaskBuildContext) repoNames() []string {
@@ -659,6 +795,8 @@ type TaskContainer struct {
 	tokenNameToOrgMountPath    map[string]string
 	artifactNameToMountPath    map[string]string
 	artifactNameToOrgMountPath map[string]string
+	logOrgMountPaths           []string
+	reportOrgMountPaths        []string
 	podSpecVolumeMap           map[string]corev1.Volume
 	preInitVolumeMountMap      map[string]corev1.VolumeMount
 }
@@ -676,6 +814,9 @@ func newTaskContainer(c corev1.Container, volumes []TestJobVolume) *TaskContaine
 
 	artifactNameToMountPath := map[string]string{}
 	artifactNameToOrgMountPath := map[string]string{}
+
+	logOrgMountPaths := []string{}
+	reportOrgMountPaths := []string{}
 
 	podSpecVolumeMap := map[string]corev1.Volume{}
 	preInitVolumeMountMap := map[string]corev1.VolumeMount{}
@@ -746,6 +887,42 @@ func newTaskContainer(c corev1.Container, volumes []TestJobVolume) *TaskContaine
 				Name:      tokenVolumeName,
 				MountPath: tokenMountPath,
 			}
+		case volume.Log != nil:
+			logVolumeName := volume.Name
+			for idx, vm := range c.VolumeMounts {
+				if vm.Name == logVolumeName {
+					logOrgMountPaths = append(logOrgMountPaths, vm.MountPath)
+					c.VolumeMounts[idx].MountPath = logMountPath
+				}
+			}
+			podSpecVolumeMap[logVolumeName] = corev1.Volume{
+				Name: logVolumeName,
+				VolumeSource: corev1.VolumeSource{
+					EmptyDir: &corev1.EmptyDirVolumeSource{},
+				},
+			}
+			preInitVolumeMountMap[logVolumeName] = corev1.VolumeMount{
+				Name:      logVolumeName,
+				MountPath: logMountPath,
+			}
+		case volume.Report != nil:
+			reportVolumeName := volume.Name
+			for idx, vm := range c.VolumeMounts {
+				if vm.Name == reportVolumeName {
+					reportOrgMountPaths = append(reportOrgMountPaths, vm.MountPath)
+					c.VolumeMounts[idx].MountPath = reportMountPath
+				}
+			}
+			podSpecVolumeMap[reportVolumeName] = corev1.Volume{
+				Name: reportVolumeName,
+				VolumeSource: corev1.VolumeSource{
+					EmptyDir: &corev1.EmptyDirVolumeSource{},
+				},
+			}
+			preInitVolumeMountMap[reportVolumeName] = corev1.VolumeMount{
+				Name:      reportVolumeName,
+				MountPath: reportMountPath,
+			}
 		default:
 			podSpecVolumeMap[volume.Name] = corev1.Volume{
 				Name:         volume.Name,
@@ -761,6 +938,8 @@ func newTaskContainer(c corev1.Container, volumes []TestJobVolume) *TaskContaine
 		tokenNameToOrgMountPath:    tokenNameToOrgMountPath,
 		artifactNameToMountPath:    artifactNameToMountPath,
 		artifactNameToOrgMountPath: artifactNameToOrgMountPath,
+		logOrgMountPaths:           logOrgMountPaths,
+		reportOrgMountPaths:        reportOrgMountPaths,
 		podSpecVolumeMap:           podSpecVolumeMap,
 		preInitVolumeMountMap:      preInitVolumeMountMap,
 	}

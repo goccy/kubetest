@@ -4,6 +4,7 @@
 package v1
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -36,7 +37,7 @@ func (l LogLevel) String() string {
 }
 
 type Logger interface {
-	Log(format string, args ...interface{})
+	Log(msg string)
 	Debug(format string, args ...interface{})
 	Info(format string, args ...interface{})
 	Warn(format string, args ...interface{})
@@ -50,6 +51,7 @@ type mainLogger struct {
 	masks  []string
 	level  LogLevel
 	out    io.Writer
+	buf    *bytes.Buffer
 	maskMu sync.RWMutex
 	logMu  sync.Mutex
 }
@@ -68,6 +70,7 @@ func NewLogger(out io.Writer, level LogLevel) Logger {
 	return &mainLogger{
 		level: level,
 		out:   out,
+		buf:   bytes.NewBuffer([]byte{}),
 	}
 }
 
@@ -103,40 +106,39 @@ func (g *groupLogger) LogGroup(group Logger) {
 	g.msgs = append(g.msgs, subgroup.msgs...)
 }
 
-func (g *groupLogger) Log(format string, args ...interface{}) {
-	g.log(format, args...)
+func (g *groupLogger) Log(msg string) {
+	g.log(msg)
 }
 
 func (g *groupLogger) Debug(format string, args ...interface{}) {
 	if g.level < LogLevelDebug {
 		return
 	}
-	g.log("[DEBUG] "+format, args...)
+	g.log("[DEBUG] " + fmt.Sprintf(format, args...))
 }
 
 func (g *groupLogger) Info(format string, args ...interface{}) {
 	if g.level < LogLevelInfo {
 		return
 	}
-	g.log("[INFO] "+format, args...)
+	g.log("[INFO] " + fmt.Sprintf(format, args...))
 }
 
 func (g *groupLogger) Warn(format string, args ...interface{}) {
 	if g.level < LogLevelWarn {
 		return
 	}
-	g.log("[WARN] "+format, args...)
+	g.log("[WARN] " + fmt.Sprintf(format, args...))
 }
 
 func (g *groupLogger) Error(format string, args ...interface{}) {
 	if g.level < LogLevelError {
 		return
 	}
-	g.log("[ERROR] "+format, args...)
+	g.log("[ERROR] " + fmt.Sprintf(format, args...))
 }
 
-func (g *groupLogger) log(format string, args ...interface{}) {
-	msg := fmt.Sprintf(format, args...)
+func (g *groupLogger) log(msg string) {
 	if msg == "" {
 		return
 	}
@@ -155,46 +157,47 @@ func (l *mainLogger) LogGroup(group Logger) {
 	l.log(g.buf())
 }
 
-func (l *mainLogger) Log(format string, args ...interface{}) {
-	l.log(format, args...)
+func (l *mainLogger) Log(msg string) {
+	l.log(msg)
 }
 
 func (l *mainLogger) Debug(format string, args ...interface{}) {
 	if l.level < LogLevelDebug {
 		return
 	}
-	l.log("[DEBUG] "+format, args...)
+	l.log("[DEBUG] " + fmt.Sprintf(format, args...))
 }
 
 func (l *mainLogger) Info(format string, args ...interface{}) {
 	if l.level < LogLevelInfo {
 		return
 	}
-	l.log("[INFO] "+format, args...)
+	l.log("[INFO] " + fmt.Sprintf(format, args...))
 }
 
 func (l *mainLogger) Warn(format string, args ...interface{}) {
 	if l.level < LogLevelWarn {
 		return
 	}
-	l.log("[WARN] "+format, args...)
+	l.log("[WARN] " + fmt.Sprintf(format, args...))
 }
 
 func (l *mainLogger) Error(format string, args ...interface{}) {
 	if l.level < LogLevelError {
 		return
 	}
-	l.log("[ERROR] "+format, args...)
+	l.log("[ERROR] " + fmt.Sprintf(format, args...))
 }
 
-func (l *mainLogger) log(format string, args ...interface{}) {
-	l.logMu.Lock()
-	defer l.logMu.Unlock()
-	msg := fmt.Sprintf(format, args...)
+func (l *mainLogger) log(msg string) {
 	if msg == "" {
 		return
 	}
-	fmt.Fprintln(l.out, l.mask(msg))
+	l.logMu.Lock()
+	defer l.logMu.Unlock()
+	maskedMsg := l.mask(msg)
+	fmt.Fprintln(l.out, maskedMsg)
+	fmt.Fprintln(l.buf, maskedMsg)
 }
 
 func (l *mainLogger) mask(msg string) string {
