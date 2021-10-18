@@ -13,14 +13,13 @@ import (
 )
 
 type TaskScheduler struct {
-	strategy *Strategy
-	builder  *TaskBuilder
+	step    MainStep
+	builder *TaskBuilder
 }
 
-func NewTaskScheduler(strategy *Strategy, builder *TaskBuilder) *TaskScheduler {
+func NewTaskScheduler(step MainStep) *TaskScheduler {
 	return &TaskScheduler{
-		strategy: strategy,
-		builder:  builder,
+		step: step,
 	}
 }
 
@@ -32,20 +31,21 @@ type StrategyKey struct {
 	OnFinishSubTask  func(*SubTask)
 }
 
-func (s *TaskScheduler) Schedule(ctx context.Context, tmpl TestJobTemplateSpec) (*TaskGroup, error) {
-	if s.strategy == nil {
-		task, err := s.builder.Build(ctx, &MainStep{tmpl})
+func (s *TaskScheduler) Schedule(ctx context.Context, builder *TaskBuilder) (*TaskGroup, error) {
+	if s.step.Strategy == nil {
+		task, err := builder.Build(ctx, &s.step)
 		if err != nil {
 			return nil, err
 		}
 		return NewTaskGroup([]*Task{task}), nil
 	}
-	keys, err := s.getScheduleKeys(ctx, s.strategy.Key.Source)
+	strategy := s.step.Strategy
+	keys, err := s.getScheduleKeys(ctx, builder, strategy.Key.Source)
 	if err != nil {
 		return nil, err
 	}
-	subTaskScheduler := NewSubTaskScheduler(s.strategy.Scheduler.MaxConcurrentNumPerPod)
-	maxContainers := s.strategy.Scheduler.MaxContainersPerPod
+	subTaskScheduler := NewSubTaskScheduler(strategy.Scheduler.MaxConcurrentNumPerPod)
+	maxContainers := strategy.Scheduler.MaxContainersPerPod
 
 	var (
 		finishedKeyNum uint32
@@ -53,11 +53,11 @@ func (s *TaskScheduler) Schedule(ctx context.Context, tmpl TestJobTemplateSpec) 
 		onFinishMu     sync.Mutex
 	)
 	if len(keys) <= maxContainers {
-		task, err := s.builder.BuildWithKey(ctx, &MainStep{tmpl}, &StrategyKey{
+		task, err := builder.BuildWithKey(ctx, &s.step, &StrategyKey{
 			ConcurrentIdx:    0,
 			Keys:             keys,
 			SubTaskScheduler: subTaskScheduler,
-			Env:              s.strategy.Key.Env,
+			Env:              strategy.Key.Env,
 			OnFinishSubTask: func(_ *SubTask) {
 				onFinishMu.Lock()
 				defer onFinishMu.Unlock()
@@ -83,11 +83,11 @@ func (s *TaskScheduler) Schedule(ctx context.Context, tmpl TestJobTemplateSpec) 
 		} else {
 			taskKeys = keys[sum : sum+maxContainers]
 		}
-		task, err := s.builder.BuildWithKey(ctx, &MainStep{tmpl}, &StrategyKey{
+		task, err := builder.BuildWithKey(ctx, &s.step, &StrategyKey{
 			ConcurrentIdx:    i,
 			Keys:             taskKeys,
 			SubTaskScheduler: subTaskScheduler,
-			Env:              s.strategy.Key.Env,
+			Env:              strategy.Key.Env,
 			OnFinishSubTask: func(_ *SubTask) {
 				atomic.AddUint32(&finishedKeyNum, 1)
 				LoggerFromContext(ctx).Info(
@@ -105,7 +105,7 @@ func (s *TaskScheduler) Schedule(ctx context.Context, tmpl TestJobTemplateSpec) 
 	return NewTaskGroup(tasks), nil
 }
 
-func (s *TaskScheduler) getScheduleKeys(ctx context.Context, source StrategyKeySource) ([]string, error) {
+func (s *TaskScheduler) getScheduleKeys(ctx context.Context, builder *TaskBuilder, source StrategyKeySource) ([]string, error) {
 	switch {
 	case len(source.Static) > 0:
 		LoggerFromContext(ctx).Info(
@@ -114,15 +114,15 @@ func (s *TaskScheduler) getScheduleKeys(ctx context.Context, source StrategyKeyS
 		)
 		return source.Static, nil
 	case source.Dynamic != nil:
-		return s.dynamicKeys(ctx, source.Dynamic)
+		return s.dynamicKeys(ctx, builder, source.Dynamic)
 	default:
 		return nil, fmt.Errorf("kubetest: invalid schedule key source")
 	}
 }
 
-func (s *TaskScheduler) dynamicKeys(ctx context.Context, source *StrategyDynamicKeySource) ([]string, error) {
+func (s *TaskScheduler) dynamicKeys(ctx context.Context, builder *TaskBuilder, source *StrategyDynamicKeySource) ([]string, error) {
 	LoggerFromContext(ctx).Info("start to get dynamic task keys for running distributed task")
-	keyTask, err := s.builder.Build(ctx, &MainStep{source.Template})
+	keyTask, err := builder.Build(ctx, &MainStep{Template: source.Template})
 	if err != nil {
 		return nil, err
 	}

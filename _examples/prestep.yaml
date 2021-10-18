@@ -35,27 +35,28 @@ spec:
             - name: repo
               repo:
                 name: kubetest-repo
-  template:
-    metadata:
-      generateName: prestep-testjob-
-    spec:
-      containers:
-        - name: test
-          image: alpine
-          workingDir: /work
-          command:
-            - cat
-          args:
-            - awesome-stuff
-          volumeMounts:
-            - name: repo
-              mountPath: /work
-            - name: prestep-artifact
-              mountPath: /work/awesome-stuff
-      volumes:
-        - name: repo
-          repo:
-            name: kubetest-repo
-        - name: prestep-artifact
-          artifact:
-            name: awesome-stuff
+  mainStep:
+    template:
+      metadata:
+        generateName: prestep-testjob-
+      spec:
+        containers:
+          - name: test
+            image: alpine
+            workingDir: /work
+            command:
+              - cat
+            args:
+              - awesome-stuff
+            volumeMounts:
+              - name: repo
+                mountPath: /work
+              - name: prestep-artifact
+                mountPath: /work/awesome-stuff
+        volumes:
+          - name: repo
+            repo:
+              name: kubetest-repo
+          - name: prestep-artifact
+            artifact:
+              name: awesome-stuff

@@ -1,0 +1,47 @@
+apiVersion: kubetest.io/v1
+kind: TestJob
+metadata:
+  name: poststep-testjob
+  namespace: default
+spec:
+  mainStep:
+    template:
+      metadata:
+        generateName: poststep-main-testjob-
+      spec:
+        containers:
+          - name: test
+            image: alpine
+            workingDir: /work
+            command:
+              - echo
+            args:
+              - "poststep example"
+  postSteps:
+    - name: post-step
+      template:
+        metadata:
+          generateName: poststep-testjob-
+        spec:
+          containers:
+            - name: post
+              image: alpine
+              workingDir: /work
+              command: ["sh", "-c"]
+              args:
+                - |
+                  echo "cat kubetest.log"
+                  cat kubetest.log
+                  echo "cat report.json"
+                  cat report.json
+              volumeMounts:
+                - name: log
+                  mountPath: /work/kubetest.log
+                - name: report
+                  mountPath: /work/report.json
+          volumes:
+            - name: log
+              log: {}
+            - name: report
+              report:
+                format: json

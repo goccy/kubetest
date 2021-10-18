@@ -4,34 +4,35 @@ metadata:
   name: strategy-static-testjob
   namespace: default
 spec:
-  strategy:
-    key:
-      env: TASK_KEY
-      source:
-        static:
-          - TASK_KEY_1
-          - TASK_KEY_2
-          - TASK_KEY_3
-    scheduler:
-      maxContainersPerPod: 10
-      maxConcurrentNumPerPod: 10
+  mainStep:
+    strategy:
+      key:
+        env: TASK_KEY
+        source:
+          static:
+            - TASK_KEY_1
+            - TASK_KEY_2
+            - TASK_KEY_3
+      scheduler:
+        maxContainersPerPod: 10
+        maxConcurrentNumPerPod: 10
+    template:
+      metadata:
+        generateName: strategy-static-testjob-
+      spec:
+        artifacts:
+          - name: result
+            container:
+              name: test
+              path: /work/result.txt
+        containers:
+          - name: test
+            image: alpine
+            workingDir: /work
+            command:
+              - touch
+            args:
+              - result.txt
   exportArtifacts:
     - name: result
       path: /tmp/artifacts
-  template:
-    metadata:
-      generateName: strategy-static-testjob-
-    spec:
-      artifacts:
-        - name: result
-          container:
-            name: test
-            path: /work/result.txt
-      containers:
-        - name: test
-          image: alpine
-          workingDir: /work
-          command:
-            - touch
-          args:
-            - result.txt

@@ -7,8 +7,6 @@ import (
 
 // TestJobSpec defines the desired state of TestJob
 type TestJobSpec struct {
-	// Template defines the behavior when running the test. Reuse this definition during distributed execution.
-	Template TestJobTemplateSpec `json:"template"`
 	// Tokens list of token for access to the repository and other resources in test.
 	// +optional
 	Tokens []TokenSpec `json:"tokens,omitempty"`
@@ -21,6 +19,8 @@ type TestJobSpec struct {
 	// so the resources of kubernetes cluster can be used efficiently.
 	// +optional
 	PreSteps []PreStep `json:"preSteps,omitempty"`
+	// MainStep defines the behavior when running the main task. This step can be distributed.
+	MainStep MainStep `json:"mainStep"`
 	// PostSteps defines post-processing to export artifacts.
 	// +optional
 	PostSteps []PostStep `json:"postSteps,omitempty"`
@@ -30,9 +30,6 @@ type TestJobSpec struct {
 	// Log extend parameter to output log.
 	// +optional
 	Log LogSpec `json:"log,omitempty"`
-	// Strategy strategy for distributed testing
-	// +optional
-	Strategy *Strategy `json:"strategy,omitempty"`
 }
 
 // RepositorySpec describes the specification of repository.
@@ -110,6 +107,9 @@ func (s *PreStep) GetTemplate() TestJobTemplateSpec {
 
 // MainStep defines main process
 type MainStep struct {
+	// Strategy strategy for distributed task
+	// +optional
+	Strategy *Strategy           `json:"strategy,omitempty"`
 	Template TestJobTemplateSpec `json:"template"`
 }
 
@@ -240,8 +240,36 @@ type ExportArtifact struct {
 	Path string `json:"path"`
 }
 
+// LogLevel
+type LogLevel int
+
+const (
+	LogLevelNone LogLevel = iota
+	LogLevelError
+	LogLevelWarn
+	LogLevelInfo
+	LogLevelDebug
+)
+
+func (l LogLevel) String() string {
+	switch l {
+	case LogLevelNone:
+		return "none"
+	case LogLevelWarn:
+		return "warn"
+	case LogLevelInfo:
+		return "info"
+	case LogLevelDebug:
+		return "debug"
+	}
+	return ""
+}
+
 // LogSpec
 type LogSpec struct {
+	// Level set the logger's log level (debug/info/warn/error).
+	Level LogLevel `json:"level"`
+	// ExtParam add arbitrary key/value to report log.
 	ExtParam map[string]string `json:"extParam"`
 }
 

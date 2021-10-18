@@ -9,23 +9,24 @@ spec:
       value:
         url: https://github.com/goccy/kubetest.git
         branch: master
-  template:
-    metadata:
-      generateName: public-repo-testjob-
-    spec:
-      containers:
-        - name: test
-          image: alpine
-          workingDir: /work
-          command:
-            - ls
-          args:
-            - README.md
-          volumeMounts:
-            - name: repo
-              mountPath: /work
-      volumes:
-        - name: repo
-          repo:
-            name: kubetest-repo
+  mainStep:
+    template:
+      metadata:
+        generateName: public-repo-testjob-
+      spec:
+        containers:
+          - name: test
+            image: alpine
+            workingDir: /work
+            command:
+              - ls
+            args:
+              - README.md
+            volumeMounts:
+              - name: repo
+                mountPath: /work
+        volumes:
+          - name: repo
+            repo:
+              name: kubetest-repo
 

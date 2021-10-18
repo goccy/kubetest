@@ -60,24 +60,26 @@ func TestRunner(t *testing.T) {
 					ObjectMeta: testjobObjectMeta(),
 					Spec: TestJobSpec{
 						Repos: testRepos(),
-						Template: TestJobTemplateSpec{
-							ObjectMeta: metav1.ObjectMeta{
-								GenerateName: "test",
-							},
-							Spec: TestJobPodSpec{
-								PodSpec: corev1.PodSpec{
-									Containers: []corev1.Container{
-										{
-											Name:         "test",
-											Image:        "alpine",
-											Command:      []string{"echo"},
-											Args:         []string{"hello"},
-											WorkingDir:   filepath.Join("/", "work"),
-											VolumeMounts: []corev1.VolumeMount{testRepoVolumeMount()},
+						MainStep: MainStep{
+							Template: TestJobTemplateSpec{
+								ObjectMeta: metav1.ObjectMeta{
+									GenerateName: "test",
+								},
+								Spec: TestJobPodSpec{
+									PodSpec: corev1.PodSpec{
+										Containers: []corev1.Container{
+											{
+												Name:         "test",
+												Image:        "alpine",
+												Command:      []string{"echo"},
+												Args:         []string{"hello"},
+												WorkingDir:   filepath.Join("/", "work"),
+												VolumeMounts: []corev1.VolumeMount{testRepoVolumeMount()},
+											},
 										},
 									},
+									Volumes: []TestJobVolume{testRepoVolume()},
 								},
-								Volumes: []TestJobVolume{testRepoVolume()},
 							},
 						},
 					},
@@ -136,36 +138,38 @@ func TestRunner(t *testing.T) {
 								},
 							},
 						},
-						Template: TestJobTemplateSpec{
-							ObjectMeta: metav1.ObjectMeta{
-								GenerateName: "test-",
-							},
-							Spec: TestJobPodSpec{
-								PodSpec: corev1.PodSpec{
-									Containers: []corev1.Container{
-										{
-											Name:       "test",
-											Image:      "alpine",
-											Command:    []string{"cat"},
-											Args:       []string{filepath.Join("./github-token")},
-											WorkingDir: filepath.Join("/", "work"),
-											VolumeMounts: []corev1.VolumeMount{
-												testRepoVolumeMount(),
-												{
-													Name:      "token-volume",
-													MountPath: filepath.Join("/", "work", "github-token"),
+						MainStep: MainStep{
+							Template: TestJobTemplateSpec{
+								ObjectMeta: metav1.ObjectMeta{
+									GenerateName: "test-",
+								},
+								Spec: TestJobPodSpec{
+									PodSpec: corev1.PodSpec{
+										Containers: []corev1.Container{
+											{
+												Name:       "test",
+												Image:      "alpine",
+												Command:    []string{"cat"},
+												Args:       []string{filepath.Join("./github-token")},
+												WorkingDir: filepath.Join("/", "work"),
+												VolumeMounts: []corev1.VolumeMount{
+													testRepoVolumeMount(),
+													{
+														Name:      "token-volume",
+														MountPath: filepath.Join("/", "work", "github-token"),
+													},
 												},
 											},
 										},
 									},
-								},
-								Volumes: []TestJobVolume{
-									testRepoVolume(),
-									{
-										Name: "token-volume",
-										TestJobVolumeSource: TestJobVolumeSource{
-											Token: &TokenVolumeSource{
-												Name: "github-app-token",
+									Volumes: []TestJobVolume{
+										testRepoVolume(),
+										{
+											Name: "token-volume",
+											TestJobVolumeSource: TestJobVolumeSource{
+												Token: &TokenVolumeSource{
+													Name: "github-app-token",
+												},
 											},
 										},
 									},
@@ -224,36 +228,38 @@ func TestRunner(t *testing.T) {
 								},
 							},
 						},
-						Template: TestJobTemplateSpec{
-							ObjectMeta: metav1.ObjectMeta{
-								GenerateName: "test-",
-							},
-							Spec: TestJobPodSpec{
-								PodSpec: corev1.PodSpec{
-									Containers: []corev1.Container{
-										{
-											Name:       "test",
-											Image:      "alpine",
-											Command:    []string{"ls"},
-											Args:       []string{"-alh", "./build-log"},
-											WorkingDir: filepath.Join("/", "work"),
-											VolumeMounts: []corev1.VolumeMount{
-												testRepoVolumeMount(),
-												{
-													Name:      "build-artifact",
-													MountPath: filepath.Join("/", "work", "build-log"),
+						MainStep: MainStep{
+							Template: TestJobTemplateSpec{
+								ObjectMeta: metav1.ObjectMeta{
+									GenerateName: "test-",
+								},
+								Spec: TestJobPodSpec{
+									PodSpec: corev1.PodSpec{
+										Containers: []corev1.Container{
+											{
+												Name:       "test",
+												Image:      "alpine",
+												Command:    []string{"ls"},
+												Args:       []string{"-alh", "./build-log"},
+												WorkingDir: filepath.Join("/", "work"),
+												VolumeMounts: []corev1.VolumeMount{
+													testRepoVolumeMount(),
+													{
+														Name:      "build-artifact",
+														MountPath: filepath.Join("/", "work", "build-log"),
+													},
 												},
 											},
 										},
 									},
-								},
-								Volumes: []TestJobVolume{
-									testRepoVolume(),
-									{
-										Name: "build-artifact",
-										TestJobVolumeSource: TestJobVolumeSource{
-											Artifact: &ArtifactVolumeSource{
-												Name: "build-test",
+									Volumes: []TestJobVolume{
+										testRepoVolume(),
+										{
+											Name: "build-artifact",
+											TestJobVolumeSource: TestJobVolumeSource{
+												Artifact: &ArtifactVolumeSource{
+													Name: "build-test",
+												},
 											},
 										},
 									},
@@ -276,39 +282,41 @@ func TestRunner(t *testing.T) {
 					ObjectMeta: testjobObjectMeta(),
 					Spec: TestJobSpec{
 						Repos: testRepos(),
-						Strategy: &Strategy{
-							Key: StrategyKeySpec{
-								Env: "TEST",
-								Source: StrategyKeySource{
-									Static: []string{"A", "B", "C"},
+						MainStep: MainStep{
+							Strategy: &Strategy{
+								Key: StrategyKeySpec{
+									Env: "TEST",
+									Source: StrategyKeySource{
+										Static: []string{"A", "B", "C"},
+									},
+								},
+								Scheduler: Scheduler{
+									MaxContainersPerPod:    10,
+									MaxConcurrentNumPerPod: 10,
 								},
 							},
-							Scheduler: Scheduler{
-								MaxContainersPerPod:    10,
-								MaxConcurrentNumPerPod: 10,
-							},
-						},
-						Template: TestJobTemplateSpec{
-							ObjectMeta: metav1.ObjectMeta{
-								GenerateName: "test-",
-							},
-							Spec: TestJobPodSpec{
-								PodSpec: corev1.PodSpec{
-									Containers: []corev1.Container{
-										{
-											Name:       "test",
-											Image:      "alpine",
-											Command:    []string{"sh", "-c"},
-											Args:       []string{"echo $TEST"},
-											WorkingDir: filepath.Join("/", "work"),
-											VolumeMounts: []corev1.VolumeMount{
-												testRepoVolumeMount(),
+							Template: TestJobTemplateSpec{
+								ObjectMeta: metav1.ObjectMeta{
+									GenerateName: "test-",
+								},
+								Spec: TestJobPodSpec{
+									PodSpec: corev1.PodSpec{
+										Containers: []corev1.Container{
+											{
+												Name:       "test",
+												Image:      "alpine",
+												Command:    []string{"sh", "-c"},
+												Args:       []string{"echo $TEST"},
+												WorkingDir: filepath.Join("/", "work"),
+												VolumeMounts: []corev1.VolumeMount{
+													testRepoVolumeMount(),
+												},
 											},
 										},
 									},
-								},
-								Volumes: []TestJobVolume{
-									testRepoVolume(),
+									Volumes: []TestJobVolume{
+										testRepoVolume(),
+									},
 								},
 							},
 						},
@@ -328,32 +336,34 @@ func TestRunner(t *testing.T) {
 					ObjectMeta: testjobObjectMeta(),
 					Spec: TestJobSpec{
 						Repos: testRepos(),
-						Strategy: &Strategy{
-							Key: StrategyKeySpec{
-								Env: "TEST",
-								Source: StrategyKeySource{
-									Dynamic: &StrategyDynamicKeySource{
-										Template: TestJobTemplateSpec{
-											ObjectMeta: metav1.ObjectMeta{
-												Name: "list",
-											},
-											Spec: TestJobPodSpec{
-												PodSpec: corev1.PodSpec{
-													Containers: []corev1.Container{
-														{
-															Name:    "list",
-															Image:   "alpine",
-															Command: []string{"sh", "-c"},
-															Args: []string{
-																fmt.Sprintf(
-																	`echo "%s"`,
-																	string([]byte{
-																		'A', '\n',
-																		'B', '\n',
-																		'C', '\n',
-																		'D',
-																	}),
-																),
+						MainStep: MainStep{
+							Strategy: &Strategy{
+								Key: StrategyKeySpec{
+									Env: "TEST",
+									Source: StrategyKeySource{
+										Dynamic: &StrategyDynamicKeySource{
+											Template: TestJobTemplateSpec{
+												ObjectMeta: metav1.ObjectMeta{
+													Name: "list",
+												},
+												Spec: TestJobPodSpec{
+													PodSpec: corev1.PodSpec{
+														Containers: []corev1.Container{
+															{
+																Name:    "list",
+																Image:   "alpine",
+																Command: []string{"sh", "-c"},
+																Args: []string{
+																	fmt.Sprintf(
+																		`echo "%s"`,
+																		string([]byte{
+																			'A', '\n',
+																			'B', '\n',
+																			'C', '\n',
+																			'D',
+																		}),
+																	),
+																},
 															},
 														},
 													},
@@ -362,33 +372,33 @@ func TestRunner(t *testing.T) {
 										},
 									},
 								},
+								Scheduler: Scheduler{
+									MaxContainersPerPod:    10,
+									MaxConcurrentNumPerPod: 10,
+								},
 							},
-							Scheduler: Scheduler{
-								MaxContainersPerPod:    10,
-								MaxConcurrentNumPerPod: 10,
-							},
-						},
-						Template: TestJobTemplateSpec{
-							ObjectMeta: metav1.ObjectMeta{
-								Name: "test",
-							},
-							Spec: TestJobPodSpec{
-								PodSpec: corev1.PodSpec{
-									Containers: []corev1.Container{
-										{
-											Name:       "test",
-											Image:      "alpine",
-											Command:    []string{"sh", "-c"},
-											Args:       []string{"echo $TEST"},
-											WorkingDir: filepath.Join("/", "work"),
-											VolumeMounts: []corev1.VolumeMount{
-												testRepoVolumeMount(),
+							Template: TestJobTemplateSpec{
+								ObjectMeta: metav1.ObjectMeta{
+									Name: "test",
+								},
+								Spec: TestJobPodSpec{
+									PodSpec: corev1.PodSpec{
+										Containers: []corev1.Container{
+											{
+												Name:       "test",
+												Image:      "alpine",
+												Command:    []string{"sh", "-c"},
+												Args:       []string{"echo $TEST"},
+												WorkingDir: filepath.Join("/", "work"),
+												VolumeMounts: []corev1.VolumeMount{
+													testRepoVolumeMount(),
+												},
 											},
 										},
 									},
-								},
-								Volumes: []TestJobVolume{
-									testRepoVolume(),
+									Volumes: []TestJobVolume{
+										testRepoVolume(),
+									},
 								},
 							},
 						},
@@ -414,55 +424,57 @@ func TestRunner(t *testing.T) {
 					ObjectMeta: testjobObjectMeta(),
 					Spec: TestJobSpec{
 						Repos: testRepos(),
-						Strategy: &Strategy{
-							Key: StrategyKeySpec{
-								Env: "TEST",
-								Source: StrategyKeySource{
-									Static: []string{"A", "B", "C"},
+						MainStep: MainStep{
+							Strategy: &Strategy{
+								Key: StrategyKeySpec{
+									Env: "TEST",
+									Source: StrategyKeySource{
+										Static: []string{"A", "B", "C"},
+									},
+								},
+								Scheduler: Scheduler{
+									MaxContainersPerPod:    10,
+									MaxConcurrentNumPerPod: 10,
 								},
 							},
-							Scheduler: Scheduler{
-								MaxContainersPerPod:    10,
-								MaxConcurrentNumPerPod: 10,
+							Template: TestJobTemplateSpec{
+								ObjectMeta: metav1.ObjectMeta{
+									Name: "test",
+								},
+								Spec: TestJobPodSpec{
+									Artifacts: []ArtifactSpec{
+										{
+											Name: "export-artifact",
+											Container: ArtifactContainer{
+												Name: "test",
+												Path: filepath.Join("/", "work", "artifact"),
+											},
+										},
+									},
+									PodSpec: corev1.PodSpec{
+										Containers: []corev1.Container{
+											{
+												Name:       "test",
+												Image:      "alpine",
+												Command:    []string{"touch"},
+												Args:       []string{"artifact"},
+												WorkingDir: filepath.Join("/", "work"),
+												VolumeMounts: []corev1.VolumeMount{
+													testRepoVolumeMount(),
+												},
+											},
+										},
+									},
+									Volumes: []TestJobVolume{
+										testRepoVolume(),
+									},
+								},
 							},
 						},
 						ExportArtifacts: []ExportArtifact{
 							{
 								Name: "export-artifact",
 								Path: exportDir,
-							},
-						},
-						Template: TestJobTemplateSpec{
-							ObjectMeta: metav1.ObjectMeta{
-								Name: "test",
-							},
-							Spec: TestJobPodSpec{
-								Artifacts: []ArtifactSpec{
-									{
-										Name: "export-artifact",
-										Container: ArtifactContainer{
-											Name: "test",
-											Path: filepath.Join("/", "work", "artifact"),
-										},
-									},
-								},
-								PodSpec: corev1.PodSpec{
-									Containers: []corev1.Container{
-										{
-											Name:       "test",
-											Image:      "alpine",
-											Command:    []string{"touch"},
-											Args:       []string{"artifact"},
-											WorkingDir: filepath.Join("/", "work"),
-											VolumeMounts: []corev1.VolumeMount{
-												testRepoVolumeMount(),
-											},
-										},
-									},
-								},
-								Volumes: []TestJobVolume{
-									testRepoVolume(),
-								},
 							},
 						},
 					},
@@ -494,40 +506,42 @@ func TestRunner(t *testing.T) {
 				_, err := runner.Run(context.Background(), TestJob{
 					ObjectMeta: testjobObjectMeta(),
 					Spec: TestJobSpec{
-						Strategy: &Strategy{
-							Key: StrategyKeySpec{
-								Env: "TEST",
-								Source: StrategyKeySource{
-									Static: []string{"A", "B", "C"},
-								},
-							},
-							Scheduler: Scheduler{
-								MaxContainersPerPod:    10,
-								MaxConcurrentNumPerPod: 10,
-							},
-						},
-						Template: TestJobTemplateSpec{
-							ObjectMeta: metav1.ObjectMeta{
-								Name: "test",
-							},
-							Spec: TestJobPodSpec{
-								Artifacts: []ArtifactSpec{
-									{
-										Name: "export-artifact",
-										Container: ArtifactContainer{
-											Name: "test",
-											Path: filepath.Join("/", "work", "artifact"),
-										},
+						MainStep: MainStep{
+							Strategy: &Strategy{
+								Key: StrategyKeySpec{
+									Env: "TEST",
+									Source: StrategyKeySource{
+										Static: []string{"A", "B", "C"},
 									},
 								},
-								PodSpec: corev1.PodSpec{
-									Containers: []corev1.Container{
+								Scheduler: Scheduler{
+									MaxContainersPerPod:    10,
+									MaxConcurrentNumPerPod: 10,
+								},
+							},
+							Template: TestJobTemplateSpec{
+								ObjectMeta: metav1.ObjectMeta{
+									Name: "test",
+								},
+								Spec: TestJobPodSpec{
+									Artifacts: []ArtifactSpec{
 										{
-											Name:       "test",
-											Image:      "alpine",
-											Command:    []string{"touch"},
-											Args:       []string{"artifact"},
-											WorkingDir: filepath.Join("/", "work"),
+											Name: "export-artifact",
+											Container: ArtifactContainer{
+												Name: "test",
+												Path: filepath.Join("/", "work", "artifact"),
+											},
+										},
+									},
+									PodSpec: corev1.PodSpec{
+										Containers: []corev1.Container{
+											{
+												Name:       "test",
+												Image:      "alpine",
+												Command:    []string{"touch"},
+												Args:       []string{"artifact"},
+												WorkingDir: filepath.Join("/", "work"),
+											},
 										},
 									},
 								},

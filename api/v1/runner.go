@@ -93,8 +93,8 @@ func (r *Runner) Run(ctx context.Context, testjob TestJob) (*Result, error) {
 		}
 		result.preStepResults = append(result.preStepResults, preStepResult)
 	}
-	scheduler := NewTaskScheduler(testjob.Spec.Strategy, builder)
-	taskGroup, err := scheduler.Schedule(ctx, testjob.Spec.Template)
+	scheduler := NewTaskScheduler(testjob.Spec.MainStep)
+	taskGroup, err := scheduler.Schedule(ctx, builder)
 	if err != nil {
 		return nil, err
 	}

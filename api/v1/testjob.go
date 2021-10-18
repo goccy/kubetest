@@ -10,9 +10,9 @@ func (j *TestJob) Validate() error {
 }
 
 func (j *TestJob) SetStaticStrategyKeys(keys []string) error {
-	if j.Spec.Strategy == nil {
-		return fmt.Errorf("kubetest: spec.strategy is undefined")
+	if j.Spec.MainStep.Strategy == nil {
+		return fmt.Errorf("kubetest: spec.mainStep.strategy is undefined")
 	}
-	j.Spec.Strategy.Key.Source.Static = keys
+	j.Spec.MainStep.Strategy.Key.Source.Static = keys
 	return nil
 }

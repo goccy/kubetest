@@ -50,7 +50,7 @@ func (v *Validator) ValidateTestJobSpec(spec TestJobSpec) error {
 			return err
 		}
 	}
-	if err := v.ValidateMainStep(spec); err != nil {
+	if err := v.ValidateMainStep(spec.MainStep); err != nil {
 		return err
 	}
 	for _, poststep := range spec.PostSteps {
@@ -143,11 +143,11 @@ func (v *Validator) ValidatePreStep(prestep PreStep) error {
 	return nil
 }
 
-func (v *Validator) ValidateMainStep(spec TestJobSpec) error {
-	if err := v.ValidateStrategy(spec.Strategy); err != nil {
+func (v *Validator) ValidateMainStep(step MainStep) error {
+	if err := v.ValidateStrategy(step.Strategy); err != nil {
 		return err
 	}
-	if err := v.ValidateTestJobTemplateSpec(spec.Template, MainStepType); err != nil {
+	if err := v.ValidateTestJobTemplateSpec(step.Template, MainStepType); err != nil {
 		return err
 	}
 	return nil
