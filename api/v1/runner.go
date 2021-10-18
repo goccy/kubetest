@@ -76,8 +76,9 @@ func (r *Runner) Run(ctx context.Context, testjob TestJob) (*Result, error) {
 	builder := NewTaskBuilder(r.cfg, resourceMgr, testjob.Namespace, r.runMode)
 	var result Result
 	for _, step := range testjob.Spec.PreSteps {
+		step := step
 		r.logger.Info("run prestep: %s", step.Name)
-		task, err := builder.Build(ctx, step.Template)
+		task, err := builder.Build(ctx, &step)
 		if err != nil {
 			return nil, err
 		}
@@ -101,9 +102,17 @@ func (r *Runner) Run(ctx context.Context, testjob TestJob) (*Result, error) {
 	if err != nil {
 		return nil, err
 	}
+	result.setByTaskResult(startedAt, taskResult)
+	if err := resourceMgr.WriteLog(r.logger); err != nil {
+		return nil, err
+	}
+	if err := resourceMgr.WriteReport(&result); err != nil {
+		return nil, err
+	}
 	for _, step := range testjob.Spec.PostSteps {
+		step := step
 		r.logger.Info("run poststep: %s", step.Name)
-		task, err := builder.Build(ctx, step.Template)
+		task, err := builder.Build(ctx, &step)
 		if err != nil {
 			return nil, err
 		}
@@ -121,17 +130,6 @@ func (r *Runner) Run(ctx context.Context, testjob TestJob) (*Result, error) {
 	if err := resourceMgr.ExportArtifacts(ctx); err != nil {
 		return nil, err
 	}
-	result.Status = taskResult.Status()
-	result.TotalNum = taskResult.TotalNum()
-	result.SuccessNum = taskResult.SuccessNum()
-	result.FailureNum = taskResult.FailureNum()
-	if result.TotalNum != (result.SuccessNum + result.FailureNum) {
-		result.Status = ResultStatusError
-		result.UnknownNum = result.TotalNum - (result.SuccessNum + result.FailureNum)
-	}
-	result.taskResult = taskResult
-	result.StartedAt = startedAt
-	result.ElapsedTime = time.Since(startedAt)
 	return &result, nil
 }
 
@@ -169,6 +167,20 @@ type Result struct {
 	postStepResults []*TaskResult
 	taskResult      *TaskResultGroup
 	job             TestJob
+}
+
+func (r *Result) setByTaskResult(startedAt time.Time, taskResult *TaskResultGroup) {
+	r.StartedAt = startedAt
+	r.Status = taskResult.Status()
+	r.TotalNum = taskResult.TotalNum()
+	r.SuccessNum = taskResult.SuccessNum()
+	r.FailureNum = taskResult.FailureNum()
+	if r.TotalNum != (r.SuccessNum + r.FailureNum) {
+		r.Status = ResultStatusError
+		r.UnknownNum = r.TotalNum - (r.SuccessNum + r.FailureNum)
+	}
+	r.taskResult = taskResult
+	r.ElapsedTime = time.Since(startedAt)
 }
 
 func (r *Result) MarshalJSON() ([]byte, error) {
