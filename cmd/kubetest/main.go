@@ -28,6 +28,7 @@ type option struct {
 	LogLevel  string            `description:"specify log level (debug/info/warn/error)" long:"log-level"`
 	DryRun    bool              `description:"specify dry run mode" long:"dry-run"`
 	Template  map[string]string `description:"specify template parameter for testjob file" long:"template"`
+	Output    string            `description:"specify output path of report" short:"o" long:"output"`
 }
 
 const (
@@ -155,6 +156,12 @@ func parseOpt() ([]string, option, error) {
 	return args, opt, err
 }
 
+func fatalError(err error) {
+	fmt.Fprintln(os.Stderr, err)
+	fmt.Fprintln(os.Stderr, "kubetest: fatal error")
+	os.Exit(ExitWithFatalError)
+}
+
 func main() {
 	args, opt, err := parseOpt()
 	if err != nil {
@@ -170,17 +177,22 @@ func main() {
 	}
 	result, err := _main(args, opt)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		fmt.Fprintln(os.Stderr, "kubetest: fatal error")
-		os.Exit(ExitWithFatalError)
+		fatalError(err)
 	}
 	b, err := json.MarshalIndent(result, "", "  ")
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		fmt.Fprintln(os.Stderr, "kubetest: fatal error")
-		os.Exit(ExitWithFatalError)
+		fatalError(err)
 	}
 	fmt.Fprintln(os.Stdout, string(b))
+	if opt.Output != "" {
+		b, err := json.Marshal(result)
+		if err != nil {
+			fatalError(err)
+		}
+		if err := os.WriteFile(opt.Output, b, 0644); err != nil {
+			fatalError(err)
+		}
+	}
 	if result.Status != kubetestv1.ResultStatusSuccess {
 		os.Exit(ExitWithFailureTestJob)
 	}
