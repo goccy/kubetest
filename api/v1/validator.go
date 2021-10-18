@@ -50,11 +50,13 @@ func (v *Validator) ValidateTestJobSpec(spec TestJobSpec) error {
 			return err
 		}
 	}
-	if err := v.ValidateStrategy(spec.Strategy); err != nil {
+	if err := v.ValidateMainStep(spec); err != nil {
 		return err
 	}
-	if err := v.ValidateTestJobTemplateSpec(spec.Template); err != nil {
-		return err
+	for _, poststep := range spec.PostSteps {
+		if err := v.ValidatePostStep(poststep); err != nil {
+			return err
+		}
 	}
 	for _, artifact := range spec.ExportArtifacts {
 		if err := v.ValidateExportArtifact(artifact); err != nil {
@@ -135,23 +137,43 @@ func (v *Validator) ValidatePreStep(prestep PreStep) error {
 	if prestep.Name == "" {
 		return fmt.Errorf("kubetest: prestep name must be specified")
 	}
-	if err := v.ValidateTestJobTemplateSpec(prestep.Template); err != nil {
+	if err := v.ValidateTestJobTemplateSpec(prestep.Template, PreStepType); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (v *Validator) ValidateTestJobTemplateSpec(spec TestJobTemplateSpec) error {
+func (v *Validator) ValidateMainStep(spec TestJobSpec) error {
+	if err := v.ValidateStrategy(spec.Strategy); err != nil {
+		return err
+	}
+	if err := v.ValidateTestJobTemplateSpec(spec.Template, MainStepType); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (v *Validator) ValidatePostStep(poststep PostStep) error {
+	if poststep.Name == "" {
+		return fmt.Errorf("kubetest: poststep name must be specified")
+	}
+	if err := v.ValidateTestJobTemplateSpec(poststep.Template, PostStepType); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (v *Validator) ValidateTestJobTemplateSpec(spec TestJobTemplateSpec, stepType StepType) error {
 	if len(spec.Spec.Containers) > 1 && spec.Main == "" {
 		return fmt.Errorf("kubetest: if specified multiple containers, must be specified template.main param for the main container")
 	}
-	if err := v.ValidateTestJobPodSpec(spec.Spec); err != nil {
+	if err := v.ValidateTestJobPodSpec(spec.Spec, stepType); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (v *Validator) ValidateTestJobPodSpec(spec TestJobPodSpec) error {
+func (v *Validator) ValidateTestJobPodSpec(spec TestJobPodSpec, stepType StepType) error {
 	if len(spec.PodSpec.Containers) == 0 {
 		return fmt.Errorf("kubetest: template.spec.containers are must be specified")
 	}
@@ -172,7 +194,7 @@ func (v *Validator) ValidateTestJobPodSpec(spec TestJobPodSpec) error {
 		}
 	}
 	for _, volume := range spec.Volumes {
-		if err := v.ValidateTestJobVolume(volume); err != nil {
+		if err := v.ValidateTestJobVolume(volume, stepType); err != nil {
 			return err
 		}
 	}
@@ -218,17 +240,17 @@ func (v *Validator) ValidateArtifactContainer(container ArtifactContainer) error
 	return nil
 }
 
-func (v *Validator) ValidateTestJobVolume(volume TestJobVolume) error {
+func (v *Validator) ValidateTestJobVolume(volume TestJobVolume, stepType StepType) error {
 	if volume.Name == "" {
 		return fmt.Errorf("kubetest: volume name must be specified")
 	}
-	if err := v.ValidateTestJobVolumeSource(volume.TestJobVolumeSource); err != nil {
+	if err := v.ValidateTestJobVolumeSource(volume.TestJobVolumeSource, stepType); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (v *Validator) ValidateTestJobVolumeSource(source TestJobVolumeSource) error {
+func (v *Validator) ValidateTestJobVolumeSource(source TestJobVolumeSource, stepType StepType) error {
 	switch {
 	case source.Repo != nil:
 		return v.ValidateRepositoryVolumeSource(source.Repo)
@@ -236,6 +258,10 @@ func (v *Validator) ValidateTestJobVolumeSource(source TestJobVolumeSource) erro
 		return v.ValidateArtifactVolumeSource(source.Artifact)
 	case source.Token != nil:
 		return v.ValidateTokenVolumeSource(source.Token)
+	case source.Log != nil:
+		return v.ValidateLogVolumeSource(stepType)
+	case source.Report != nil:
+		return v.ValidateReportVolumeSource(source.Report, stepType)
 	}
 	return nil
 }
@@ -268,6 +294,25 @@ func (v *Validator) ValidateTokenVolumeSource(source *TokenVolumeSource) error {
 		return fmt.Errorf("kubetest: token volume source name %s is undefined", source.Name)
 	}
 	return nil
+}
+
+func (v *Validator) ValidateLogVolumeSource(stepType StepType) error {
+	if stepType != PostStepType {
+		return fmt.Errorf("kubetest: log volume source must be specified postSteps only")
+	}
+	return nil
+}
+
+func (v *Validator) ValidateReportVolumeSource(report *ReportVolumeSource, stepType StepType) error {
+	if stepType != PostStepType {
+		return fmt.Errorf("kubetest: report volume source must be specified postSteps only")
+	}
+	switch report.Format {
+	case ReportFormatTypeJSON:
+		return nil
+	default:
+		return fmt.Errorf("kubetest: unknown report format %s", report.Format)
+	}
 }
 
 func (v *Validator) ValidateStrategy(strategy *Strategy) error {
@@ -307,7 +352,7 @@ func (v *Validator) ValidateStrategyKeySource(source StrategyKeySource) error {
 }
 
 func (v *Validator) ValidateStrategyDynamicKeySource(source *StrategyDynamicKeySource) error {
-	if err := v.ValidateTestJobTemplateSpec(source.Template); err != nil {
+	if err := v.ValidateTestJobTemplateSpec(source.Template, MainStepType); err != nil {
 		return err
 	}
 	return nil

@@ -90,20 +90,6 @@ type GitHubAppTokenSource struct {
 // GitHubTokenSource describes the specification of github token.
 type GitHubTokenSource corev1.SecretKeySelector
 
-type StepType string
-
-const (
-	PreStepType  StepType = "preStep"
-	MainStepType          = "mainStep"
-	PostStepType          = "postStep"
-)
-
-type Step interface {
-	GetName() string
-	GetType() StepType
-	GetTemplate() TestJobTemplateSpec
-}
-
 // PreStep defines pre-processing to prepare files for testing that are not included in the repository.
 type PreStep struct {
 	Name     string              `json:"name"`
