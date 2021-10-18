@@ -32,6 +32,7 @@ Application Options:
       --log-level=  specify log level (debug/info/warn/error)
       --dry-run     specify dry run mode
       --template=   specify template parameter for testjob file
+  -o, --output=     specify output path of report
 
 Help Options:
   -h, --help        Show this help message
@@ -43,7 +44,7 @@ First, We will introduce a sample that performs the simplest task processing.
 
 Describe the manifest file of task processing as follows and execute it by passing it as an argument of kubetest CLI.
 
-If you've already written a Kubernetes Job, you've probably noticed that the simplest example is the same as using a Kubernetes Job :)
+If you've already written a Kubernetes Job, you've probably noticed that the spec under the `mainStep` of simplest example is the same as using a Kubernetes Job :)
 
 - _examples/simple.yaml
 
@@ -54,18 +55,19 @@ metadata:
   name: simple-testjob
   namespace: default
 spec:
-  template:
-    metadata:
-      generateName: simple-testjob-
-    spec:
-      containers:
-        - name: test
-          image: alpine
-          workingDir: /go/src
-          command:
-            - echo
-          args:
-            - "hello"
+  mainStep:
+    template:
+      metadata:
+        generateName: simple-testjob-
+      spec:
+        containers:
+          - name: test
+            image: alpine
+            workingDir: /go/src
+            command:
+              - echo
+            args:
+              - "hello"
 ```
 
 ### Run CLI with manifest
@@ -124,25 +126,26 @@ spec:
       value:
         url: https://github.com/goccy/kubetest.git
         branch: master
-  template:
-    metadata:
-      generateName: public-repo-testjob-
-    spec:
-      containers:
-        - name: test
-          image: alpine
-          workingDir: /work
-          command:
-            - ls
-          args:
-            - README.md
-          volumeMounts:
-            - name: repo
-              mountPath: /work
-      volumes:
-        - name: repo
-          repo:
-            name: kubetest-repo
+  mainStep:
+    template:
+      metadata:
+        generateName: public-repo-testjob-
+      spec:
+        containers:
+          - name: test
+            image: alpine
+            workingDir: /work
+            command:
+              - ls
+            args:
+              - README.md
+            volumeMounts:
+              - name: repo
+                mountPath: /work
+        volumes:
+          - name: repo
+            repo:
+              name: kubetest-repo
 ```
 
 ### Run CLI with manifest
@@ -217,25 +220,26 @@ spec:
         url: https://github.com/goccy/kubetest.git
         branch: master
         token: github-app-token
-  template:
-    metadata:
-      generateName: private-repo-testjob-
-    spec:
-      containers:
-        - name: test
-          image: alpine
-          workingDir: /work
-          command:
-            - ls
-          args:
-            - README.md
-          volumeMounts:
-            - name: repo
-              mountPath: /work
-      volumes:
-        - name: repo
-          repo:
-            name: kubetest-repo
+  mainStep:
+    template:
+      metadata:
+        generateName: private-repo-testjob-
+      spec:
+        containers:
+          - name: test
+            image: alpine
+            workingDir: /work
+            command:
+              - ls
+            args:
+              - README.md
+            volumeMounts:
+              - name: repo
+                mountPath: /work
+        volumes:
+          - name: repo
+            repo:
+              name: kubetest-repo
 ```
 
 ### Output
@@ -320,30 +324,31 @@ spec:
             - name: repo
               repo:
                 name: kubetest-repo
-  template:
-    metadata:
-      generateName: prestep-testjob-
-    spec:
-      containers:
-        - name: test
-          image: alpine
-          workingDir: /work
-          command:
-            - cat
-          args:
-            - awesome-stuff
-          volumeMounts:
-            - name: repo
-              mountPath: /work
-            - name: prestep-artifact
-              mountPath: /work/awesome-stuff
-      volumes:
-        - name: repo
-          repo:
-            name: kubetest-repo
-        - name: prestep-artifact
-          artifact:
-            name: awesome-stuff
+  mainStep:
+    template:
+      metadata:
+        generateName: prestep-testjob-
+      spec:
+        containers:
+          - name: test
+            image: alpine
+            workingDir: /work
+            command:
+              - cat
+            args:
+              - awesome-stuff
+            volumeMounts:
+              - name: repo
+                mountPath: /work
+              - name: prestep-artifact
+                mountPath: /work/awesome-stuff
+        volumes:
+          - name: repo
+            repo:
+              name: kubetest-repo
+          - name: prestep-artifact
+            artifact:
+              name: awesome-stuff
 ```
 
 ### Output
@@ -353,7 +358,7 @@ spec:
 [INFO] run prestep: create-awesome-stuff
 sh -c echo "AWESOME!!!" > awesome-stuff
 
-[INFO] elapsed time: 0.062056 sec.
+[INFO] create-awesome-stuff: elapsed time: 0.062056 sec.
 cat awesome-stuff
 AWESOME!!!
 
@@ -391,29 +396,30 @@ metadata:
   name: strategy-static-testjob
   namespace: default
 spec:
-  strategy:
-    key:
-      env: TASK_KEY
-      source:
-        static:
-          - TASK_KEY_1
-          - TASK_KEY_2
-          - TASK_KEY_3
-    scheduler:
-      maxContainersPerPod: 10
-      maxConcurrentNumPerPod: 10
-  template:
-    metadata:
-      generateName: strategy-static-testjob-
-    spec:
-      containers:
-        - name: test
-          image: alpine
-          workingDir: /work
-          command:
-            - echo
-          args:
-            - $TASK_KEY
+  mainStep:
+    strategy:
+      key:
+        env: TASK_KEY
+        source:
+          static:
+            - TASK_KEY_1
+            - TASK_KEY_2
+            - TASK_KEY_3
+      scheduler:
+        maxContainersPerPod: 10
+        maxConcurrentNumPerPod: 10
+    template:
+      metadata:
+        generateName: strategy-static-testjob-
+      spec:
+        containers:
+          - name: test
+            image: alpine
+            workingDir: /work
+            command:
+              - echo
+            args:
+              - $TASK_KEY
 ```
 
 Describe the definition of distributed execution under `strategy` as described above.
@@ -487,41 +493,42 @@ metadata:
   name: strategy-dynamic-testjob
   namespace: default
 spec:
-  strategy:
-    key:
-      env: TASK_KEY
-      source:
-        dynamic:
-          template:
-            metadata:
-              generateName: strategy-dynamic-keys-
-            spec:
-              containers:
-                - name: key
-                  image: alpine
-                  command: ["sh", "-c"]
-                  args:
-                    - |
-                      echo -n "
-                      TASK_KEY_1
-                      TASK_KEY_2
-                      TASK_KEY_3
-                      TASK_KEY_4"
-    scheduler:
-      maxContainersPerPod: 10
-      maxConcurrentNumPerPod: 10
-  template:
-    metadata:
-      generateName: strategy-dynamic-testjob-
-    spec:
-      containers:
-        - name: test
-          image: alpine
-          workingDir: /work
-          command:
-            - echo
-          args:
-            - $TASK_KEY
+  mainStep:
+    strategy:
+      key:
+        env: TASK_KEY
+        source:
+          dynamic:
+            template:
+              metadata:
+                generateName: strategy-dynamic-keys-
+              spec:
+                containers:
+                  - name: key
+                    image: alpine
+                    command: ["sh", "-c"]
+                    args:
+                      - |
+                        echo -n "
+                        TASK_KEY_1
+                        TASK_KEY_2
+                        TASK_KEY_3
+                        TASK_KEY_4"
+      scheduler:
+        maxContainersPerPod: 10
+        maxConcurrentNumPerPod: 10
+    template:
+      metadata:
+        generateName: strategy-dynamic-testjob-
+      spec:
+        containers:
+          - name: test
+            image: alpine
+            workingDir: /work
+            command:
+              - echo
+            args:
+              - $TASK_KEY
 ```
 
 ### Output
@@ -539,7 +546,7 @@ TASK_KEY_2
 TASK_KEY_3
 TASK_KEY_4
 [INFO] elapsed time: 0.103151 sec.
-[INFO] found 4 dynamic keys to start distributed task. elapsed time 0.103151 sec
+[INFO] found 4 dynamic keys to start distributed task.
 [TASK_KEY:TASK_KEY_2] echo $TASK_KEY
 TASK_KEY_2
 
@@ -605,37 +612,38 @@ metadata:
   name: strategy-static-testjob
   namespace: default
 spec:
-  strategy:
-    key:
-      env: TASK_KEY
-      source:
-        static:
-          - TASK_KEY_1
-          - TASK_KEY_2
-          - TASK_KEY_3
-    scheduler:
-      maxContainersPerPod: 10
-      maxConcurrentNumPerPod: 10
+  mainStep:
+    strategy:
+      key:
+        env: TASK_KEY
+        source:
+          static:
+            - TASK_KEY_1
+            - TASK_KEY_2
+            - TASK_KEY_3
+      scheduler:
+        maxContainersPerPod: 10
+        maxConcurrentNumPerPod: 10
+    template:
+      metadata:
+        generateName: strategy-static-testjob-
+      spec:
+        artifacts:
+          - name: result
+            container:
+              name: test
+              path: /work/result.txt
+        containers:
+          - name: test
+            image: alpine
+            workingDir: /work
+            command:
+              - touch
+            args:
+              - result.txt
   exportArtifacts:
     - name: result
       path: /tmp/artifacts
-  template:
-    metadata:
-      generateName: strategy-static-testjob-
-    spec:
-      artifacts:
-        - name: result
-          container:
-            name: test
-            path: /work/result.txt
-      containers:
-        - name: test
-          image: alpine
-          workingDir: /work
-          command:
-            - touch
-          args:
-            - result.txt
 ```
 
 ### Output
