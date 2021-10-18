@@ -3,7 +3,9 @@
 
 package v1
 
-import "fmt"
+import (
+	"fmt"
+)
 
 type Validator struct {
 	tokenNameMap    map[string]struct{}
@@ -27,6 +29,9 @@ func (v *Validator) ValidateTestJob(job TestJob) error {
 }
 
 func (v *Validator) ValidateTestJobSpec(spec TestJobSpec) error {
+	if err := v.ValidateLog(spec.Log); err != nil {
+		return err
+	}
 	for _, token := range spec.Tokens {
 		if err := v.ValidateToken(token); err != nil {
 			return err
@@ -50,7 +55,7 @@ func (v *Validator) ValidateTestJobSpec(spec TestJobSpec) error {
 			return err
 		}
 	}
-	if err := v.ValidateMainStep(spec); err != nil {
+	if err := v.ValidateMainStep(spec.MainStep); err != nil {
 		return err
 	}
 	for _, poststep := range spec.PostSteps {
@@ -61,6 +66,17 @@ func (v *Validator) ValidateTestJobSpec(spec TestJobSpec) error {
 	for _, artifact := range spec.ExportArtifacts {
 		if err := v.ValidateExportArtifact(artifact); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+func (v *Validator) ValidateLog(spec LogSpec) error {
+	if spec.Level != LogLevelNone {
+		switch spec.Level {
+		case LogLevelDebug, LogLevelInfo, LogLevelWarn, LogLevelError:
+		default:
+			return fmt.Errorf("kubetest: unknown log level %d", spec.Level)
 		}
 	}
 	return nil
@@ -143,11 +159,11 @@ func (v *Validator) ValidatePreStep(prestep PreStep) error {
 	return nil
 }
 
-func (v *Validator) ValidateMainStep(spec TestJobSpec) error {
-	if err := v.ValidateStrategy(spec.Strategy); err != nil {
+func (v *Validator) ValidateMainStep(step MainStep) error {
+	if err := v.ValidateStrategy(step.Strategy); err != nil {
 		return err
 	}
-	if err := v.ValidateTestJobTemplateSpec(spec.Template, MainStepType); err != nil {
+	if err := v.ValidateTestJobTemplateSpec(step.Template, MainStepType); err != nil {
 		return err
 	}
 	return nil

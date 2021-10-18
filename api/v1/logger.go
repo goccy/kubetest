@@ -12,30 +12,6 @@ import (
 	"sync"
 )
 
-type LogLevel int
-
-const (
-	LogLevelNone LogLevel = iota
-	LogLevelError
-	LogLevelWarn
-	LogLevelInfo
-	LogLevelDebug
-)
-
-func (l LogLevel) String() string {
-	switch l {
-	case LogLevelNone:
-		return "none"
-	case LogLevelWarn:
-		return "warn"
-	case LogLevelInfo:
-		return "info"
-	case LogLevelDebug:
-		return "debug"
-	}
-	return ""
-}
-
 type Logger interface {
 	Log(msg string)
 	Debug(format string, args ...interface{})

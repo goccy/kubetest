@@ -58,35 +58,6 @@ func TestDeepCopy(t *testing.T) {
 					},
 				},
 			},
-			Strategy: &Strategy{
-				Key: StrategyKeySpec{
-					Env: "TEST",
-					Source: StrategyKeySource{
-						Dynamic: &StrategyDynamicKeySource{
-							Template: TestJobTemplateSpec{
-								ObjectMeta: metav1.ObjectMeta{
-									Name: "list",
-								},
-								Spec: TestJobPodSpec{
-									PodSpec: corev1.PodSpec{
-										Containers: []corev1.Container{
-											{
-												Name:    "list",
-												Image:   "alpine",
-												Command: []string{"sh", "-c"},
-												Args:    []string{`echo "A\nB\nC\nD"`},
-											},
-										},
-									},
-								},
-							},
-						},
-					},
-				},
-				Scheduler: Scheduler{
-					MaxContainersPerPod: 10,
-				},
-			},
 			PreSteps: []PreStep{
 				{
 					Name: "prestep1",
@@ -147,46 +118,77 @@ func TestDeepCopy(t *testing.T) {
 					},
 				},
 			},
-			Template: TestJobTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "test",
-				},
-				Spec: TestJobPodSpec{
-					PodSpec: corev1.PodSpec{
-						Containers: []corev1.Container{
-							{
-								Name:       "test",
-								Image:      "alpine",
-								Command:    []string{"sh", "-c"},
-								Args:       []string{"echo $TEST"},
-								WorkingDir: filepath.Join("/", "work"),
-								VolumeMounts: []corev1.VolumeMount{
-									{
-										Name:      "repo-volume",
-										MountPath: filepath.Join("/", "work"),
+			MainStep: MainStep{
+				Strategy: &Strategy{
+					Key: StrategyKeySpec{
+						Env: "TEST",
+						Source: StrategyKeySource{
+							Dynamic: &StrategyDynamicKeySource{
+								Template: TestJobTemplateSpec{
+									ObjectMeta: metav1.ObjectMeta{
+										Name: "list",
 									},
-									{
-										Name:      "artifact",
-										MountPath: filepath.Join("/", "work", "artifact.tar.gz"),
+									Spec: TestJobPodSpec{
+										PodSpec: corev1.PodSpec{
+											Containers: []corev1.Container{
+												{
+													Name:    "list",
+													Image:   "alpine",
+													Command: []string{"sh", "-c"},
+													Args:    []string{`echo "A\nB\nC\nD"`},
+												},
+											},
+										},
 									},
 								},
 							},
 						},
 					},
-					Volumes: []TestJobVolume{
-						{
-							Name: "repo-volume",
-							TestJobVolumeSource: TestJobVolumeSource{
-								Repo: &RepositoryVolumeSource{
-									Name: "repo",
+					Scheduler: Scheduler{
+						MaxContainersPerPod: 10,
+					},
+				},
+				Template: TestJobTemplateSpec{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "test",
+					},
+					Spec: TestJobPodSpec{
+						PodSpec: corev1.PodSpec{
+							Containers: []corev1.Container{
+								{
+									Name:       "test",
+									Image:      "alpine",
+									Command:    []string{"sh", "-c"},
+									Args:       []string{"echo $TEST"},
+									WorkingDir: filepath.Join("/", "work"),
+									VolumeMounts: []corev1.VolumeMount{
+										{
+											Name:      "repo-volume",
+											MountPath: filepath.Join("/", "work"),
+										},
+										{
+											Name:      "artifact",
+											MountPath: filepath.Join("/", "work", "artifact.tar.gz"),
+										},
+									},
 								},
 							},
 						},
-						{
-							Name: "artifact",
-							TestJobVolumeSource: TestJobVolumeSource{
-								Artifact: &ArtifactVolumeSource{
-									Name: "prestep-artifact",
+						Volumes: []TestJobVolume{
+							{
+								Name: "repo-volume",
+								TestJobVolumeSource: TestJobVolumeSource{
+									Repo: &RepositoryVolumeSource{
+										Name: "repo",
+									},
+								},
+							},
+							{
+								Name: "artifact",
+								TestJobVolumeSource: TestJobVolumeSource{
+									Artifact: &ArtifactVolumeSource{
+										Name: "prestep-artifact",
+									},
 								},
 							},
 						},
@@ -239,11 +241,6 @@ func TestDeepCopy(t *testing.T) {
 			_ = token.Value.GitHubToken.DeepCopy()
 		}
 	}
-	_ = job.Spec.Strategy.DeepCopy()
-	_ = job.Spec.Strategy.Key.DeepCopy()
-	_ = job.Spec.Strategy.Key.Source.DeepCopy()
-	_ = job.Spec.Strategy.Key.Source.Dynamic.DeepCopy()
-	_ = job.Spec.Strategy.Scheduler.DeepCopy()
 	for _, prestep := range job.Spec.PreSteps {
 		_ = prestep.DeepCopy()
 		for _, artifact := range prestep.Template.Spec.Artifacts {
@@ -263,9 +260,14 @@ func TestDeepCopy(t *testing.T) {
 			}
 		}
 	}
-	_ = job.Spec.Template.DeepCopy()
-	_ = job.Spec.Template.Spec.DeepCopy()
-	for _, volume := range job.Spec.Template.Spec.Volumes {
+	_ = job.Spec.MainStep.Strategy.DeepCopy()
+	_ = job.Spec.MainStep.Strategy.Key.DeepCopy()
+	_ = job.Spec.MainStep.Strategy.Key.Source.DeepCopy()
+	_ = job.Spec.MainStep.Strategy.Key.Source.Dynamic.DeepCopy()
+	_ = job.Spec.MainStep.Strategy.Scheduler.DeepCopy()
+	_ = job.Spec.MainStep.Template.DeepCopy()
+	_ = job.Spec.MainStep.Template.Spec.DeepCopy()
+	for _, volume := range job.Spec.MainStep.Template.Spec.Volumes {
 		_ = volume.DeepCopy()
 		_ = volume.TestJobVolumeSource.DeepCopy()
 		switch {

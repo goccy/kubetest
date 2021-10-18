@@ -53,14 +53,18 @@ func (r *Runner) SetLogger(logger Logger) {
 }
 
 func (r *Runner) Run(ctx context.Context, testjob TestJob) (*Result, error) {
-	if r.logger == nil {
-		r.logger = NewLogger(os.Stdout, LogLevelInfo)
-	}
-	r.logger.Info("start kubetest")
-	r.logger.Debug("run validation")
 	if err := testjob.Validate(); err != nil {
 		return nil, err
 	}
+	if r.logger == nil {
+		level := LogLevelInfo
+		if testjob.Spec.Log.Level != LogLevelNone {
+			level = testjob.Spec.Log.Level
+		}
+		r.logger = NewLogger(os.Stdout, level)
+	}
+	r.logger.Info("start kubetest")
+	r.logger.Debug("run validation")
 	startedAt := time.Now()
 	ctx = WithLogger(ctx, r.logger)
 	clientset, err := kubernetes.NewForConfig(r.cfg)
@@ -93,8 +97,8 @@ func (r *Runner) Run(ctx context.Context, testjob TestJob) (*Result, error) {
 		}
 		result.preStepResults = append(result.preStepResults, preStepResult)
 	}
-	scheduler := NewTaskScheduler(testjob.Spec.Strategy, builder)
-	taskGroup, err := scheduler.Schedule(ctx, testjob.Spec.Template)
+	scheduler := NewTaskScheduler(testjob.Spec.MainStep)
+	taskGroup, err := scheduler.Schedule(ctx, builder)
 	if err != nil {
 		return nil, err
 	}
