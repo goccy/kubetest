@@ -17,6 +17,7 @@ import (
 )
 
 type Task struct {
+	Name              string
 	OnFinishSubTask   func(*SubTask)
 	job               Job
 	copyArtifact      func(context.Context, *SubTask) error
@@ -133,6 +134,7 @@ func (t *Task) getSubTasks(execs []JobExecutor) []*SubTask {
 		}
 		tasks = append(tasks, &SubTask{
 			Name:         t.getKeyName(container),
+			TaskName:     t.Name,
 			KeyEnvName:   envName,
 			OnFinish:     t.OnFinishSubTask,
 			exec:         exec,

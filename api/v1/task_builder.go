@@ -105,6 +105,7 @@ func (b *TaskBuilder) BuildWithKey(ctx context.Context, step Step, strategyKey *
 		onFinishSubTask = strategyKey.OnFinishSubTask
 	}
 	return &Task{
+		Name:              step.GetName(),
 		OnFinishSubTask:   onFinishSubTask,
 		job:               job,
 		copyArtifact:      copyArtifact,

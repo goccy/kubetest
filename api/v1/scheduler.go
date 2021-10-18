@@ -152,11 +152,7 @@ func (s *TaskScheduler) dynamicKeys(ctx context.Context, builder *TaskBuilder, s
 		}
 		keys = append(keys, key)
 	}
-	LoggerFromContext(ctx).Info(
-		"found %d dynamic keys to start distributed task. elapsed time %f sec",
-		len(keys),
-		mainResults[0].ElapsedTime.Seconds(),
-	)
+	LoggerFromContext(ctx).Info("found %d dynamic keys to start distributed task", len(keys))
 	return keys, nil
 }
 
