@@ -12,6 +12,14 @@ import (
 	corev1 "k8s.io/api/core/v1"
 )
 
+func existsDir(path string) bool {
+	info, err := os.Stat(path)
+	if err != nil {
+		return false
+	}
+	return info.IsDir()
+}
+
 func getMainContainerFromTmpl(tmpl TestJobTemplateSpec) (corev1.Container, error) {
 	if tmpl.Main != "" {
 		for _, container := range tmpl.Spec.Containers {
