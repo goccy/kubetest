@@ -53,6 +53,10 @@ type Repository struct {
 	Token string `json:"token,omitempty"`
 	// Merge base branch
 	Merge *MergeSpec `json:"merge,omitempty"`
+	// ClonedPath specify the clone destination directory for repository.
+	// If the target repository has already been cloned and the directory is not empty,
+	// it will be reused ( doesn't clone ).
+	ClonedPath string `json:"clonedPath,omitempty"`
 }
 
 // MergeSpec describes the specification of merge behavior.

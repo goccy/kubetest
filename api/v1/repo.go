@@ -37,7 +37,6 @@ func NewRepositoryManager(repos []RepositorySpec, tokenMgr *TokenManager) *Repos
 }
 
 func (m *RepositoryManager) Cleanup() error {
-	return nil
 	errs := []string{}
 	for name, clonedPath := range m.clonedPaths {
 		if err := os.RemoveAll(clonedPath); err != nil {
@@ -57,12 +56,26 @@ func (m *RepositoryManager) Cleanup() error {
 
 func (m *RepositoryManager) CloneAll(ctx context.Context) error {
 	for _, repo := range m.repos {
-		repoDir, err := os.MkdirTemp("", "repo")
-		if err != nil {
-			return fmt.Errorf("kubetest: failed to create temporary directory for repository: %w", err)
-		}
-		if err := m.clone(ctx, repoDir, repo.Value); err != nil {
-			return err
+		var repoDir string
+		if repo.Value.ClonedPath != "" {
+			dir := repo.Value.ClonedPath
+			if !existsDir(dir) {
+				if err := m.clone(ctx, dir, repo.Value); err != nil {
+					return err
+				}
+			} else {
+				LoggerFromContext(ctx).Info("reuse an already cloned directory: %s", dir)
+			}
+			repoDir = dir
+		} else {
+			dir, err := os.MkdirTemp("", "repo")
+			if err != nil {
+				return fmt.Errorf("kubetest: failed to create temporary directory for repository: %w", err)
+			}
+			if err := m.clone(ctx, dir, repo.Value); err != nil {
+				return err
+			}
+			repoDir = dir
 		}
 		repoArchiveDir, err := os.MkdirTemp("", "repo-archive")
 		if err != nil {
