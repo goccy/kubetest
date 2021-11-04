@@ -135,6 +135,9 @@ func (v *Validator) ValidateRepositorySpec(spec RepositorySpec) error {
 }
 
 func (v *Validator) ValidateRepository(repo Repository) error {
+	if repo.ClonedPath != "" {
+		return nil
+	}
 	if repo.URL == "" {
 		return fmt.Errorf("kubetest: repository url must be specified")
 	}

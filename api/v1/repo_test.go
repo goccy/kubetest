@@ -80,12 +80,14 @@ func TestRepositoryManager(t *testing.T) {
 		}); err != nil {
 			t.Fatal(err)
 		}
-		mgr := NewRepositoryManager([]RepositorySpec{
-			{
-				Name:  "test",
-				Value: Repository{ClonedPath: dir},
-			},
-		}, new(TokenManager))
+		spec := RepositorySpec{
+			Name:  "test",
+			Value: Repository{ClonedPath: dir},
+		}
+		if err := NewValidator().ValidateRepositorySpec(spec); err != nil {
+			t.Fatal(err)
+		}
+		mgr := NewRepositoryManager([]RepositorySpec{spec}, new(TokenManager))
 		defer func() {
 			if err := mgr.Cleanup(); err != nil {
 				t.Fatal(err)
