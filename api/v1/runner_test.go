@@ -89,6 +89,53 @@ func TestRunner(t *testing.T) {
 			})
 		}
 	})
+	t.Run("initContainer", func(t *testing.T) {
+		for _, runMode := range getRunModes() {
+			t.Run(runMode.String(), func(t *testing.T) {
+				runner := NewRunner(getConfig(), runMode)
+				runner.SetLogger(NewLogger(os.Stdout, LogLevelDebug))
+				if _, err := runner.Run(context.Background(), TestJob{
+					ObjectMeta: testjobObjectMeta(),
+					Spec: TestJobSpec{
+						Repos: testRepos(),
+						MainStep: MainStep{
+							Template: TestJobTemplateSpec{
+								ObjectMeta: metav1.ObjectMeta{
+									GenerateName: "test",
+								},
+								Spec: TestJobPodSpec{
+									PodSpec: corev1.PodSpec{
+										InitContainers: []corev1.Container{
+											{
+												Name:       "init",
+												Image:      "alpine",
+												Command:    []string{"echo"},
+												Args:       []string{"init"},
+												WorkingDir: filepath.Join("/", "work"),
+											},
+										},
+										Containers: []corev1.Container{
+											{
+												Name:         "test",
+												Image:        "alpine",
+												Command:      []string{"echo"},
+												Args:         []string{"hello"},
+												WorkingDir:   filepath.Join("/", "work"),
+												VolumeMounts: []corev1.VolumeMount{testRepoVolumeMount()},
+											},
+										},
+									},
+									Volumes: []TestJobVolume{testRepoVolume()},
+								},
+							},
+						},
+					},
+				}); err != nil {
+					t.Fatal(err)
+				}
+			})
+		}
+	})
 	t.Run("use token", func(t *testing.T) {
 		if !inCluster {
 			privateKeyPath := filepath.Join("..", "..", "testdata", "githubapp.private-key.pem")
