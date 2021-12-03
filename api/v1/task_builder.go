@@ -822,19 +822,20 @@ func newTaskContainer(c corev1.Container, volumes []TestJobVolume) *TaskContaine
 	podSpecVolumeMap := map[string]corev1.Volume{}
 	preInitVolumeMountMap := map[string]corev1.VolumeMount{}
 
+	volumeNameToVolume := map[string]TestJobVolume{}
 	for _, volume := range volumes {
+		volumeNameToVolume[volume.Name] = volume
+	}
+	for idx, vm := range c.VolumeMounts {
+		volume := volumeNameToVolume[vm.Name]
 		switch {
 		case volume.Repo != nil:
 			repoVolumeName := volume.Name
 			repoName := volume.Repo.Name
 			archiveMountPath := filepath.Join("/", "tmp", "repo-archive", repoVolumeName)
 			repoNameToArchiveMountPath[repoName] = archiveMountPath
-			for idx, vm := range c.VolumeMounts {
-				if vm.Name == repoVolumeName {
-					repoNameToOrgMountPath[repoName] = vm.MountPath
-					c.VolumeMounts[idx].MountPath = archiveMountPath
-				}
-			}
+			repoNameToOrgMountPath[repoName] = vm.MountPath
+			c.VolumeMounts[idx].MountPath = archiveMountPath
 			// repository archive file mounted to /tmp/repo-archive/name directory on container by emptyDir
 			podSpecVolumeMap[repoVolumeName] = corev1.Volume{
 				Name: repoVolumeName,
@@ -851,12 +852,8 @@ func newTaskContainer(c corev1.Container, volumes []TestJobVolume) *TaskContaine
 			artifactName := volume.Artifact.Name
 			archiveMountPath := filepath.Join("/", "tmp", "artifact-archive", artifactVolumeName)
 			artifactNameToMountPath[artifactName] = archiveMountPath
-			for idx, vm := range c.VolumeMounts {
-				if vm.Name == artifactVolumeName {
-					artifactNameToOrgMountPath[artifactName] = vm.MountPath
-					c.VolumeMounts[idx].MountPath = archiveMountPath
-				}
-			}
+			artifactNameToOrgMountPath[artifactName] = vm.MountPath
+			c.VolumeMounts[idx].MountPath = archiveMountPath
 			podSpecVolumeMap[artifactVolumeName] = corev1.Volume{
 				Name: artifactVolumeName,
 				VolumeSource: corev1.VolumeSource{
@@ -872,12 +869,8 @@ func newTaskContainer(c corev1.Container, volumes []TestJobVolume) *TaskContaine
 			tokenName := volume.Token.Name
 			tokenMountPath := filepath.Join("/", "tmp", "token", tokenVolumeName)
 			tokenNameToMountPath[tokenName] = tokenMountPath
-			for idx, vm := range c.VolumeMounts {
-				if vm.Name == tokenVolumeName {
-					tokenNameToOrgMountPath[tokenName] = vm.MountPath
-					c.VolumeMounts[idx].MountPath = tokenMountPath
-				}
-			}
+			tokenNameToOrgMountPath[tokenName] = vm.MountPath
+			c.VolumeMounts[idx].MountPath = tokenMountPath
 			podSpecVolumeMap[tokenVolumeName] = corev1.Volume{
 				Name: tokenVolumeName,
 				VolumeSource: corev1.VolumeSource{
@@ -890,12 +883,8 @@ func newTaskContainer(c corev1.Container, volumes []TestJobVolume) *TaskContaine
 			}
 		case volume.Log != nil:
 			logVolumeName := volume.Name
-			for idx, vm := range c.VolumeMounts {
-				if vm.Name == logVolumeName {
-					logOrgMountPaths = append(logOrgMountPaths, vm.MountPath)
-					c.VolumeMounts[idx].MountPath = logMountPath
-				}
-			}
+			logOrgMountPaths = append(logOrgMountPaths, vm.MountPath)
+			c.VolumeMounts[idx].MountPath = logMountPath
 			podSpecVolumeMap[logVolumeName] = corev1.Volume{
 				Name: logVolumeName,
 				VolumeSource: corev1.VolumeSource{
@@ -908,12 +897,8 @@ func newTaskContainer(c corev1.Container, volumes []TestJobVolume) *TaskContaine
 			}
 		case volume.Report != nil:
 			reportVolumeName := volume.Name
-			for idx, vm := range c.VolumeMounts {
-				if vm.Name == reportVolumeName {
-					reportOrgMountPaths = append(reportOrgMountPaths, vm.MountPath)
-					c.VolumeMounts[idx].MountPath = reportMountPath
-				}
-			}
+			reportOrgMountPaths = append(reportOrgMountPaths, vm.MountPath)
+			c.VolumeMounts[idx].MountPath = reportMountPath
 			podSpecVolumeMap[reportVolumeName] = corev1.Volume{
 				Name: reportVolumeName,
 				VolumeSource: corev1.VolumeSource{
