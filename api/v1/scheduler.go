@@ -24,7 +24,7 @@ func NewTaskScheduler(step MainStep) *TaskScheduler {
 }
 
 type StrategyKey struct {
-	ConcurrentIdx    int
+	ConcurrentIdx    uint32
 	Keys             []string
 	Env              string
 	SubTaskScheduler *SubTaskScheduler
@@ -45,14 +45,14 @@ func (s *TaskScheduler) Schedule(ctx context.Context, builder *TaskBuilder) (*Ta
 		return nil, err
 	}
 	subTaskScheduler := NewSubTaskScheduler(strategy.Scheduler.MaxConcurrentNumPerPod)
-	maxContainers := strategy.Scheduler.MaxContainersPerPod
+	maxContainers := uint32(strategy.Scheduler.MaxContainersPerPod)
 
 	var (
 		finishedKeyNum uint32
 		keyNum         uint32 = uint32(len(keys))
 		onFinishMu     sync.Mutex
 	)
-	if len(keys) <= maxContainers {
+	if keyNum <= maxContainers {
 		task, err := builder.BuildWithKey(ctx, &s.step, &StrategyKey{
 			ConcurrentIdx:    0,
 			Keys:             keys,
@@ -73,15 +73,20 @@ func (s *TaskScheduler) Schedule(ctx context.Context, builder *TaskBuilder) (*Ta
 		}
 		return NewTaskGroup([]*Task{task}), nil
 	}
-	concurrent := len(keys) / maxContainers
+	concurrent := keyNum / maxContainers
 	tasks := []*Task{}
-	sum := 0
-	for i := 0; i <= concurrent; i++ {
+	sum := uint32(0)
+	for i := uint32(0); i <= concurrent; i++ {
 		var taskKeys []string
 		if i == concurrent {
 			taskKeys = keys[sum:]
 		} else {
 			taskKeys = keys[sum : sum+maxContainers]
+		}
+		taskNum := uint32(len(taskKeys))
+		if taskNum == 0 {
+			// if 'keyNum % maxContaienrs' is zero, taskKeys goes to zero in the last loop.
+			continue
 		}
 		task, err := builder.BuildWithKey(ctx, &s.step, &StrategyKey{
 			ConcurrentIdx:    i,
@@ -100,7 +105,10 @@ func (s *TaskScheduler) Schedule(ctx context.Context, builder *TaskBuilder) (*Ta
 			return nil, err
 		}
 		tasks = append(tasks, task)
-		sum += maxContainers
+		sum += taskNum
+	}
+	if keyNum != sum {
+		return nil, fmt.Errorf("kubetest: failed to schedule: required key num %d but scheduled key num %d", keyNum, sum)
 	}
 	return NewTaskGroup(tasks), nil
 }

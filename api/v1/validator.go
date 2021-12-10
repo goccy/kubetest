@@ -381,8 +381,14 @@ func (v *Validator) ValidateScheduler(scheduler Scheduler) error {
 	if scheduler.MaxContainersPerPod == 0 {
 		return fmt.Errorf("kubetest: strategy.scheduler.maxContainersPerPod must be specified")
 	}
+	if scheduler.MaxContainersPerPod < 0 {
+		return fmt.Errorf("kubetest: strategy.scheduler.maxContainersPerPod must be a number greater than zero")
+	}
 	if scheduler.MaxConcurrentNumPerPod == 0 {
 		return fmt.Errorf("kubetest: strategy.scheduler.maxConcurrentNumPerPod must be specified")
+	}
+	if scheduler.MaxConcurrentNumPerPod < 0 {
+		return fmt.Errorf("kubetest: strategy.scheduler.ConcurrentNumPerPod must be a number greater than zero")
 	}
 	return nil
 }
