@@ -83,7 +83,8 @@ func (s *TaskScheduler) Schedule(ctx context.Context, builder *TaskBuilder) (*Ta
 		} else {
 			taskKeys = keys[sum : sum+maxContainers]
 		}
-		if len(taskKeys) == 0 {
+		taskNum := uint32(len(taskKeys))
+		if taskNum == 0 {
 			// if 'keyNum % maxContaienrs' is zero, taskKeys goes to zero in the last loop.
 			continue
 		}
@@ -104,7 +105,7 @@ func (s *TaskScheduler) Schedule(ctx context.Context, builder *TaskBuilder) (*Ta
 			return nil, err
 		}
 		tasks = append(tasks, task)
-		sum += maxContainers
+		sum += taskNum
 	}
 	if keyNum != sum {
 		return nil, fmt.Errorf("kubetest: failed to schedule: required key num %d but scheduled key num %d", keyNum, sum)
