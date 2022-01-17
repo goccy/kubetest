@@ -377,6 +377,10 @@ func TestRunner(t *testing.T) {
 	t.Run("failed to get dynamic key command", func(t *testing.T) {
 		for _, runMode := range getRunModes() {
 			t.Run(runMode.String(), func(t *testing.T) {
+				if runMode == RunModeDryRun {
+					// skip because dry-run mode always successful
+					t.Skip()
+				}
 				runner := NewRunner(getConfig(), runMode)
 				runner.SetLogger(NewLogger(os.Stdout, LogLevelDebug))
 				if _, err := runner.Run(context.Background(), TestJob{
