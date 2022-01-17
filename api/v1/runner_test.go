@@ -374,6 +374,75 @@ func TestRunner(t *testing.T) {
 			})
 		}
 	})
+	t.Run("failed to get dynamic key command", func(t *testing.T) {
+		for _, runMode := range getRunModes() {
+			t.Run(runMode.String(), func(t *testing.T) {
+				if runMode == RunModeDryRun {
+					// skip because dry-run mode always successful
+					t.Skip()
+				}
+				runner := NewRunner(getConfig(), runMode)
+				runner.SetLogger(NewLogger(os.Stdout, LogLevelDebug))
+				if _, err := runner.Run(context.Background(), TestJob{
+					ObjectMeta: testjobObjectMeta(),
+					Spec: TestJobSpec{
+						MainStep: MainStep{
+							Strategy: &Strategy{
+								Key: StrategyKeySpec{
+									Env: "TEST",
+									Source: StrategyKeySource{
+										Dynamic: &StrategyDynamicKeySource{
+											Template: TestJobTemplateSpec{
+												ObjectMeta: metav1.ObjectMeta{
+													Name: "list",
+												},
+												Spec: TestJobPodSpec{
+													PodSpec: corev1.PodSpec{
+														Containers: []corev1.Container{
+															{
+																Name:    "list",
+																Image:   "alpine",
+																Command: []string{"exit"},
+																Args:    []string{"1"},
+															},
+														},
+													},
+												},
+											},
+										},
+									},
+								},
+								Scheduler: Scheduler{
+									MaxContainersPerPod:    10,
+									MaxConcurrentNumPerPod: 10,
+								},
+							},
+							Template: TestJobTemplateSpec{
+								ObjectMeta: metav1.ObjectMeta{
+									Name: "test",
+								},
+								Spec: TestJobPodSpec{
+									PodSpec: corev1.PodSpec{
+										Containers: []corev1.Container{
+											{
+												Name:       "test",
+												Image:      "alpine",
+												Command:    []string{"sh", "-c"},
+												Args:       []string{"echo $TEST"},
+												WorkingDir: filepath.Join("/", "work"),
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				}); err == nil {
+					t.Fatal("expected error")
+				}
+			})
+		}
+	})
 	t.Run("dynamic key based multiple tasks", func(t *testing.T) {
 		for _, runMode := range getRunModes() {
 			t.Run(runMode.String(), func(t *testing.T) {
