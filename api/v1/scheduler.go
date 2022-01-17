@@ -145,6 +145,9 @@ func (s *TaskScheduler) dynamicKeys(ctx context.Context, builder *TaskBuilder, s
 	if len(mainResults) > 1 {
 		return nil, fmt.Errorf("kubetest: found multiple main task results")
 	}
+	if mainResults[0].Err != nil {
+		return nil, fmt.Errorf("kubetest: failed to get dynamic key task: %w", mainResults[0].Err)
+	}
 	out := mainResults[0].Out
 	filter, err := s.sourceFilter(source.Filter)
 	if err != nil {
