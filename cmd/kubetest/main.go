@@ -80,7 +80,7 @@ func assignStaticKeys(job *kubetestv1.TestJob, opt option) error {
 	return job.SetStaticStrategyKeys(staticKeys)
 }
 
-func _main(args []string, opt option) (*kubetestv1.Result, error) {
+func _main(args []string, opt option) (*kubetestv1.Report, error) {
 	if len(args) != 1 {
 		return nil, fmt.Errorf("unspecified testjob file path")
 	}
@@ -138,7 +138,7 @@ func _main(args []string, opt option) (*kubetestv1.Result, error) {
 		}
 	}()
 
-	result, err := runner.Run(ctx, job)
+	report, err := runner.Run(ctx, job)
 	if err != nil {
 		if canceledBySignal {
 			fmt.Fprintln(os.Stderr, err)
@@ -146,7 +146,7 @@ func _main(args []string, opt option) (*kubetestv1.Result, error) {
 		}
 		return nil, err
 	}
-	return result, nil
+	return report, nil
 }
 
 func parseOpt() ([]string, option, error) {
@@ -175,17 +175,17 @@ func main() {
 		}
 		os.Exit(ExitWithOtherError)
 	}
-	result, err := _main(args, opt)
+	report, err := _main(args, opt)
 	if err != nil {
 		fatalError(err)
 	}
-	b, err := json.MarshalIndent(result, "", "  ")
+	b, err := json.MarshalIndent(report, "", "  ")
 	if err != nil {
 		fatalError(err)
 	}
 	fmt.Fprintln(os.Stdout, string(b))
 	if opt.Output != "" {
-		b, err := json.Marshal(result)
+		b, err := json.Marshal(report)
 		if err != nil {
 			fatalError(err)
 		}
@@ -193,7 +193,7 @@ func main() {
 			fatalError(err)
 		}
 	}
-	if result.Status != kubetestv1.ResultStatusSuccess {
+	if report.Status != kubetestv1.ResultStatusSuccess {
 		os.Exit(ExitWithFailureTestJob)
 	}
 }
