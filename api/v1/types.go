@@ -1,6 +1,8 @@
 package v1
 
 import (
+	"time"
+
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -230,6 +232,33 @@ type ReportFormatType string
 const (
 	ReportFormatTypeJSON ReportFormatType = "json"
 )
+
+// ResultStatus execution result of task
+type ResultStatus string
+
+const (
+	ResultStatusSuccess ResultStatus = "success"
+	ResultStatusFailure              = "failure"
+	ResultStatusError                = "error"
+)
+
+type Report struct {
+	Status         ResultStatus      `json:"status"`
+	StartedAt      time.Time         `json:"startedAt"`
+	ElapsedTimeSec int64             `json:"elapsedTimeSec"`
+	TotalNum       int               `json:"totalNum"`
+	SuccessNum     int               `json:"successNum"`
+	FailureNum     int               `json:"failureNum"`
+	UnknownNum     int               `json:"unknownNum,omitempty"`
+	Details        []*ReportDetail   `json:"details"`
+	ExtParam       map[string]string `json:"ext,omitempty"`
+}
+
+type ReportDetail struct {
+	Status         ResultStatus `json:"status"`
+	Name           string       `json:"name"`
+	ElapsedTimeSec int64        `json:"elapsedTimeSec"`
+}
 
 // ReportVolumeSource
 type ReportVolumeSource struct {

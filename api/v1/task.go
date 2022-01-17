@@ -5,7 +5,6 @@ package v1
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"sync"
 	"time"
@@ -308,25 +307,20 @@ func (g *TaskResultGroup) Status() ResultStatus {
 	return ResultStatusSuccess
 }
 
-func (g *TaskResultGroup) MarshalJSON() ([]byte, error) {
-	type resultReport struct {
-		Status         TaskResultStatus `json:"status"`
-		Name           string           `json:"name"`
-		ElapsedTimeSec int64            `json:"elapsedTimeSec"`
-	}
-	allResults := []*resultReport{}
+func (g *TaskResultGroup) ToReportDetails() []*ReportDetail {
+	details := make([]*ReportDetail, 0, g.TotalNum())
 	for _, result := range g.results {
 		for _, group := range result.groups {
 			for _, subTaskResult := range group.results {
-				allResults = append(allResults, &resultReport{
-					Status:         subTaskResult.Status,
+				details = append(details, &ReportDetail{
+					Status:         subTaskResult.Status.ToResultStatus(),
 					Name:           subTaskResult.Name,
 					ElapsedTimeSec: int64(subTaskResult.ElapsedTime.Seconds()),
 				})
 			}
 		}
 	}
-	return json.Marshal(allResults)
+	return details
 }
 
 func (g *TaskResultGroup) add(result *TaskResult) {

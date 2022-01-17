@@ -5,7 +5,6 @@ package v1
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"time"
@@ -52,7 +51,7 @@ func (r *Runner) SetLogger(logger Logger) {
 	r.logger = logger
 }
 
-func (r *Runner) Run(ctx context.Context, testjob TestJob) (*Result, error) {
+func (r *Runner) Run(ctx context.Context, testjob TestJob) (*Report, error) {
 	if err := testjob.Validate(); err != nil {
 		return nil, err
 	}
@@ -134,39 +133,17 @@ func (r *Runner) Run(ctx context.Context, testjob TestJob) (*Result, error) {
 	if err := resourceMgr.ExportArtifacts(ctx); err != nil {
 		return nil, err
 	}
-	return &result, nil
-}
-
-type ResultStatus int
-
-const (
-	ResultStatusSuccess ResultStatus = iota
-	ResultStatusFailure
-	ResultStatusError
-)
-
-func (s ResultStatus) String() string {
-	switch s {
-	case ResultStatusSuccess:
-		return "success"
-	case ResultStatusFailure:
-		return "failure"
-	}
-	return "error"
-}
-
-func (s ResultStatus) MarshalJSON() ([]byte, error) {
-	return []byte(fmt.Sprintf(`"%s"`, s.String())), nil
+	return result.toReport(), nil
 }
 
 type Result struct {
-	Status          ResultStatus
-	StartedAt       time.Time
-	ElapsedTime     time.Duration
-	TotalNum        int
-	SuccessNum      int
-	FailureNum      int
-	UnknownNum      int
+	status          ResultStatus
+	startedAt       time.Time
+	elapsedTime     time.Duration
+	totalNum        int
+	successNum      int
+	failureNum      int
+	unknownNum      int
 	preStepResults  []*TaskResult
 	postStepResults []*TaskResult
 	taskResult      *TaskResultGroup
@@ -174,48 +151,29 @@ type Result struct {
 }
 
 func (r *Result) setByTaskResult(startedAt time.Time, taskResult *TaskResultGroup) {
-	r.StartedAt = startedAt
-	r.Status = taskResult.Status()
-	r.TotalNum = taskResult.TotalNum()
-	r.SuccessNum = taskResult.SuccessNum()
-	r.FailureNum = taskResult.FailureNum()
-	if r.TotalNum != (r.SuccessNum + r.FailureNum) {
-		r.Status = ResultStatusError
-		r.UnknownNum = r.TotalNum - (r.SuccessNum + r.FailureNum)
+	r.startedAt = startedAt
+	r.status = taskResult.Status()
+	r.totalNum = taskResult.TotalNum()
+	r.successNum = taskResult.SuccessNum()
+	r.failureNum = taskResult.FailureNum()
+	if r.totalNum != (r.successNum + r.failureNum) {
+		r.status = ResultStatusError
+		r.unknownNum = r.totalNum - (r.successNum + r.failureNum)
 	}
 	r.taskResult = taskResult
-	r.ElapsedTime = time.Since(startedAt)
+	r.elapsedTime = time.Since(startedAt)
 }
 
-func (r *Result) MarshalJSON() ([]byte, error) {
-	b, err := json.Marshal(struct {
-		Status         ResultStatus     `json:"status"`
-		TotalNum       int              `json:"totalNum"`
-		SuccessNum     int              `json:"successNum"`
-		FailureNum     int              `json:"failureNum"`
-		UnknownNum     int              `json:"unknownNum,omitempty"`
-		StartedAt      time.Time        `json:"startedAt"`
-		ElapsedTimeSec int64            `json:"elapsedTimeSec"`
-		Details        *TaskResultGroup `json:"details"`
-	}{
-		Status:         r.Status,
-		TotalNum:       r.TotalNum,
-		SuccessNum:     r.SuccessNum,
-		FailureNum:     r.FailureNum,
-		UnknownNum:     r.UnknownNum,
-		StartedAt:      r.StartedAt,
-		ElapsedTimeSec: int64(r.ElapsedTime.Seconds()),
-		Details:        r.taskResult,
-	})
-	if err != nil {
-		return nil, err
+func (r *Result) toReport() *Report {
+	return &Report{
+		Status:         r.status,
+		TotalNum:       r.totalNum,
+		SuccessNum:     r.successNum,
+		FailureNum:     r.failureNum,
+		UnknownNum:     r.unknownNum,
+		StartedAt:      r.startedAt,
+		ElapsedTimeSec: int64(r.elapsedTime.Seconds()),
+		Details:        r.taskResult.ToReportDetails(),
+		ExtParam:       r.job.Spec.Log.ExtParam,
 	}
-	var logMap map[string]interface{}
-	if err := json.Unmarshal(b, &logMap); err != nil {
-		return nil, err
-	}
-	for k, v := range r.job.Spec.Log.ExtParam {
-		logMap[k] = v
-	}
-	return json.Marshal(logMap)
 }

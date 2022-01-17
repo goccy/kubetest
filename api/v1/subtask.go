@@ -128,6 +128,16 @@ const (
 	TaskResultFailure
 )
 
+func (s TaskResultStatus) ToResultStatus() ResultStatus {
+	switch s {
+	case TaskResultSuccess:
+		return ResultStatusSuccess
+	case TaskResultFailure:
+		return ResultStatusFailure
+	}
+	return ResultStatusError
+}
+
 func (s TaskResultStatus) String() string {
 	switch s {
 	case TaskResultSuccess:
