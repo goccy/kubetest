@@ -116,7 +116,7 @@ func (b *TaskBuilder) BuildWithKey(ctx context.Context, step Step, strategyKey *
 }
 
 func (b *TaskBuilder) buildJob(ctx context.Context, mainContainer corev1.Container, tmpl TestJobTemplateSpec, strategyKey *StrategyKey) (Job, error) {
-	spec := tmpl.Spec
+	spec := *tmpl.Spec.DeepCopy()
 	spec.PodSpec = b.addContainersByStrategyKey(spec.PodSpec, mainContainer, strategyKey)
 	buildCtx := &TaskBuildContext{
 		initContainers: newTaskContainerGroup(spec.InitContainers, spec.Volumes),
