@@ -86,17 +86,29 @@ func (v *Validator) ValidateToken(token TokenSpec) error {
 	if token.Name == "" {
 		return fmt.Errorf("kubetest: token name must be specified")
 	}
-	if token.Value.GitHubApp == nil && token.Value.GitHubToken == nil {
-		return fmt.Errorf("kubetest: githubApp or githubToken must be specified")
+	var foundSource int
+	if token.Value.GitHubApp != nil {
+		foundSource++
 	}
-	if token.Value.GitHubApp != nil && token.Value.GitHubToken != nil {
-		return fmt.Errorf("kubetest: only one of githubApp or githubToken needs to be specified")
+	if token.Value.GitHubToken != nil {
+		foundSource++
+	}
+	if token.Value.FilePath != nil {
+		foundSource++
+	}
+	if foundSource == 0 {
+		return fmt.Errorf("kubetest: githubApp or githubToken or filePath must be specified")
+	}
+	if foundSource > 1 {
+		return fmt.Errorf("kubetest: only one of githubApp or githubToken or filePath needs to be specified")
 	}
 	switch {
 	case token.Value.GitHubApp != nil:
 		return v.ValidateGitHubAppTokenSource(token.Value.GitHubApp)
 	case token.Value.GitHubToken != nil:
 		return v.ValidateGitHubTokenSource(token.Value.GitHubToken)
+	case token.Value.FilePath != nil:
+		return v.ValidateFilePathTokenSource(token.Value.FilePath)
 	}
 	return nil
 }
@@ -120,6 +132,13 @@ func (v *Validator) ValidateGitHubTokenSource(source *GitHubTokenSource) error {
 	}
 	if source.Key == "" {
 		return fmt.Errorf("kubetest: githubToken.key must be specified")
+	}
+	return nil
+}
+
+func (v *Validator) ValidateFilePathTokenSource(source *string) error {
+	if source == nil || *source == "" {
+		return fmt.Errorf("kubetest: filePath must be not empty string")
 	}
 	return nil
 }
