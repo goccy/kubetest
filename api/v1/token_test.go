@@ -90,3 +90,33 @@ func TestTokenFromGitHubApp(t *testing.T) {
 		t.Fatalf("failed to get valid token: %s", token)
 	}
 }
+
+func TestTokenFromFilePath(t *testing.T) {
+	tmpdir, err := os.MkdirTemp("", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpdir)
+	tokenFilePath := filepath.Join(tmpdir, "token")
+	tokenContent := []byte(`dummytoken`)
+	if err := os.WriteFile(tokenFilePath, tokenContent, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	mgr := NewTokenManager([]TokenSpec{
+		{
+			Name: "filePathToken",
+			Value: TokenSource{
+				FilePath: &tokenFilePath,
+			},
+		},
+	}, NewTokenClient(nil, "default"))
+	ctx := WithLogger(context.Background(), NewLogger(os.Stdout, LogLevelInfo))
+	token, err := mgr.TokenByName(ctx, "filePathToken")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if token.Value != string(tokenContent) {
+		t.Fatalf("failed to get token from file. expected %s but got %s", string(tokenContent), token.Value)
+	}
+}

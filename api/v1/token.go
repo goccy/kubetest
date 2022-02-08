@@ -81,6 +81,8 @@ func (c *TokenClient) AccessToken(ctx context.Context, token TokenSource) (strin
 		return c.tokenFromGitHubApp(ctx, token.GitHubApp)
 	case token.GitHubToken != nil:
 		return c.tokenFromGitHubToken(ctx, token.GitHubToken)
+	case token.FilePath != nil:
+		return c.tokenFromFilePath(ctx, token.FilePath)
 	}
 	return "", nil
 }
@@ -118,6 +120,14 @@ func (c *TokenClient) tokenFromGitHubApp(ctx context.Context, source *GitHubAppT
 		return "", fmt.Errorf("kubetset: failed to get token from github app params: %w", err)
 	}
 	return token, nil
+}
+
+func (c *TokenClient) tokenFromFilePath(ctx context.Context, source *string) (string, error) {
+	data, err := os.ReadFile(*source)
+	if err != nil {
+		return "", fmt.Errorf("kubetest: failed to get token from file path: %w", err)
+	}
+	return string(data), nil
 }
 
 func (c *TokenClient) tokenFromGitHubAppWithParam(ctx context.Context, appID, installationID int64, org string, privateKey []byte) (string, error) {

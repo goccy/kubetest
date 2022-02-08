@@ -80,6 +80,7 @@ type TokenSpec struct {
 type TokenSource struct {
 	GitHubApp   *GitHubAppTokenSource `json:"githubApp,omitempty"`
 	GitHubToken *GitHubTokenSource    `json:"githubToken,omitempty"`
+	FilePath    *string               `json:"filePath,omitempty"`
 }
 
 // GitHubAppTokenSource describes the specification of github app based token.
