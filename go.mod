@@ -6,7 +6,7 @@ require (
 	github.com/bradleyfalzon/ghinstallation/v2 v2.0.3
 	github.com/go-git/go-git/v5 v5.4.2
 	github.com/go-logr/logr v0.4.0
-	github.com/goccy/kubejob v0.2.13
+	github.com/goccy/kubejob v0.2.14-0.20220316055935-374ac9860c3b
 	github.com/google/go-github/v29 v29.0.2
 	github.com/jessevdk/go-flags v1.5.0
 	github.com/lestrrat-go/backoff v1.0.1
