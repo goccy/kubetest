@@ -60,6 +60,7 @@ func (t *SubTask) Run(ctx context.Context) *SubTaskResult {
 		}
 	}()
 	start := time.Now()
+	fmt.Println("taskName = ", t.TaskName)
 	out, err := t.exec.Output(ctx)
 	result := &SubTaskResult{
 		ElapsedTime: time.Since(start),

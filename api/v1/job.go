@@ -135,10 +135,14 @@ func (e *kubernetesJobExecutor) PrepareCommand(cmd []string) ([]byte, error) {
 }
 
 func (e *kubernetesJobExecutor) Output(_ context.Context) ([]byte, error) {
-	return e.exec.ExecOnly()
+	fmt.Println("do ExecOnly")
+	out, err := e.exec.ExecOnly()
+	fmt.Println("return do ExecOnly", string(out), err)
+	return out, err
 }
 
 func (e *kubernetesJobExecutor) ExecAsync(_ context.Context) {
+	fmt.Println("do ExecAsync")
 	e.exec.ExecAsync()
 }
 
