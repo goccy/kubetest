@@ -46,13 +46,17 @@ func (t *SubTask) outputError(logGroup Logger, baseErr error) {
 	}
 }
 
+const (
+	terminationLog = "kubetest task is completed"
+)
+
 func (t *SubTask) Run(ctx context.Context) *SubTaskResult {
 	logger := LoggerFromContext(ctx)
 	logGroup := logger.Group()
 	ctx = WithLogger(ctx, logGroup)
 	defer func() {
-		if err := t.exec.Stop(ctx); err != nil {
-			logGroup.Warn("failed to stop %s", err)
+		if err := t.exec.TerminationLog(ctx, terminationLog); err != nil {
+			logGroup.Warn("failed to send termination log: %s", err.Error())
 		}
 		logger.LogGroup(logGroup)
 		if t.OnFinish != nil {
