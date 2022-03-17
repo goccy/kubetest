@@ -105,12 +105,13 @@ func (t *Task) run(ctx context.Context) (*TaskResult, error) {
 			result.add(group)
 			return nil
 		}
-		for _, subTaskGroup := range t.strategyKey.SubTaskScheduler.Schedule(subTasks) {
-			group, err := subTaskGroup.Run(ctx)
+		subTaskGroups := t.strategyKey.SubTaskScheduler.Schedule(subTasks)
+		for _, subTaskGroup := range subTaskGroups {
+			rg, err := subTaskGroup.Run(ctx)
 			if err != nil {
 				return err
 			}
-			result.add(group)
+			result.add(rg)
 		}
 		return nil
 	}); err != nil {

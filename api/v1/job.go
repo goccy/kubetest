@@ -30,6 +30,7 @@ type Job interface {
 type JobExecutor interface {
 	Output(context.Context) ([]byte, error)
 	ExecAsync(context.Context)
+	TerminationLog(context.Context, string) error
 	Stop(context.Context) error
 	CopyFrom(context.Context, string, string) error
 	CopyTo(context.Context, string, string) error
@@ -140,6 +141,10 @@ func (e *kubernetesJobExecutor) Output(_ context.Context) ([]byte, error) {
 
 func (e *kubernetesJobExecutor) ExecAsync(_ context.Context) {
 	e.exec.ExecAsync()
+}
+
+func (e *kubernetesJobExecutor) TerminationLog(_ context.Context, log string) error {
+	return e.exec.TerminationLog(log)
 }
 
 func (e *kubernetesJobExecutor) Stop(_ context.Context) error {
@@ -287,6 +292,10 @@ func (e *localJobExecutor) ExecAsync(_ context.Context) {
 	}()
 }
 
+func (e *localJobExecutor) TerminationLog(_ context.Context, _ string) error {
+	return nil
+}
+
 func (e *localJobExecutor) Stop(_ context.Context) error {
 	return nil
 }
@@ -356,8 +365,9 @@ func (e *dryRunJobExecutor) Output(_ context.Context) ([]byte, error) {
 	return []byte("( dry running .... )"), nil
 }
 
-func (e *dryRunJobExecutor) ExecAsync(_ context.Context)  {}
-func (e *dryRunJobExecutor) Stop(_ context.Context) error { return nil }
+func (e *dryRunJobExecutor) ExecAsync(_ context.Context)                      {}
+func (e *dryRunJobExecutor) TerminationLog(_ context.Context, _ string) error { return nil }
+func (e *dryRunJobExecutor) Stop(_ context.Context) error                     { return nil }
 func (e *dryRunJobExecutor) CopyFrom(ctx context.Context, src string, dst string) error {
 	LoggerFromContext(ctx).Debug("copy from %s on container to %s on local", src, dst)
 	return nil
