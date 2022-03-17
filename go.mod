@@ -6,7 +6,7 @@ require (
 	github.com/bradleyfalzon/ghinstallation/v2 v2.0.3
 	github.com/go-git/go-git/v5 v5.4.2
 	github.com/go-logr/logr v0.4.0
-	github.com/goccy/kubejob v0.2.14-0.20220316085535-ef69e3653b13
+	github.com/goccy/kubejob v0.2.14-0.20220317062105-8a9926b7e8ea
 	github.com/google/go-github/v29 v29.0.2
 	github.com/jessevdk/go-flags v1.5.0
 	github.com/lestrrat-go/backoff v1.0.1
@@ -14,6 +14,8 @@ require (
 	github.com/onsi/gomega v1.12.0
 	golang.org/x/mod v0.3.1-0.20200828183125-ce943fd02449 // indirect
 	golang.org/x/sync v0.0.0-20210220032951-036812b2e83c
+	golang.org/x/sys v0.0.0-20210927094055-39ccf1dd6fa6 // indirect
+	golang.org/x/text v0.3.7 // indirect
 	golang.org/x/tools v0.1.0 // indirect
 	k8s.io/api v0.21.0
 	k8s.io/apimachinery v0.21.0

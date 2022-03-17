@@ -51,16 +51,12 @@ func (t *SubTask) Run(ctx context.Context) *SubTaskResult {
 	logGroup := logger.Group()
 	ctx = WithLogger(ctx, logGroup)
 	defer func() {
-		if err := t.exec.Stop(ctx); err != nil {
-			logGroup.Warn("failed to stop %s", err)
-		}
 		logger.LogGroup(logGroup)
 		if t.OnFinish != nil {
 			t.OnFinish(t)
 		}
 	}()
 	start := time.Now()
-	fmt.Println("name = ", t.Name)
 	out, err := t.exec.Output(ctx)
 	result := &SubTaskResult{
 		ElapsedTime: time.Since(start),
