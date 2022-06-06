@@ -49,8 +49,12 @@ test-cluster: $(KIND)
 delete-cluster: $(KIND)
 	$(KIND) delete clusters $(CLUSTER_NAME)
 
-deploy: test-cluster
+deploy: test-cluster deploy/image
 	kubectl apply -f testdata/config/manifest.yaml
+
+deploy/image:
+	docker build --progress plain -f Dockerfile --target agent . -t kubetest:latest
+	kind load docker-image --name $(CLUSTER_NAME) kubetest:latest
 
 wait:
 	{ \

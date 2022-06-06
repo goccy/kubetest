@@ -99,7 +99,7 @@ spec:
       serviceAccountName: kubetest
       containers:
         - name: kubetest
-          image: golang:1.16.8-buster
+          image: golang:1.17-stretch
           workingDir: /go/src/kubetest
           command:
             - tail

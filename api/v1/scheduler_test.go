@@ -40,9 +40,9 @@ func TestScheduler(t *testing.T) {
 						GenerateName: "test-",
 					},
 					Spec: TestJobPodSpec{
-						PodSpec: corev1.PodSpec{
-							Containers: []corev1.Container{
-								{
+						Containers: []TestJobContainer{
+							{
+								Container: corev1.Container{
 									Name:       "test",
 									Image:      "alpine",
 									Command:    []string{"sh", "-c"},

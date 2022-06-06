@@ -1,8 +1,6 @@
 package v1
 
 import (
-	"time"
-
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -164,8 +162,30 @@ type TestJobTemplateSpec struct {
 // TestJobPodSpec
 type TestJobPodSpec struct {
 	corev1.PodSpec `json:",inline"`
-	Volumes        []TestJobVolume `json:"volumes,omitempty"`
-	Artifacts      []ArtifactSpec  `json:"artifacts,omitempty"`
+	InitContainers []TestJobContainer `json:"initContainers,omitempty"`
+	Containers     []TestJobContainer `json:"containers"`
+	Volumes        []TestJobVolume    `json:"volumes,omitempty"`
+	Artifacts      []ArtifactSpec     `json:"artifacts,omitempty"`
+}
+
+// TestAgentSpec describes the specification of kubetest-agent.
+type TestAgentSpec struct {
+	// Installed path to the kubetest-agent e.g.) /bin/kubetest-agent
+	InstalledPath string `json:"installedPath"`
+	// kubetest automatically determines the port to listen to when starting kubetest-agent.
+	// If you need to run multiple containers, the default is to assign ports from 5000 to 5001, 5002.
+	// AllocationStartPort allows you to change the default start port.
+	// For example, if this value is set to 6000, ports will be assigned in order from 6000 to 6001, 6002.
+	AllocationStartPort *uint16 `json:"allocationStartPort,omitempty"`
+	// If you have some ports used by sidecar or any tasks running on the pod,
+	// specifying it will excluded from the assigning target of ports for kubetest-agent.
+	ExcludePorts []uint16 `json:"excludePorts,omitempty"`
+}
+
+// TestJobContainer
+type TestJobContainer struct {
+	corev1.Container `json:",inline"`
+	Agent            *TestAgentSpec `json:"agent,omitempty"`
 }
 
 // ArtifactSpec describes the specification of artifact for each process.
@@ -245,7 +265,7 @@ const (
 
 type Report struct {
 	Status         ResultStatus      `json:"status"`
-	StartedAt      time.Time         `json:"startedAt"`
+	StartedAt      metav1.Time       `json:"startedAt"`
 	ElapsedTimeSec int64             `json:"elapsedTimeSec"`
 	TotalNum       int               `json:"totalNum"`
 	SuccessNum     int               `json:"successNum"`
