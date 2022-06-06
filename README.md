@@ -701,6 +701,48 @@ Artifacts are created under the directory `<Container Name><Pod Index>-<Containe
     `-- result.txt
 ```
 
+## 8. Use kubetest-agent
+
+Normally, when communicating with the container of Job started by kubetest, use the Kubernetes API.
+However, if you need to copy large files or run a large number of commands and don't want to overload the Kubernetes API, or if you don't have a shell or tar command in your container image, you can use the `kubetest-agent` method.
+
+kubetest-agent is a CLI tool that can be installed by the following methods.
+
+```console
+$ go install github.com/goccy/kubetest/cmd/kubetest-agent
+```
+
+Include this tool in your container image and specify the path to kubetest-agent as follows:
+
+```yaml
+apiVersion: kubetest.io/v1
+kind: TestJob
+metadata:
+  name: kubetest-agent-job
+  namespace: default
+spec:
+  mainStep:
+    template:
+      metadata:
+        generateName: kubetest-agent-testjob-
+      spec:
+        containers:
+          - name: test
+            image: alpine
+            agent:
+              installedPath: /bin/kubetest-agent
+            workingDir: /go/src
+            command:
+              - echo
+            args:
+              - "hello"
+```
+
+This will switch from communication using the Kubernetes API to gRPC-based communication with kubetest-agent.
+Communication with `kubetest-agent` is performed using JWT issued using the RSA Key issued each time Kubernetes Job is started, so requests cannot be sent directly to the container from other processes.
+It makes use of the features of `kubejob-agent`. See here for [details](https://github.com/goccy/kubejob#execution-with-kubejob-agent)
+
+
 # Specification of TestJob
 
 ## TestJob
