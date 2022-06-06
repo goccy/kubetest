@@ -9,6 +9,7 @@ import (
 	"os"
 	"time"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 )
@@ -171,7 +172,7 @@ func (r *Result) toReport() *Report {
 		SuccessNum:     r.successNum,
 		FailureNum:     r.failureNum,
 		UnknownNum:     r.unknownNum,
-		StartedAt:      r.startedAt,
+		StartedAt:      metav1.Time{r.startedAt},
 		ElapsedTimeSec: int64(r.elapsedTime.Seconds()),
 		Details:        r.taskResult.ToReportDetails(),
 		ExtParam:       r.job.Spec.Log.ExtParam,

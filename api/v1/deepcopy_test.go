@@ -75,9 +75,9 @@ func TestDeepCopy(t *testing.T) {
 									},
 								},
 							},
-							PodSpec: corev1.PodSpec{
-								Containers: []corev1.Container{
-									{
+							Containers: []TestJobContainer{
+								{
+									Container: corev1.Container{
 										Name:       "prestep",
 										Image:      "alpine",
 										Command:    []string{"echo"},
@@ -129,9 +129,9 @@ func TestDeepCopy(t *testing.T) {
 										Name: "list",
 									},
 									Spec: TestJobPodSpec{
-										PodSpec: corev1.PodSpec{
-											Containers: []corev1.Container{
-												{
+										Containers: []TestJobContainer{
+											{
+												Container: corev1.Container{
 													Name:    "list",
 													Image:   "alpine",
 													Command: []string{"sh", "-c"},
@@ -153,9 +153,9 @@ func TestDeepCopy(t *testing.T) {
 						Name: "test",
 					},
 					Spec: TestJobPodSpec{
-						PodSpec: corev1.PodSpec{
-							Containers: []corev1.Container{
-								{
+						Containers: []TestJobContainer{
+							{
+								Container: corev1.Container{
 									Name:       "test",
 									Image:      "alpine",
 									Command:    []string{"sh", "-c"},

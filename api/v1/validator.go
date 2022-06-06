@@ -212,23 +212,17 @@ func (v *Validator) ValidateTestJobTemplateSpec(spec TestJobTemplateSpec, stepTy
 }
 
 func (v *Validator) ValidateTestJobPodSpec(spec TestJobPodSpec, stepType StepType) error {
-	if len(spec.PodSpec.Containers) == 0 {
+	if len(spec.Containers) == 0 {
 		return fmt.Errorf("kubetest: template.spec.containers are must be specified")
 	}
-	for _, container := range spec.PodSpec.InitContainers {
-		if len(container.Command) == 0 {
-			return fmt.Errorf("kubetest: template.spec.initContainers[].command must be specified")
-		}
-		if container.Image == "" {
-			return fmt.Errorf("kubetest: template.spec.initContainers[].image must be specified")
+	for _, container := range spec.InitContainers {
+		if err := v.ValidateTestJobContainer(container); err != nil {
+			return err
 		}
 	}
-	for _, container := range spec.PodSpec.Containers {
-		if len(container.Command) == 0 {
-			return fmt.Errorf("kubetest: template.spec.containers[].command must be specified")
-		}
-		if container.Image == "" {
-			return fmt.Errorf("kubetest: template.spec.containers[].image must be specified")
+	for _, container := range spec.Containers {
+		if err := v.ValidateTestJobContainer(container); err != nil {
+			return err
 		}
 	}
 	for _, volume := range spec.Volumes {
@@ -241,7 +235,7 @@ func (v *Validator) ValidateTestJobPodSpec(spec TestJobPodSpec, stepType StepTyp
 			return err
 		}
 		var foundContainerName bool
-		for _, container := range spec.PodSpec.Containers {
+		for _, container := range spec.Containers {
 			if container.Name == artifact.Container.Name {
 				foundContainerName = true
 				break
@@ -254,6 +248,26 @@ func (v *Validator) ValidateTestJobPodSpec(spec TestJobPodSpec, stepType StepTyp
 			return fmt.Errorf("kubetest: specified artifact name '%s' is duplicated", artifact.Name)
 		}
 		v.artifactNameMap[artifact.Name] = struct{}{}
+	}
+	return nil
+}
+
+func (v *Validator) ValidateTestJobContainer(container TestJobContainer) error {
+	if len(container.Command) == 0 {
+		return fmt.Errorf("kubetest: template.spec.initContainers[].command must be specified")
+	}
+	if container.Image == "" {
+		return fmt.Errorf("kubetest: template.spec.initContainers[].image must be specified")
+	}
+	if container.Agent != nil {
+		return v.ValidateTestAgentSpec(container.Agent)
+	}
+	return nil
+}
+
+func (v *Validator) ValidateTestAgentSpec(spec *TestAgentSpec) error {
+	if spec.InstalledPath == "" {
+		return fmt.Errorf("kubetest: agent.installedPath must be specified")
 	}
 	return nil
 }

@@ -90,6 +90,12 @@ func (b *TaskBuilder) BuildWithKey(ctx context.Context, step Step, strategyKey *
 			if err != nil {
 				return err
 			}
+			if mainContainer.Agent != nil {
+				// artifact.Container.Path and localPath has same Base name.
+				// If enabled kubetest-agent, try to copy artifacts via normal copy method.
+				// So, trim last path.
+				localPath = filepath.Dir(localPath)
+			}
 			if err := subtask.exec.CopyFrom(
 				ctx,
 				artifact.Container.Path,
@@ -115,9 +121,9 @@ func (b *TaskBuilder) BuildWithKey(ctx context.Context, step Step, strategyKey *
 	}, nil
 }
 
-func (b *TaskBuilder) buildJob(ctx context.Context, mainContainer corev1.Container, tmpl TestJobTemplateSpec, strategyKey *StrategyKey) (Job, error) {
+func (b *TaskBuilder) buildJob(ctx context.Context, mainContainer TestJobContainer, tmpl TestJobTemplateSpec, strategyKey *StrategyKey) (Job, error) {
 	spec := *tmpl.Spec.DeepCopy()
-	spec.PodSpec = b.addContainersByStrategyKey(spec.PodSpec, mainContainer, strategyKey)
+	b.addContainersByStrategyKey(&spec, mainContainer, strategyKey)
 	buildCtx := &TaskBuildContext{
 		initContainers: newTaskContainerGroup(spec.InitContainers, spec.Volumes),
 		containers:     newTaskContainerGroup(spec.Containers, spec.Volumes),
@@ -151,7 +157,7 @@ func (b *TaskBuilder) buildJob(ctx context.Context, mainContainer corev1.Contain
 				Spec:       podSpec,
 			},
 		},
-	})
+	}, mainContainer.Agent)
 	if err != nil {
 		return nil, err
 	}
@@ -160,7 +166,9 @@ func (b *TaskBuilder) buildJob(ctx context.Context, mainContainer corev1.Contain
 		if err != nil {
 			return nil, err
 		}
-		job.PreInit(b.preInitContainer(buildCtx), callback)
+		if err := job.PreInit(b.preInitContainer(buildCtx), callback); err != nil {
+			return nil, err
+		}
 	}
 	job.Mount(func(ctx context.Context, exec JobExecutor, isInitContainer bool) error {
 		containerName := exec.Container().Name
@@ -326,11 +334,11 @@ func (b *TaskBuilder) mountReport(ctx context.Context, taskContainer *TaskContai
 	return nil
 }
 
-func (b *TaskBuilder) addContainersByStrategyKey(podSpec corev1.PodSpec, mainContainer corev1.Container, strategyKey *StrategyKey) corev1.PodSpec {
+func (b *TaskBuilder) addContainersByStrategyKey(podSpec *TestJobPodSpec, mainContainer TestJobContainer, strategyKey *StrategyKey) {
 	if strategyKey == nil {
-		return podSpec
+		return
 	}
-	containers := []corev1.Container{}
+	containers := []TestJobContainer{}
 	for idx, key := range strategyKey.Keys {
 		container := *mainContainer.DeepCopy()
 		container.Name += fmt.Sprintf("%d-%d", strategyKey.ConcurrentIdx, idx)
@@ -340,7 +348,7 @@ func (b *TaskBuilder) addContainersByStrategyKey(podSpec corev1.PodSpec, mainCon
 		})
 		containers = append(containers, container)
 	}
-	sideCarContainers := []corev1.Container{}
+	sideCarContainers := []TestJobContainer{}
 	for _, container := range podSpec.Containers {
 		if container.Name == mainContainer.Name {
 			continue
@@ -348,17 +356,18 @@ func (b *TaskBuilder) addContainersByStrategyKey(podSpec corev1.PodSpec, mainCon
 		sideCarContainers = append(sideCarContainers, container)
 	}
 	podSpec.Containers = append(sideCarContainers, containers...)
-	return podSpec
 }
 
-func (b *TaskBuilder) preInitContainer(buildCtx *TaskBuildContext) corev1.Container {
-	return corev1.Container{
-		Name:            "preinit",
-		Image:           buildCtx.preInitImage(),
-		Command:         []string{"echo"},
-		Args:            []string{"-n", "preinit"},
-		VolumeMounts:    buildCtx.preInitVolumeMounts(),
-		ImagePullPolicy: buildCtx.preInitImagePullPolicy(),
+func (b *TaskBuilder) preInitContainer(buildCtx *TaskBuildContext) TestJobContainer {
+	return TestJobContainer{
+		Container: corev1.Container{
+			Name:            "preinit",
+			Image:           buildCtx.preInitImage(),
+			Command:         []string{"echo"},
+			Args:            []string{"-n", "preinit"},
+			VolumeMounts:    buildCtx.preInitVolumeMounts(),
+			ImagePullPolicy: buildCtx.preInitImagePullPolicy(),
+		},
 	}
 }
 
@@ -402,7 +411,7 @@ func (b *TaskBuilder) preInitCallback(ctx context.Context, buildCtx *TaskBuildCo
 			if err := func(path *copyPath) error {
 				ctx, timeout := context.WithTimeout(ctx, defaultCopyTimeout)
 				defer timeout()
-				errChan := make(chan error, 1)
+				errChan := make(chan error)
 				go func() {
 					errChan <- exec.CopyTo(ctx, path.src, path.dst)
 				}()
@@ -428,7 +437,7 @@ func (b *TaskBuilder) getCopyPathForRepository(buildCtx *TaskBuildContext, cb fu
 			return err
 		}
 		dst := buildCtx.repoNameToArchiveMountPath(name)
-		cb(src, dst)
+		cb(src, filepath.Join(dst, filepath.Base(src)))
 	}
 	return nil
 }
@@ -440,7 +449,7 @@ func (b *TaskBuilder) getCopyPathForToken(ctx context.Context, buildCtx *TaskBui
 			return err
 		}
 		dst := buildCtx.tokenNameToMountPath(name)
-		cb(src, dst)
+		cb(src, filepath.Join(dst, filepath.Base(src)))
 	}
 	return nil
 }
@@ -607,6 +616,17 @@ func (c *TaskBuildContext) needsToPreInit() bool {
 
 func (c *TaskBuildContext) podSpec() corev1.PodSpec {
 	podSpec := c.spec.PodSpec
+	initContainers := make([]corev1.Container, 0, len(c.spec.InitContainers))
+	for _, container := range c.spec.InitContainers {
+		initContainers = append(initContainers, container.Container)
+	}
+	containers := make([]corev1.Container, 0, len(c.spec.Containers))
+	for _, container := range c.spec.Containers {
+		containers = append(containers, container.Container)
+	}
+	podSpec.InitContainers = initContainers
+	podSpec.Containers = containers
+
 	podSpecVolumeMap := map[string]corev1.Volume{}
 	for k, v := range c.initContainers.podSpecVolumeMap() {
 		podSpecVolumeMap[k] = v
@@ -777,7 +797,7 @@ func (g *TaskContainerGroup) preInitImagePullPolicy() corev1.PullPolicy {
 	return ""
 }
 
-func newTaskContainerGroup(containers []corev1.Container, volumes []TestJobVolume) *TaskContainerGroup {
+func newTaskContainerGroup(containers []TestJobContainer, volumes []TestJobVolume) *TaskContainerGroup {
 	g := &TaskContainerGroup{
 		containerMap: map[string]*TaskContainer{},
 	}
@@ -789,7 +809,7 @@ func newTaskContainerGroup(containers []corev1.Container, volumes []TestJobVolum
 
 type TaskContainer struct {
 	idx                        int
-	container                  corev1.Container
+	container                  TestJobContainer
 	repoNameToArchiveMountPath map[string]string
 	repoNameToOrgMountPath     map[string]string
 	tokenNameToMountPath       map[string]string
@@ -806,7 +826,7 @@ func (c *TaskContainer) hasTestVolumeMount() bool {
 	return len(c.preInitVolumeMountMap) > 0
 }
 
-func newTaskContainer(c corev1.Container, volumes []TestJobVolume) *TaskContainer {
+func newTaskContainer(c TestJobContainer, volumes []TestJobVolume) *TaskContainer {
 	repoNameToArchiveMountPath := map[string]string{}
 	repoNameToOrgMountPath := map[string]string{}
 

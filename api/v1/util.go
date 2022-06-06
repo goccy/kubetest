@@ -8,8 +8,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-
-	corev1 "k8s.io/api/core/v1"
 )
 
 func existsDir(path string) bool {
@@ -20,19 +18,19 @@ func existsDir(path string) bool {
 	return info.IsDir()
 }
 
-func getMainContainerFromTmpl(tmpl TestJobTemplateSpec) (corev1.Container, error) {
+func getMainContainerFromTmpl(tmpl TestJobTemplateSpec) (TestJobContainer, error) {
 	if tmpl.Main != "" {
 		for _, container := range tmpl.Spec.Containers {
 			if container.Name == tmpl.Main {
 				return container, nil
 			}
 		}
-		return corev1.Container{}, fmt.Errorf("kubetest: couldn't find main container name %s", tmpl.Main)
+		return TestJobContainer{}, fmt.Errorf("kubetest: couldn't find main container name %s", tmpl.Main)
 	}
 	if len(tmpl.Spec.Containers) == 1 {
 		return tmpl.Spec.Containers[0], nil
 	}
-	return corev1.Container{}, fmt.Errorf("kubetest: use multiple containers but doesn't specified main container name")
+	return TestJobContainer{}, fmt.Errorf("kubetest: use multiple containers but doesn't specified main container name")
 }
 
 func localCopy(src, dst string) error {

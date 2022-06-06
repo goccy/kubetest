@@ -22,7 +22,7 @@ type PreInitCallback func(context.Context, JobExecutor) error
 
 type Job interface {
 	Spec() batchv1.JobSpec
-	PreInit(corev1.Container, PreInitCallback)
+	PreInit(TestJobContainer, PreInitCallback) error
 	RunWithExecutionHandler(context.Context, func([]JobExecutor) error) error
 	Mount(func(ctx context.Context, exec JobExecutor, isInitContainer bool) error)
 }
@@ -53,14 +53,29 @@ func NewJobBuilder(cfg *rest.Config, namespace string, runMode RunMode) *JobBuil
 	}
 }
 
-func (b *JobBuilder) BuildWithJob(jobSpec *batchv1.Job) (Job, error) {
+func (b *JobBuilder) BuildWithJob(jobSpec *batchv1.Job, agent *TestAgentSpec) (Job, error) {
 	switch b.runMode {
 	case RunModeKubernetes:
 		job, err := kubejob.NewJobBuilder(b.cfg, b.namespace).BuildWithJob(jobSpec)
 		if err != nil {
 			return nil, err
 		}
-		return newKubernetesJob(job), nil
+		var agentConfig *kubejob.AgentConfig
+		if agent != nil {
+			cfg, err := kubejob.NewAgentConfig(agent.InstalledPath)
+			if err != nil {
+				return nil, fmt.Errorf("kubetest: failed to create agent config: %w", err)
+			}
+			if agent.AllocationStartPort != nil {
+				cfg.SetAllocationStartPort(*agent.AllocationStartPort)
+			}
+			if len(agent.ExcludePorts) != 0 {
+				cfg.SetExcludePorts(agent.ExcludePorts...)
+			}
+			job.UseAgent(cfg)
+			agentConfig = cfg
+		}
+		return newKubernetesJob(job, agentConfig), nil
 	case RunModeLocal:
 		rootDir, err := os.MkdirTemp("", "root")
 		if err != nil {
@@ -76,14 +91,16 @@ func (b *JobBuilder) BuildWithJob(jobSpec *batchv1.Job) (Job, error) {
 type kubernetesJob struct {
 	preInitCallbackContext context.Context
 	job                    *kubejob.Job
+	agentConfig            *kubejob.AgentConfig
 	mountCallback          func(context.Context, JobExecutor, bool) error
 }
 
 var defaultMountCallback = func(context.Context, JobExecutor, bool) error { return nil }
 
-func newKubernetesJob(job *kubejob.Job) *kubernetesJob {
+func newKubernetesJob(job *kubejob.Job, agentConfig *kubejob.AgentConfig) *kubernetesJob {
 	return &kubernetesJob{
 		job:           job,
+		agentConfig:   agentConfig,
 		mountCallback: defaultMountCallback,
 	}
 }
@@ -92,10 +109,10 @@ func (j *kubernetesJob) Spec() batchv1.JobSpec {
 	return j.job.Spec
 }
 
-func (j *kubernetesJob) PreInit(c corev1.Container, cb PreInitCallback) {
-	j.job.PreInit(c, func(exec *kubejob.JobExecutor) error {
+func (j *kubernetesJob) PreInit(c TestJobContainer, cb PreInitCallback) error {
+	return j.job.PreInit(c.Container, func(exec *kubejob.JobExecutor) error {
 		return cb(j.preInitCallbackContext, &kubernetesJobExecutor{exec: exec})
-	})
+	}, j.agentConfig)
 }
 
 func (j *kubernetesJob) Mount(cb func(context.Context, JobExecutor, bool) error) {
@@ -113,7 +130,7 @@ func (j *kubernetesJob) RunWithExecutionHandler(ctx context.Context, handler fun
 		}
 		_, err := exec.ExecOnly()
 		return err
-	})
+	}, j.agentConfig)
 	return j.job.RunWithExecutionHandler(ctx, func(execs []*kubejob.JobExecutor) error {
 		converted := make([]JobExecutor, 0, len(execs))
 		for _, exec := range execs {
@@ -132,7 +149,7 @@ type kubernetesJobExecutor struct {
 }
 
 func (e *kubernetesJobExecutor) PrepareCommand(cmd []string) ([]byte, error) {
-	return e.exec.ExecPrepareCommand(cmd)
+	return e.exec.ExecPrepareCommand([]string{"sh", "-c", strings.Join(cmd, " ")})
 }
 
 func (e *kubernetesJobExecutor) Output(_ context.Context) ([]byte, error) {
@@ -191,9 +208,10 @@ func (j *localJob) Spec() batchv1.JobSpec {
 	return j.job.Spec
 }
 
-func (j *localJob) PreInit(c corev1.Container, cb PreInitCallback) {
-	j.preInitContainer = c
+func (j *localJob) PreInit(c TestJobContainer, cb PreInitCallback) error {
+	j.preInitContainer = c.Container
 	j.preInitCallback = cb
+	return nil
 }
 
 func (j *localJob) Mount(cb func(context.Context, JobExecutor, bool) error) {
@@ -340,7 +358,7 @@ func (j *dryRunJob) Spec() batchv1.JobSpec {
 	return j.job.Spec
 }
 
-func (j *dryRunJob) PreInit(c corev1.Container, cb PreInitCallback)         {}
+func (j *dryRunJob) PreInit(c TestJobContainer, cb PreInitCallback) error   { return nil }
 func (j *dryRunJob) Mount(_ func(context.Context, JobExecutor, bool) error) {}
 
 func (j *dryRunJob) RunWithExecutionHandler(ctx context.Context, handler func([]JobExecutor) error) error {
