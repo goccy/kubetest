@@ -4,8 +4,7 @@
 ![Go](https://github.com/goccy/kubetest/workflows/test/badge.svg)
 [![codecov](https://codecov.io/gh/goccy/kubetest/branch/master/graph/badge.svg)](https://codecov.io/gh/goccy/kubetest)
 
-
-A CLI for efficient use of Kubernetes Cluster resources for distributed processing of time-consuming task processing.
+A CLI for distributed execution of tasks on Kubernetes.  
 
 This tool is developed based on the following concept.
 
