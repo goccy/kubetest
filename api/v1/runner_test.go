@@ -833,5 +833,110 @@ func TestRunner(t *testing.T) {
 			})
 		}
 	})
+	t.Run("use kubetest-agent with sidecars", func(t *testing.T) {
+		for _, runMode := range getRunModes() {
+			if runMode != RunModeKubernetes {
+				continue
+			}
+			t.Run(runMode.String(), func(t *testing.T) {
+				exportDir, err := os.MkdirTemp("", "exported_artifacts")
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer os.RemoveAll(exportDir)
+
+				runner := NewRunner(getConfig(), runMode)
+				runner.SetLogger(NewLogger(os.Stdout, LogLevelDebug))
+				result, err := runner.Run(context.Background(), TestJob{
+					ObjectMeta: testjobObjectMeta(),
+					Spec: TestJobSpec{
+						Repos: testRepos(),
+						MainStep: MainStep{
+							Strategy: &Strategy{
+								Key: StrategyKeySpec{
+									Env: "TEST",
+									Source: StrategyKeySource{
+										Static: []string{"A", "B", "C"},
+									},
+								},
+								Scheduler: Scheduler{
+									MaxContainersPerPod:    10,
+									MaxConcurrentNumPerPod: 10,
+								},
+							},
+							Template: TestJobTemplateSpec{
+								ObjectMeta: metav1.ObjectMeta{
+									Name: "test",
+								},
+								Main: "test",
+								Spec: TestJobPodSpec{
+									Artifacts: []ArtifactSpec{
+										{
+											Name: "export-artifact",
+											Container: ArtifactContainer{
+												Name: "test",
+												Path: filepath.Join("/", "work", "artifact"),
+											},
+										},
+									},
+									Containers: []TestJobContainer{
+										{
+											Agent: &TestAgentSpec{
+												InstalledPath: filepath.Join("/", "bin", "kubetest-agent"),
+											},
+											Container: corev1.Container{
+												Name:            "test",
+												Image:           "kubetest:latest",
+												ImagePullPolicy: "Never",
+												Command:         []string{"sh", "-c"},
+												Args:            []string{`echo "work for $TEST"; touch artifact`},
+												WorkingDir:      filepath.Join("/", "work"),
+												VolumeMounts: []corev1.VolumeMount{
+													testRepoVolumeMount(),
+												},
+											},
+										},
+										{
+											Container: corev1.Container{
+												Name:    "sidecar",
+												Image:   "alpine",
+												Command: []string{"tail"},
+												Args:    []string{"-f", "/dev/null"},
+											},
+										},
+									},
+									Volumes: []TestJobVolume{
+										testRepoVolume(),
+									},
+								},
+							},
+						},
+						ExportArtifacts: []ExportArtifact{
+							{
+								Name: "export-artifact",
+								Path: exportDir,
+							},
+						},
+					},
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+				artifacts, err := filepath.Glob(filepath.Join(exportDir, "*"))
+				if err != nil {
+					t.Fatal(err)
+				}
+				t.Log(artifacts)
+				if len(artifacts) != 3 {
+					t.Fatalf("failed to find exported artifacts. artifacts num %d", len(artifacts))
+				}
+				b, err := json.Marshal(result)
+				if err != nil {
+					t.Fatal(err)
+				}
+				t.Log(string(b))
+			})
+		}
+	})
 
 }

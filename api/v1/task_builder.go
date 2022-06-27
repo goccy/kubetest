@@ -157,7 +157,7 @@ func (b *TaskBuilder) buildJob(ctx context.Context, mainContainer TestJobContain
 				Spec:       podSpec,
 			},
 		},
-	}, mainContainer.Agent)
+	}, buildCtx.containerNameToInstalledAgentPathMap(), mainContainer.Agent)
 	if err != nil {
 		return nil, err
 	}
@@ -166,9 +166,7 @@ func (b *TaskBuilder) buildJob(ctx context.Context, mainContainer TestJobContain
 		if err != nil {
 			return nil, err
 		}
-		if err := job.PreInit(b.preInitContainer(buildCtx), callback); err != nil {
-			return nil, err
-		}
+		job.PreInit(b.preInitContainer(buildCtx), callback)
 	}
 	job.Mount(func(ctx context.Context, exec JobExecutor, isInitContainer bool) error {
 		containerName := exec.Container().Name
@@ -510,6 +508,18 @@ func (c *TaskBuildContext) taskContainer(name string, isInitContainer bool) *Tas
 	return c.containers.containerMap[name]
 }
 
+func (c *TaskBuildContext) containerNameToInstalledAgentPathMap() map[string]string {
+	ret := c.initContainers.containerNameToInstalledAgentPathMap()
+	for k, v := range c.containers.containerNameToInstalledAgentPathMap() {
+		ret[k] = v
+	}
+	path := c.preInitAgentPath()
+	if path != "" {
+		ret["preinit"] = path
+	}
+	return ret
+}
+
 func (c *TaskBuildContext) isUsedLogVolume() bool {
 	for _, container := range c.initContainers.containerMap {
 		if len(container.logOrgMountPaths) > 0 {
@@ -671,8 +681,26 @@ func (c *TaskBuildContext) preInitImagePullPolicy() corev1.PullPolicy {
 	return c.containers.preInitImagePullPolicy()
 }
 
+func (c *TaskBuildContext) preInitAgentPath() string {
+	path := c.initContainers.preInitAgentPath()
+	if path != "" {
+		return path
+	}
+	return c.containers.preInitAgentPath()
+}
+
 type TaskContainerGroup struct {
 	containerMap map[string]*TaskContainer
+}
+
+func (g *TaskContainerGroup) containerNameToInstalledAgentPathMap() map[string]string {
+	ret := map[string]string{}
+	for _, c := range g.containerMap {
+		if c.container.Agent != nil {
+			ret[c.container.Name] = c.container.Agent.InstalledPath
+		}
+	}
+	return ret
 }
 
 func (g *TaskContainerGroup) repoNames() []string {
@@ -768,6 +796,15 @@ func (g *TaskContainerGroup) preInitVolumeMountMap() map[string]corev1.VolumeMou
 		}
 	}
 	return preInitVolumeMountMap
+}
+
+func (g *TaskContainerGroup) preInitAgentPath() string {
+	for _, c := range g.containerMap {
+		if c.hasTestVolumeMount() && c.container.Agent != nil {
+			return c.container.Agent.InstalledPath
+		}
+	}
+	return ""
 }
 
 func (g *TaskContainerGroup) hasTestVolumeMont() bool {

@@ -22,7 +22,7 @@ type PreInitCallback func(context.Context, JobExecutor) error
 
 type Job interface {
 	Spec() batchv1.JobSpec
-	PreInit(TestJobContainer, PreInitCallback) error
+	PreInit(TestJobContainer, PreInitCallback)
 	RunWithExecutionHandler(context.Context, func([]JobExecutor) error) error
 	Mount(func(ctx context.Context, exec JobExecutor, isInitContainer bool) error)
 }
@@ -53,7 +53,7 @@ func NewJobBuilder(cfg *rest.Config, namespace string, runMode RunMode) *JobBuil
 	}
 }
 
-func (b *JobBuilder) BuildWithJob(jobSpec *batchv1.Job, agent *TestAgentSpec) (Job, error) {
+func (b *JobBuilder) BuildWithJob(jobSpec *batchv1.Job, containerNameToInstalledPathMap map[string]string, sharedAgentSpec *TestAgentSpec) (Job, error) {
 	switch b.runMode {
 	case RunModeKubernetes:
 		job, err := kubejob.NewJobBuilder(b.cfg, b.namespace).BuildWithJob(jobSpec)
@@ -61,16 +61,16 @@ func (b *JobBuilder) BuildWithJob(jobSpec *batchv1.Job, agent *TestAgentSpec) (J
 			return nil, err
 		}
 		var agentConfig *kubejob.AgentConfig
-		if agent != nil {
-			cfg, err := kubejob.NewAgentConfig(agent.InstalledPath)
+		if sharedAgentSpec != nil {
+			cfg, err := kubejob.NewAgentConfig(containerNameToInstalledPathMap)
 			if err != nil {
 				return nil, fmt.Errorf("kubetest: failed to create agent config: %w", err)
 			}
-			if agent.AllocationStartPort != nil {
-				cfg.SetAllocationStartPort(*agent.AllocationStartPort)
+			if sharedAgentSpec.AllocationStartPort != nil {
+				cfg.SetAllocationStartPort(*sharedAgentSpec.AllocationStartPort)
 			}
-			if len(agent.ExcludePorts) != 0 {
-				cfg.SetExcludePorts(agent.ExcludePorts...)
+			if len(sharedAgentSpec.ExcludePorts) != 0 {
+				cfg.SetExcludePorts(sharedAgentSpec.ExcludePorts...)
 			}
 			job.UseAgent(cfg)
 			agentConfig = cfg
@@ -109,10 +109,10 @@ func (j *kubernetesJob) Spec() batchv1.JobSpec {
 	return j.job.Spec
 }
 
-func (j *kubernetesJob) PreInit(c TestJobContainer, cb PreInitCallback) error {
-	return j.job.PreInit(c.Container, func(exec *kubejob.JobExecutor) error {
+func (j *kubernetesJob) PreInit(c TestJobContainer, cb PreInitCallback) {
+	j.job.PreInit(c.Container, func(exec *kubejob.JobExecutor) error {
 		return cb(j.preInitCallbackContext, &kubernetesJobExecutor{exec: exec})
-	}, j.agentConfig)
+	})
 }
 
 func (j *kubernetesJob) Mount(cb func(context.Context, JobExecutor, bool) error) {
@@ -130,7 +130,7 @@ func (j *kubernetesJob) RunWithExecutionHandler(ctx context.Context, handler fun
 		}
 		_, err := exec.ExecOnly()
 		return err
-	}, j.agentConfig)
+	})
 	return j.job.RunWithExecutionHandler(ctx, func(execs []*kubejob.JobExecutor) error {
 		converted := make([]JobExecutor, 0, len(execs))
 		for _, exec := range execs {
@@ -168,15 +168,22 @@ func (e *kubernetesJobExecutor) Stop(_ context.Context) error {
 	return e.exec.Stop()
 }
 
+func (e *kubernetesJobExecutor) execProtocol() string {
+	if e.exec.EnabledAgent() {
+		return "grpc"
+	}
+	return "k8s-api"
+}
+
 func (e *kubernetesJobExecutor) CopyFrom(ctx context.Context, src string, dst string) error {
 	containerName := e.exec.Container.Name
-	LoggerFromContext(ctx).Debug("copy from %s on container(%s) to %s on local", src, containerName, dst)
+	LoggerFromContext(ctx).Debug("copy from %s on container(%s) to %s on local by %s", src, containerName, dst, e.execProtocol())
 	return e.exec.CopyFromPod(src, dst)
 }
 
 func (e *kubernetesJobExecutor) CopyTo(ctx context.Context, src string, dst string) error {
 	containerName := e.exec.Container.Name
-	LoggerFromContext(ctx).Debug("copy from %s on local to %s on container(%s)", src, dst, containerName)
+	LoggerFromContext(ctx).Debug("copy from %s on local to %s on container(%s) by %s", src, dst, containerName, e.execProtocol())
 	return e.exec.CopyToPod(src, dst)
 }
 
@@ -208,10 +215,9 @@ func (j *localJob) Spec() batchv1.JobSpec {
 	return j.job.Spec
 }
 
-func (j *localJob) PreInit(c TestJobContainer, cb PreInitCallback) error {
+func (j *localJob) PreInit(c TestJobContainer, cb PreInitCallback) {
 	j.preInitContainer = c.Container
 	j.preInitCallback = cb
-	return nil
 }
 
 func (j *localJob) Mount(cb func(context.Context, JobExecutor, bool) error) {
@@ -358,7 +364,7 @@ func (j *dryRunJob) Spec() batchv1.JobSpec {
 	return j.job.Spec
 }
 
-func (j *dryRunJob) PreInit(c TestJobContainer, cb PreInitCallback) error   { return nil }
+func (j *dryRunJob) PreInit(c TestJobContainer, cb PreInitCallback)         {}
 func (j *dryRunJob) Mount(_ func(context.Context, JobExecutor, bool) error) {}
 
 func (j *dryRunJob) RunWithExecutionHandler(ctx context.Context, handler func([]JobExecutor) error) error {

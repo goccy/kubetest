@@ -3,10 +3,10 @@ module github.com/goccy/kubetest
 go 1.16
 
 require (
-	github.com/bradleyfalzon/ghinstallation/v2 v2.0.3
+	github.com/bradleyfalzon/ghinstallation/v2 v2.0.4
 	github.com/go-git/go-git/v5 v5.4.2
 	github.com/go-logr/logr v0.4.0
-	github.com/goccy/kubejob v0.3.0
+	github.com/goccy/kubejob v0.3.1
 	github.com/google/go-github/v29 v29.0.2
 	github.com/jessevdk/go-flags v1.5.0
 	github.com/lestrrat-go/backoff v1.0.1
