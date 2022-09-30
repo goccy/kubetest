@@ -238,8 +238,9 @@ func runGitServer(t *testing.T) (string, string) {
 	t.Helper()
 
 	tempDir := t.TempDir()
+	reposDir := filepath.Join(tempDir, "repos")
 	h := gitkit.New(gitkit.Config{
-		Dir: tempDir,
+		Dir: reposDir,
 	})
 	if err := h.Setup(); err != nil {
 		t.Fatal(err)
@@ -258,7 +259,25 @@ func runGitServer(t *testing.T) (string, string) {
 		_ = srv.Close()
 	})
 
-	return ln.Addr().String(), tempDir
+	// create test config
+	configDir := filepath.Join(tempDir, "config")
+	t.Setenv("XDG_CONFIG_HOME", configDir)
+	gitConfigDir := filepath.Join(configDir, "git")
+	if err := os.MkdirAll(gitConfigDir, 0o744); err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.Create(filepath.Join(gitConfigDir, "config"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if _, err := f.WriteString(`[user]
+	name = kubetest
+	email = kubetest@example.com`); err != nil {
+		t.Fatal(err)
+	}
+
+	return ln.Addr().String(), reposDir
 }
 
 func assertFile(t *testing.T, fs billy.Filesystem, path string, expect string) {
