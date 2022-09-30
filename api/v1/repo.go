@@ -99,7 +99,7 @@ func (m *RepositoryManager) clone(ctx context.Context, clonedPath string, repo R
 		defaultRemoteName     = "origin"
 	)
 
-	if err := os.MkdirAll(clonedPath, 0755); err != nil {
+	if err := os.MkdirAll(clonedPath, 0o755); err != nil {
 		return fmt.Errorf("kubetest: failed to create directory %s for repository: %w", clonedPath, err)
 	}
 	var auth transport.AuthMethod
@@ -148,7 +148,9 @@ func (m *RepositoryManager) clone(ctx context.Context, clonedPath string, repo R
 	if err != nil {
 		return fmt.Errorf("kubetest: failed to get worktree from repository: %w", err)
 	}
-	checkoutOpt := &git.CheckoutOptions{}
+	checkoutOpt := &git.CheckoutOptions{
+		Force: true,
+	}
 	switch {
 	case repo.Branch != "":
 		checkoutOpt.Branch = plumbing.NewRemoteReferenceName(remote, repo.Branch)
@@ -162,6 +164,23 @@ func (m *RepositoryManager) clone(ctx context.Context, clonedPath string, repo R
 	}
 	if err := tree.Checkout(checkoutOpt); err != nil {
 		return fmt.Errorf("kubetest: failed to checkout: %w", err)
+	}
+	status, err := tree.Status()
+	if err != nil {
+		return fmt.Errorf("kubetest: failed to get repository status: %w", err)
+	}
+	if !status.IsClean() {
+		// may be a bug of go-git
+		head, err := gitRepo.Head()
+		if err != nil {
+			return fmt.Errorf("kubetest: failed to get HEAD hash: %w", err)
+		}
+		if err := tree.Reset(&git.ResetOptions{
+			Commit: head.Hash(),
+			Mode:   git.HardReset,
+		}); err != nil {
+			return fmt.Errorf("kubetest: failed to reset repository: %w", err)
+		}
 	}
 	if repo.Merge != nil {
 		if repo.Merge.Base != "" {
