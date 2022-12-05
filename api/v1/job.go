@@ -178,8 +178,7 @@ func (e *kubernetesJobExecutor) execProtocol() string {
 func (e *kubernetesJobExecutor) CopyFrom(ctx context.Context, src string, dst string) error {
 	containerName := e.exec.Container.Name
 	addr := e.exec.Pod.Status.PodIP
-	fmt.Printf("copy from %s on container(%s) in %s pod to %s on local by %s\n", src, containerName, addr, dst, e.execProtocol())
-	//LoggerFromContext(ctx).Debug("copy from %s on container(%s) in %s pod to %s on local by %s", src, containerName, addr, dst, e.execProtocol())
+	LoggerFromContext(ctx).Debug("copy from %s on container(%s) in %s pod to %s on local by %s", src, containerName, addr, dst, e.execProtocol())
 	return e.exec.CopyFromPod(src, dst)
 }
 

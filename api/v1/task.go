@@ -6,6 +6,7 @@ package v1
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 
@@ -83,6 +84,8 @@ func (t *Task) runWithRetry(ctx context.Context) (*TaskResult, error) {
 				t.job = job
 				retryCount++
 				continue
+			} else {
+				fmt.Println("not retryable error", err)
 			}
 		}
 		break
@@ -117,8 +120,10 @@ func (t *Task) run(ctx context.Context) (*TaskResult, error) {
 	}); err != nil {
 		var failedJob *kubejob.FailedJob
 		if !errors.As(err, &failedJob) {
+			fmt.Println("not failedJob. fatal error", err)
 			return nil, err
 		}
+		fmt.Println("result.Err = ", err)
 		result.Err = err
 	}
 	return &result, nil

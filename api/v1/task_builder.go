@@ -415,8 +415,10 @@ func (b *TaskBuilder) preInitCallback(ctx context.Context, buildCtx *TaskBuildCo
 				}()
 				select {
 				case <-ctx.Done():
+					fmt.Println("copy timeout", ctx.Err())
 					return ctx.Err()
 				case err := <-errChan:
+					fmt.Println("copy error", err)
 					return err
 				}
 				return nil
