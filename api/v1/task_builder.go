@@ -172,12 +172,15 @@ func (b *TaskBuilder) buildJob(ctx context.Context, mainContainer TestJobContain
 		containerName := exec.Container().Name
 		taskContainer := buildCtx.taskContainer(containerName, isInitContainer)
 		if err := b.mountRepository(ctx, taskContainer, exec); err != nil {
+			fmt.Println("failed to mount repository", err)
 			return err
 		}
 		if err := b.mountToken(ctx, taskContainer, exec); err != nil {
+			fmt.Println("failed to mount token", err)
 			return err
 		}
 		if err := b.mountArtifact(ctx, taskContainer, exec); err != nil {
+			fmt.Println("failed to mount artifact", err)
 			return err
 		}
 		if err := b.mountLog(ctx, taskContainer, exec); err != nil {
