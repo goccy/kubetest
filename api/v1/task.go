@@ -44,13 +44,17 @@ func (t *Task) retryableError(err error) bool {
 	if err == nil {
 		return false
 	}
-	switch err.(type) {
+	switch e := err.(type) {
 	case *kubejob.PreInitError:
 		return true
 	case *kubejob.PendingPhaseTimeoutError:
 		return true
 	case *kubejob.JobUnexpectedError:
 		return true
+	case *kubejob.JobMultiError:
+		return e.Has(kubejob.PreInitErrorType) ||
+			e.Has(kubejob.PendingPhaseTimeoutErrorType) ||
+			e.Has(kubejob.JobUnexpectedErrorType)
 	}
 	return false
 }
