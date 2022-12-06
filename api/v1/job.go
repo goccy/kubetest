@@ -126,7 +126,6 @@ func (j *kubernetesJob) RunWithExecutionHandler(ctx context.Context, handler fun
 	j.job.SetInitContainerExecutionHandler(func(exec *kubejob.JobExecutor) error {
 		e := &kubernetesJobExecutor{exec: exec}
 		if err := j.mountCallback(ctx, e, true); err != nil {
-			fmt.Println("mountcallback error initcontainer", err)
 			return err
 		}
 		_, err := exec.ExecOnly()
@@ -137,7 +136,6 @@ func (j *kubernetesJob) RunWithExecutionHandler(ctx context.Context, handler fun
 		for _, exec := range execs {
 			e := &kubernetesJobExecutor{exec: exec}
 			if err := j.mountCallback(ctx, e, false); err != nil {
-				fmt.Println("mountcallback error", err)
 				return err
 			}
 			converted = append(converted, e)
