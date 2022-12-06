@@ -6,7 +6,6 @@ package v1
 import (
 	"context"
 	"errors"
-	"fmt"
 	"sync"
 	"time"
 
@@ -91,7 +90,7 @@ func (t *Task) runWithRetry(ctx context.Context) (*TaskResult, error) {
 				retryCount++
 				continue
 			} else {
-				fmt.Println("not retryable error", err)
+				LoggerFromContext(ctx).Debug("found not retryable error: %s", err)
 			}
 		}
 		break
