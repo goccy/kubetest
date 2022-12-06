@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/goccy/kubejob"
-	"golang.org/x/sync/errgroup"
 	corev1 "k8s.io/api/core/v1"
 )
 
@@ -107,22 +106,21 @@ func NewSubTaskGroup(tasks []*SubTask) *SubTaskGroup {
 	}
 }
 
-func (g *SubTaskGroup) Run(ctx context.Context) (*SubTaskResultGroup, error) {
+func (g *SubTaskGroup) Run(ctx context.Context) *SubTaskResultGroup {
 	var (
-		eg errgroup.Group
+		wg sync.WaitGroup
 		rg SubTaskResultGroup
 	)
 	for _, task := range g.tasks {
 		task := task
-		eg.Go(func() error {
+		wg.Add(1)
+		go func() {
 			rg.add(task.Run(ctx))
-			return nil
-		})
+			wg.Done()
+		}()
 	}
-	if err := eg.Wait(); err != nil {
-		return nil, err
-	}
-	return &rg, nil
+	wg.Wait()
+	return &rg
 }
 
 type TaskResultStatus int

@@ -49,6 +49,9 @@ func (t *Task) retryableError(err error) bool {
 		return true
 	case *kubejob.PendingPhaseTimeoutError:
 		return true
+	case *kubejob.JobUnexpectedError:
+		fmt.Println("unexpected job error!!!!")
+		return true
 	}
 	return false
 }
@@ -101,30 +104,20 @@ func (t *Task) run(ctx context.Context) (*TaskResult, error) {
 		}
 		subTasks := t.getSubTasks(t.mainExecutors(executors))
 		if t.strategyKey == nil {
-			group, err := NewSubTaskGroup(subTasks).Run(ctx)
-			if err != nil {
-				return err
-			}
-			result.add(group)
+			result.add(NewSubTaskGroup(subTasks).Run(ctx))
 			return nil
 		}
 		subTaskGroups := t.strategyKey.SubTaskScheduler.Schedule(subTasks)
 		for _, subTaskGroup := range subTaskGroups {
-			rg, err := subTaskGroup.Run(ctx)
-			if err != nil {
-				return err
-			}
-			result.add(rg)
+			result.add(subTaskGroup.Run(ctx))
 		}
 		return nil
 	}); err != nil {
 		var failedJob *kubejob.FailedJob
 		if !errors.As(err, &failedJob) {
-			fmt.Println("not failedJob. fatal error", err)
-			return nil, err
+			return nil, fmt.Errorf("unexpected error occurred at task %s: %w", t.Name, err)
 		}
-		fmt.Println("result.Err = ", err)
-		result.Err = err
+		fmt.Println("error is FailedJob")
 	}
 	return &result, nil
 }
@@ -242,7 +235,6 @@ func (g *TaskGroup) Run(ctx context.Context) (*TaskResultGroup, error) {
 }
 
 type TaskResult struct {
-	Err    error
 	groups []*SubTaskResultGroup
 }
 
