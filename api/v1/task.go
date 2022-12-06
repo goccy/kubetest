@@ -50,7 +50,6 @@ func (t *Task) retryableError(err error) bool {
 	case *kubejob.PendingPhaseTimeoutError:
 		return true
 	case *kubejob.JobUnexpectedError:
-		fmt.Println("unexpected job error!!!!")
 		return true
 	}
 	return false
@@ -115,9 +114,8 @@ func (t *Task) run(ctx context.Context) (*TaskResult, error) {
 	}); err != nil {
 		var failedJob *kubejob.FailedJob
 		if !errors.As(err, &failedJob) {
-			return nil, fmt.Errorf("unexpected error occurred at task %s: %w", t.Name, err)
+			return nil, err
 		}
-		fmt.Println("error is FailedJob")
 	}
 	return &result, nil
 }
