@@ -43,11 +43,17 @@ func (t *Task) retryableError(err error) bool {
 	if err == nil {
 		return false
 	}
-	switch err.(type) {
+	switch e := err.(type) {
 	case *kubejob.PreInitError:
 		return true
 	case *kubejob.PendingPhaseTimeoutError:
 		return true
+	case *kubejob.JobUnexpectedError:
+		return true
+	case *kubejob.JobMultiError:
+		return e.Has(kubejob.PreInitErrorType) ||
+			e.Has(kubejob.PendingPhaseTimeoutErrorType) ||
+			e.Has(kubejob.JobUnexpectedErrorType)
 	}
 	return false
 }
@@ -83,6 +89,8 @@ func (t *Task) runWithRetry(ctx context.Context) (*TaskResult, error) {
 				t.job = job
 				retryCount++
 				continue
+			} else {
+				LoggerFromContext(ctx).Debug("found not retryable error: %s", err)
 			}
 		}
 		break
@@ -98,20 +106,12 @@ func (t *Task) run(ctx context.Context) (*TaskResult, error) {
 		}
 		subTasks := t.getSubTasks(t.mainExecutors(executors))
 		if t.strategyKey == nil {
-			group, err := NewSubTaskGroup(subTasks).Run(ctx)
-			if err != nil {
-				return err
-			}
-			result.add(group)
+			result.add(NewSubTaskGroup(subTasks).Run(ctx))
 			return nil
 		}
 		subTaskGroups := t.strategyKey.SubTaskScheduler.Schedule(subTasks)
 		for _, subTaskGroup := range subTaskGroups {
-			rg, err := subTaskGroup.Run(ctx)
-			if err != nil {
-				return err
-			}
-			result.add(rg)
+			result.add(subTaskGroup.Run(ctx))
 		}
 		return nil
 	}); err != nil {
@@ -119,7 +119,6 @@ func (t *Task) run(ctx context.Context) (*TaskResult, error) {
 		if !errors.As(err, &failedJob) {
 			return nil, err
 		}
-		result.Err = err
 	}
 	return &result, nil
 }
@@ -237,7 +236,6 @@ func (g *TaskGroup) Run(ctx context.Context) (*TaskResultGroup, error) {
 }
 
 type TaskResult struct {
-	Err    error
 	groups []*SubTaskResultGroup
 }
 

@@ -370,7 +370,7 @@ func (b *TaskBuilder) preInitContainer(buildCtx *TaskBuildContext) TestJobContai
 }
 
 func (b *TaskBuilder) preInitCallback(ctx context.Context, buildCtx *TaskBuildContext) (PreInitCallback, error) {
-	var defaultCopyTimeout = 5 * time.Minute
+	var defaultCopyTimeout = 10 * time.Minute
 
 	type copyPath struct {
 		src string
