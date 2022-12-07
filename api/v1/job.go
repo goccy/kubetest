@@ -122,7 +122,7 @@ func (j *kubernetesJob) Mount(cb func(context.Context, JobExecutor, bool) error)
 func (j *kubernetesJob) RunWithExecutionHandler(ctx context.Context, handler func([]JobExecutor) error) error {
 	j.preInitCallbackContext = ctx
 	j.job.DisableInitContainerLog()
-	j.job.SetPendingPhaseTimeout(5 * time.Minute)
+	j.job.SetPendingPhaseTimeout(10 * time.Minute)
 	j.job.SetInitContainerExecutionHandler(func(exec *kubejob.JobExecutor) error {
 		e := &kubernetesJobExecutor{exec: exec}
 		if err := j.mountCallback(ctx, e, true); err != nil {
@@ -177,13 +177,15 @@ func (e *kubernetesJobExecutor) execProtocol() string {
 
 func (e *kubernetesJobExecutor) CopyFrom(ctx context.Context, src string, dst string) error {
 	containerName := e.exec.Container.Name
-	LoggerFromContext(ctx).Debug("copy from %s on container(%s) to %s on local by %s", src, containerName, dst, e.execProtocol())
+	addr := e.exec.Pod.Status.PodIP
+	LoggerFromContext(ctx).Debug("copy from %s on container(%s) in %s pod to %s on local by %s", src, containerName, addr, dst, e.execProtocol())
 	return e.exec.CopyFromPod(src, dst)
 }
 
 func (e *kubernetesJobExecutor) CopyTo(ctx context.Context, src string, dst string) error {
 	containerName := e.exec.Container.Name
-	LoggerFromContext(ctx).Debug("copy from %s on local to %s on container(%s) by %s", src, dst, containerName, e.execProtocol())
+	addr := e.exec.Pod.Status.PodIP
+	LoggerFromContext(ctx).Debug("copy from %s on local to %s on container(%s) in %s pod by %s", src, dst, containerName, addr, e.execProtocol())
 	return e.exec.CopyToPod(src, dst)
 }
 
