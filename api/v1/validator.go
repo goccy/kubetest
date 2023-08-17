@@ -411,8 +411,14 @@ func (v *Validator) ValidateStrategyDynamicKeySource(source *StrategyDynamicKeyS
 }
 
 func (v *Validator) ValidateScheduler(scheduler Scheduler) error {
-	if scheduler.MaxContainersPerPod == 0 {
-		return fmt.Errorf("kubetest: strategy.scheduler.maxContainersPerPod must be specified")
+	if scheduler.MaxPodNum == 0 && scheduler.MaxContainersPerPod == 0 {
+		return fmt.Errorf("kubetest: strategy.scheduler's maxPodNum or maxContainersPerPod must be specified")
+	}
+	if scheduler.MaxPodNum != 0 && scheduler.MaxContainersPerPod != 0 {
+		return fmt.Errorf("kubetest: strategy.scheduler's maxPodNum and maxContainersPerPod cannot both be set")
+	}
+	if scheduler.MaxPodNum < 0 {
+		return fmt.Errorf("kubetest: strategy.scheduler.maxPodNum must be a number greater than zero")
 	}
 	if scheduler.MaxContainersPerPod < 0 {
 		return fmt.Errorf("kubetest: strategy.scheduler.maxContainersPerPod must be a number greater than zero")

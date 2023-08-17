@@ -323,58 +323,332 @@ func TestRunner(t *testing.T) {
 		}
 	})
 	t.Run("static key based multiple tasks", func(t *testing.T) {
-		for _, runMode := range getRunModes() {
-			t.Run(runMode.String(), func(t *testing.T) {
-				runner := NewRunner(getConfig(), runMode)
-				runner.SetLogger(NewLogger(os.Stdout, LogLevelDebug))
-				if _, err := runner.Run(context.Background(), TestJob{
-					ObjectMeta: testjobObjectMeta(),
-					Spec: TestJobSpec{
-						Repos: testRepos(),
-						MainStep: MainStep{
-							Strategy: &Strategy{
-								Key: StrategyKeySpec{
-									Env: "TEST",
-									Source: StrategyKeySource{
-										Static: []string{"A", "B", "C"},
+		t.Run("maxPodNum", func(t *testing.T) {
+			t.Run("sequential running", func(t *testing.T) {
+				for _, runMode := range getRunModes() {
+					t.Run(runMode.String(), func(t *testing.T) {
+						runner := NewRunner(getConfig(), runMode)
+						runner.SetLogger(NewLogger(os.Stdout, LogLevelDebug))
+						if _, err := runner.Run(context.Background(), TestJob{
+							ObjectMeta: testjobObjectMeta(),
+							Spec: TestJobSpec{
+								Repos: testRepos(),
+								MainStep: MainStep{
+									Strategy: &Strategy{
+										Key: StrategyKeySpec{
+											Env: "TEST",
+											Source: StrategyKeySource{
+												Static: []string{"A", "B", "C"},
+											},
+										},
+										Scheduler: Scheduler{
+											MaxPodNum:              1,
+											MaxConcurrentNumPerPod: 1,
+										},
 									},
-								},
-								Scheduler: Scheduler{
-									MaxContainersPerPod:    10,
-									MaxConcurrentNumPerPod: 10,
-								},
-							},
-							Template: TestJobTemplateSpec{
-								ObjectMeta: metav1.ObjectMeta{
-									GenerateName: "test-",
-								},
-								Spec: TestJobPodSpec{
-									Containers: []TestJobContainer{
-										{
-											Container: corev1.Container{
-												Name:       "test",
-												Image:      "alpine",
-												Command:    []string{"sh", "-c"},
-												Args:       []string{"echo $TEST"},
-												WorkingDir: filepath.Join("/", "work"),
-												VolumeMounts: []corev1.VolumeMount{
-													testRepoVolumeMount(),
+									Template: TestJobTemplateSpec{
+										ObjectMeta: metav1.ObjectMeta{
+											GenerateName: "test-",
+										},
+										Spec: TestJobPodSpec{
+											Containers: []TestJobContainer{
+												{
+													Container: corev1.Container{
+														Name:       "test",
+														Image:      "alpine",
+														Command:    []string{"sh", "-c"},
+														Args:       []string{"echo $TEST"},
+														WorkingDir: filepath.Join("/", "work"),
+														VolumeMounts: []corev1.VolumeMount{
+															testRepoVolumeMount(),
+														},
+													},
 												},
+											},
+											Volumes: []TestJobVolume{
+												testRepoVolume(),
 											},
 										},
 									},
-									Volumes: []TestJobVolume{
-										testRepoVolume(),
+								},
+							},
+						}); err != nil {
+							t.Fatal(err)
+						}
+					})
+				}
+			})
+			t.Run("single pod for three tasks", func(t *testing.T) {
+				for _, runMode := range getRunModes() {
+					t.Run(runMode.String(), func(t *testing.T) {
+						runner := NewRunner(getConfig(), runMode)
+						runner.SetLogger(NewLogger(os.Stdout, LogLevelDebug))
+						if _, err := runner.Run(context.Background(), TestJob{
+							ObjectMeta: testjobObjectMeta(),
+							Spec: TestJobSpec{
+								Repos: testRepos(),
+								MainStep: MainStep{
+									Strategy: &Strategy{
+										Key: StrategyKeySpec{
+											Env: "TEST",
+											Source: StrategyKeySource{
+												Static: []string{"A", "B", "C"},
+											},
+										},
+										Scheduler: Scheduler{
+											MaxPodNum:              1,
+											MaxConcurrentNumPerPod: 2,
+										},
+									},
+									Template: TestJobTemplateSpec{
+										ObjectMeta: metav1.ObjectMeta{
+											GenerateName: "test-",
+										},
+										Spec: TestJobPodSpec{
+											Containers: []TestJobContainer{
+												{
+													Container: corev1.Container{
+														Name:       "test",
+														Image:      "alpine",
+														Command:    []string{"sh", "-c"},
+														Args:       []string{"echo $TEST"},
+														WorkingDir: filepath.Join("/", "work"),
+														VolumeMounts: []corev1.VolumeMount{
+															testRepoVolumeMount(),
+														},
+													},
+												},
+											},
+											Volumes: []TestJobVolume{
+												testRepoVolume(),
+											},
+										},
+									},
+								},
+							},
+						}); err != nil {
+							t.Fatal(err)
+						}
+					})
+				}
+			})
+			t.Run("two pods for three tasks", func(t *testing.T) {
+				for _, runMode := range getRunModes() {
+					t.Run(runMode.String(), func(t *testing.T) {
+						runner := NewRunner(getConfig(), runMode)
+						runner.SetLogger(NewLogger(os.Stdout, LogLevelDebug))
+						if _, err := runner.Run(context.Background(), TestJob{
+							ObjectMeta: testjobObjectMeta(),
+							Spec: TestJobSpec{
+								Repos: testRepos(),
+								MainStep: MainStep{
+									Strategy: &Strategy{
+										Key: StrategyKeySpec{
+											Env: "TEST",
+											Source: StrategyKeySource{
+												Static: []string{"A", "B", "C"},
+											},
+										},
+										Scheduler: Scheduler{
+											MaxPodNum:              2,
+											MaxConcurrentNumPerPod: 3,
+										},
+									},
+									Template: TestJobTemplateSpec{
+										ObjectMeta: metav1.ObjectMeta{
+											GenerateName: "test-",
+										},
+										Spec: TestJobPodSpec{
+											Containers: []TestJobContainer{
+												{
+													Container: corev1.Container{
+														Name:       "test",
+														Image:      "alpine",
+														Command:    []string{"sh", "-c"},
+														Args:       []string{"echo $TEST"},
+														WorkingDir: filepath.Join("/", "work"),
+														VolumeMounts: []corev1.VolumeMount{
+															testRepoVolumeMount(),
+														},
+													},
+												},
+											},
+											Volumes: []TestJobVolume{
+												testRepoVolume(),
+											},
+										},
+									},
+								},
+							},
+						}); err != nil {
+							t.Fatal(err)
+						}
+					})
+				}
+			})
+			t.Run("three pods for three tasks", func(t *testing.T) {
+				for _, runMode := range getRunModes() {
+					t.Run(runMode.String(), func(t *testing.T) {
+						runner := NewRunner(getConfig(), runMode)
+						runner.SetLogger(NewLogger(os.Stdout, LogLevelDebug))
+						if _, err := runner.Run(context.Background(), TestJob{
+							ObjectMeta: testjobObjectMeta(),
+							Spec: TestJobSpec{
+								Repos: testRepos(),
+								MainStep: MainStep{
+									Strategy: &Strategy{
+										Key: StrategyKeySpec{
+											Env: "TEST",
+											Source: StrategyKeySource{
+												Static: []string{"A", "B", "C"},
+											},
+										},
+										Scheduler: Scheduler{
+											MaxPodNum:              3,
+											MaxConcurrentNumPerPod: 3,
+										},
+									},
+									Template: TestJobTemplateSpec{
+										ObjectMeta: metav1.ObjectMeta{
+											GenerateName: "test-",
+										},
+										Spec: TestJobPodSpec{
+											Containers: []TestJobContainer{
+												{
+													Container: corev1.Container{
+														Name:       "test",
+														Image:      "alpine",
+														Command:    []string{"sh", "-c"},
+														Args:       []string{"echo $TEST"},
+														WorkingDir: filepath.Join("/", "work"),
+														VolumeMounts: []corev1.VolumeMount{
+															testRepoVolumeMount(),
+														},
+													},
+												},
+											},
+											Volumes: []TestJobVolume{
+												testRepoVolume(),
+											},
+										},
+									},
+								},
+							},
+						}); err != nil {
+							t.Fatal(err)
+						}
+					})
+				}
+			})
+			t.Run("four pods for three tasks", func(t *testing.T) {
+				for _, runMode := range getRunModes() {
+					t.Run(runMode.String(), func(t *testing.T) {
+						runner := NewRunner(getConfig(), runMode)
+						runner.SetLogger(NewLogger(os.Stdout, LogLevelDebug))
+						if _, err := runner.Run(context.Background(), TestJob{
+							ObjectMeta: testjobObjectMeta(),
+							Spec: TestJobSpec{
+								Repos: testRepos(),
+								MainStep: MainStep{
+									Strategy: &Strategy{
+										Key: StrategyKeySpec{
+											Env: "TEST",
+											Source: StrategyKeySource{
+												Static: []string{"A", "B", "C"},
+											},
+										},
+										Scheduler: Scheduler{
+											MaxPodNum:              4,
+											MaxConcurrentNumPerPod: 3,
+										},
+									},
+									Template: TestJobTemplateSpec{
+										ObjectMeta: metav1.ObjectMeta{
+											GenerateName: "test-",
+										},
+										Spec: TestJobPodSpec{
+											Containers: []TestJobContainer{
+												{
+													Container: corev1.Container{
+														Name:       "test",
+														Image:      "alpine",
+														Command:    []string{"sh", "-c"},
+														Args:       []string{"echo $TEST"},
+														WorkingDir: filepath.Join("/", "work"),
+														VolumeMounts: []corev1.VolumeMount{
+															testRepoVolumeMount(),
+														},
+													},
+												},
+											},
+											Volumes: []TestJobVolume{
+												testRepoVolume(),
+											},
+										},
+									},
+								},
+							},
+						}); err != nil {
+							t.Fatal(err)
+						}
+					})
+				}
+			})
+		})
+		t.Run("maxContainersPerPod", func(t *testing.T) {
+			for _, runMode := range getRunModes() {
+				t.Run(runMode.String(), func(t *testing.T) {
+					runner := NewRunner(getConfig(), runMode)
+					runner.SetLogger(NewLogger(os.Stdout, LogLevelDebug))
+					if _, err := runner.Run(context.Background(), TestJob{
+						ObjectMeta: testjobObjectMeta(),
+						Spec: TestJobSpec{
+							Repos: testRepos(),
+							MainStep: MainStep{
+								Strategy: &Strategy{
+									Key: StrategyKeySpec{
+										Env: "TEST",
+										Source: StrategyKeySource{
+											Static: []string{"A", "B", "C"},
+										},
+									},
+									Scheduler: Scheduler{
+										MaxContainersPerPod:    10,
+										MaxConcurrentNumPerPod: 10,
+									},
+								},
+								Template: TestJobTemplateSpec{
+									ObjectMeta: metav1.ObjectMeta{
+										GenerateName: "test-",
+									},
+									Spec: TestJobPodSpec{
+										Containers: []TestJobContainer{
+											{
+												Container: corev1.Container{
+													Name:       "test",
+													Image:      "alpine",
+													Command:    []string{"sh", "-c"},
+													Args:       []string{"echo $TEST"},
+													WorkingDir: filepath.Join("/", "work"),
+													VolumeMounts: []corev1.VolumeMount{
+														testRepoVolumeMount(),
+													},
+												},
+											},
+										},
+										Volumes: []TestJobVolume{
+											testRepoVolume(),
+										},
 									},
 								},
 							},
 						},
-					},
-				}); err != nil {
-					t.Fatal(err)
-				}
-			})
-		}
+					}); err != nil {
+						t.Fatal(err)
+					}
+				})
+			}
+		})
 	})
 	t.Run("failed to get dynamic key command", func(t *testing.T) {
 		for _, runMode := range getRunModes() {
