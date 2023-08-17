@@ -8,24 +8,24 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: setup go
-        uses: actions/setup-go@v2
-        with:
-          go-version: 1.16
       - name: checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
+      - name: setup go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.21'
       - name: build kubetest
         run: |
           go build -o kubetest ./cmd/kubetest
   test:
     runs-on: ubuntu-latest
     steps:
-      - name: setup go
-        uses: actions/setup-go@v2
-        with:
-          go-version: 1.16
       - name: checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
+      - name: setup go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.21'
       - name: setup kind
         run: |
           make deploy
