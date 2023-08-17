@@ -364,7 +364,11 @@ type StrategyDynamicKeySource struct {
 
 // Scheduler
 type Scheduler struct {
+	// MaxPodNum maximum number of pod.
+	// MaxPodNum and MaxContainersPerPod cannot both be set.
+	MaxPodNum int `json:"maxPodNum"`
 	// MaxContainersPerPod maximum number of container per pod.
+	// MaxPodNum and MaxContainersPerPod cannot both be set.
 	MaxContainersPerPod int `json:"maxContainersPerPod"`
 	// MaxConcurrentNumPerPod maximum number of concurrent per pod.
 	MaxConcurrentNumPerPod int `json:"maxConcurrentNumPerPod"`

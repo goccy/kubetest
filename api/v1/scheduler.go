@@ -9,7 +9,6 @@ import (
 	"regexp"
 	"strings"
 	"sync"
-	"sync/atomic"
 )
 
 type TaskScheduler struct {
@@ -45,12 +44,23 @@ func (s *TaskScheduler) Schedule(ctx context.Context, builder *TaskBuilder) (*Ta
 		return nil, err
 	}
 	subTaskScheduler := NewSubTaskScheduler(strategy.Scheduler.MaxConcurrentNumPerPod)
+	switch {
+	case strategy.Scheduler.MaxPodNum != 0:
+		return s.maxPodNumBasedSchedule(ctx, builder, keys, subTaskScheduler)
+	case strategy.Scheduler.MaxContainersPerPod != 0:
+		return s.maxContainersBasedSchedule(ctx, builder, keys, subTaskScheduler)
+	}
+	return nil, fmt.Errorf("kubetest: unsupecified scheduler parameter. maxPodNum or maxContainersPerPod must be specified")
+}
+
+func (s *TaskScheduler) maxContainersBasedSchedule(ctx context.Context, builder *TaskBuilder, keys []string, subTaskScheduler *SubTaskScheduler) (*TaskGroup, error) {
+	strategy := s.step.Strategy
 	maxContainers := uint32(strategy.Scheduler.MaxContainersPerPod)
 
 	var (
 		finishedKeyNum uint32
+		finishedKeyMu  sync.Mutex
 		keyNum         uint32 = uint32(len(keys))
-		onFinishMu     sync.Mutex
 	)
 	if keyNum <= maxContainers {
 		task, err := builder.BuildWithKey(ctx, &s.step, &StrategyKey{
@@ -59,8 +69,8 @@ func (s *TaskScheduler) Schedule(ctx context.Context, builder *TaskBuilder) (*Ta
 			SubTaskScheduler: subTaskScheduler,
 			Env:              strategy.Key.Env,
 			OnFinishSubTask: func(_ *SubTask) {
-				onFinishMu.Lock()
-				defer onFinishMu.Unlock()
+				finishedKeyMu.Lock()
+				defer finishedKeyMu.Unlock()
 				finishedKeyNum++
 				LoggerFromContext(ctx).Info(
 					"%d/%d (%f%%) finished.",
@@ -94,7 +104,85 @@ func (s *TaskScheduler) Schedule(ctx context.Context, builder *TaskBuilder) (*Ta
 			SubTaskScheduler: subTaskScheduler,
 			Env:              strategy.Key.Env,
 			OnFinishSubTask: func(_ *SubTask) {
-				atomic.AddUint32(&finishedKeyNum, 1)
+				finishedKeyMu.Lock()
+				defer finishedKeyMu.Unlock()
+				finishedKeyNum++
+				LoggerFromContext(ctx).Info(
+					"%d/%d (%f%%) finished.",
+					finishedKeyNum, keyNum, (float32(finishedKeyNum)/float32(keyNum))*100,
+				)
+			},
+		})
+		if err != nil {
+			return nil, err
+		}
+		tasks = append(tasks, task)
+		sum += taskNum
+	}
+	if keyNum != sum {
+		return nil, fmt.Errorf("kubetest: failed to schedule: required key num %d but scheduled key num %d", keyNum, sum)
+	}
+	return NewTaskGroup(tasks), nil
+}
+
+func (s *TaskScheduler) maxPodNumBasedSchedule(ctx context.Context, builder *TaskBuilder, keys []string, subTaskScheduler *SubTaskScheduler) (*TaskGroup, error) {
+	strategy := s.step.Strategy
+	maxPods := uint32(strategy.Scheduler.MaxPodNum)
+
+	var (
+		finishedKeyNum uint32
+		finishedKeyMu  sync.Mutex
+		keyNum         uint32 = uint32(len(keys))
+		tasks          []*Task
+	)
+	if keyNum < maxPods {
+		// If there are more Pods in use than the number of keys, launch as many Pods as there are keys.
+		for i := uint32(0); i < keyNum; i++ {
+			task, err := builder.BuildWithKey(ctx, &s.step, &StrategyKey{
+				ConcurrentIdx:    i,
+				Keys:             []string{keys[i]},
+				SubTaskScheduler: subTaskScheduler,
+				Env:              strategy.Key.Env,
+				OnFinishSubTask: func(_ *SubTask) {
+					finishedKeyMu.Lock()
+					defer finishedKeyMu.Unlock()
+					finishedKeyNum++
+					LoggerFromContext(ctx).Info(
+						"%d/%d (%f%%) finished.",
+						finishedKeyNum, keyNum, (float32(finishedKeyNum)/float32(keyNum))*100,
+					)
+				},
+			})
+			if err != nil {
+				return nil, err
+			}
+			tasks = append(tasks, task)
+		}
+		return NewTaskGroup(tasks), nil
+	}
+
+	perPodKeyNum := keyNum / maxPods
+	sum := uint32(0)
+	for i := uint32(0); i < maxPods; i++ {
+		var taskKeys []string
+		if i == (maxPods - 1) {
+			taskKeys = keys[sum:]
+		} else {
+			taskKeys = keys[sum : sum+perPodKeyNum]
+		}
+		taskNum := uint32(len(taskKeys))
+		if taskNum == 0 {
+			break
+		}
+		task, err := builder.BuildWithKey(ctx, &s.step, &StrategyKey{
+			ConcurrentIdx:    i,
+			Keys:             taskKeys,
+			SubTaskScheduler: subTaskScheduler,
+			Env:              strategy.Key.Env,
+			OnFinishSubTask: func(_ *SubTask) {
+				finishedKeyMu.Lock()
+				defer finishedKeyMu.Unlock()
+				finishedKeyNum++
 				LoggerFromContext(ctx).Info(
 					"%d/%d (%f%%) finished.",
 					finishedKeyNum, keyNum, (float32(finishedKeyNum)/float32(keyNum))*100,
