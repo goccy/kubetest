@@ -6,6 +6,7 @@ package v1
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 
@@ -113,6 +114,14 @@ func (t *Task) run(ctx context.Context) (*TaskResult, error) {
 		for _, subTaskGroup := range subTaskGroups {
 			result.add(subTaskGroup.Run(ctx))
 		}
+		return nil
+	}, func(finalizer JobExecutor) error {
+		out, err := finalizer.Output(ctx)
+		if err != nil {
+			LoggerFromContext(ctx).Error("failed to run finalizer: output %s: %s", string(out), err.Error())
+			return fmt.Errorf("failed to run finalizer: %s: %w", string(out), err)
+		}
+		LoggerFromContext(ctx).Debug("run finalizer: output %s", string(out))
 		return nil
 	}); err != nil {
 		var failedJob *kubejob.FailedJob

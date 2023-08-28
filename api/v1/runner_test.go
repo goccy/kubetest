@@ -138,6 +138,53 @@ func TestRunner(t *testing.T) {
 			})
 		}
 	})
+	t.Run("finalizerContainer", func(t *testing.T) {
+		for _, runMode := range getRunModes() {
+			t.Run(runMode.String(), func(t *testing.T) {
+				runner := NewRunner(getConfig(), runMode)
+				runner.SetLogger(NewLogger(os.Stdout, LogLevelDebug))
+				if _, err := runner.Run(context.Background(), TestJob{
+					ObjectMeta: testjobObjectMeta(),
+					Spec: TestJobSpec{
+						Repos: testRepos(),
+						MainStep: MainStep{
+							Template: TestJobTemplateSpec{
+								ObjectMeta: metav1.ObjectMeta{
+									GenerateName: "test",
+								},
+								Spec: TestJobPodSpec{
+									Containers: []TestJobContainer{
+										{
+											Container: corev1.Container{
+												Name:         "test",
+												Image:        "alpine",
+												Command:      []string{"echo"},
+												Args:         []string{"hello"},
+												WorkingDir:   filepath.Join("/", "work"),
+												VolumeMounts: []corev1.VolumeMount{testRepoVolumeMount()},
+											},
+										},
+									},
+									FinalizerContainer: TestJobContainer{
+										Container: corev1.Container{
+											Name:    "finalizer",
+											Image:   "alpine",
+											Command: []string{"echo"},
+											Args:    []string{"finalizer"},
+										},
+									},
+									Volumes: []TestJobVolume{testRepoVolume()},
+								},
+							},
+						},
+					},
+				}); err != nil {
+					t.Fatal(err)
+				}
+			})
+		}
+	})
+
 	t.Run("use token", func(t *testing.T) {
 		if !inCluster {
 			privateKeyPath := filepath.Join("..", "..", "testdata", "githubapp.private-key.pem")
@@ -670,7 +717,7 @@ func TestRunner(t *testing.T) {
 										Dynamic: &StrategyDynamicKeySource{
 											Template: TestJobTemplateSpec{
 												ObjectMeta: metav1.ObjectMeta{
-													Name: "list",
+													GenerateName: "list-",
 												},
 												Spec: TestJobPodSpec{
 													Containers: []TestJobContainer{
@@ -736,7 +783,7 @@ func TestRunner(t *testing.T) {
 										Dynamic: &StrategyDynamicKeySource{
 											Template: TestJobTemplateSpec{
 												ObjectMeta: metav1.ObjectMeta{
-													Name: "list",
+													GenerateName: "list-",
 												},
 												Spec: TestJobPodSpec{
 													Containers: []TestJobContainer{
@@ -771,7 +818,7 @@ func TestRunner(t *testing.T) {
 							},
 							Template: TestJobTemplateSpec{
 								ObjectMeta: metav1.ObjectMeta{
-									Name: "test",
+									GenerateName: "test-",
 								},
 								Spec: TestJobPodSpec{
 									Containers: []TestJobContainer{
@@ -831,7 +878,7 @@ func TestRunner(t *testing.T) {
 							},
 							Template: TestJobTemplateSpec{
 								ObjectMeta: metav1.ObjectMeta{
-									Name: "test",
+									GenerateName: "test-",
 								},
 								Spec: TestJobPodSpec{
 									Artifacts: []ArtifactSpec{
@@ -913,7 +960,7 @@ func TestRunner(t *testing.T) {
 							},
 							Template: TestJobTemplateSpec{
 								ObjectMeta: metav1.ObjectMeta{
-									Name: "test",
+									GenerateName: "test-",
 								},
 								Spec: TestJobPodSpec{
 									Artifacts: []ArtifactSpec{
@@ -944,7 +991,7 @@ func TestRunner(t *testing.T) {
 								Name: "post-step",
 								Template: TestJobTemplateSpec{
 									ObjectMeta: metav1.ObjectMeta{
-										Name: "post",
+										GenerateName: "post-",
 									},
 									Spec: TestJobPodSpec{
 										Containers: []TestJobContainer{
@@ -1044,7 +1091,7 @@ func TestRunner(t *testing.T) {
 							},
 							Template: TestJobTemplateSpec{
 								ObjectMeta: metav1.ObjectMeta{
-									Name: "test",
+									GenerateName: "test-",
 								},
 								Spec: TestJobPodSpec{
 									Artifacts: []ArtifactSpec{
@@ -1140,7 +1187,7 @@ func TestRunner(t *testing.T) {
 							},
 							Template: TestJobTemplateSpec{
 								ObjectMeta: metav1.ObjectMeta{
-									Name: "test",
+									GenerateName: "test-",
 								},
 								Main: "test",
 								Spec: TestJobPodSpec{
