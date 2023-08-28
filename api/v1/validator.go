@@ -225,6 +225,11 @@ func (v *Validator) ValidateTestJobPodSpec(spec TestJobPodSpec, stepType StepTyp
 			return err
 		}
 	}
+	if spec.FinalizerContainer.Name != "" {
+		if err := v.ValidateTestJobContainer(spec.FinalizerContainer); err != nil {
+			return err
+		}
+	}
 	for _, volume := range spec.Volumes {
 		if err := v.ValidateTestJobVolume(volume, stepType); err != nil {
 			return err
@@ -254,10 +259,10 @@ func (v *Validator) ValidateTestJobPodSpec(spec TestJobPodSpec, stepType StepTyp
 
 func (v *Validator) ValidateTestJobContainer(container TestJobContainer) error {
 	if len(container.Command) == 0 {
-		return fmt.Errorf("kubetest: template.spec.initContainers[].command must be specified")
+		return fmt.Errorf("kubetest: container's command must be specified")
 	}
 	if container.Image == "" {
-		return fmt.Errorf("kubetest: template.spec.initContainers[].image must be specified")
+		return fmt.Errorf("kubetest: container's image must be specified")
 	}
 	if container.Agent != nil {
 		return v.ValidateTestAgentSpec(container.Agent)

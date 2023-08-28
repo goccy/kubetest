@@ -125,9 +125,10 @@ func (b *TaskBuilder) buildJob(ctx context.Context, mainContainer TestJobContain
 	spec := *tmpl.Spec.DeepCopy()
 	b.addContainersByStrategyKey(&spec, mainContainer, strategyKey)
 	buildCtx := &TaskBuildContext{
-		initContainers: newTaskContainerGroup(spec.InitContainers, spec.Volumes),
-		containers:     newTaskContainerGroup(spec.Containers, spec.Volumes),
-		spec:           spec,
+		initContainers:      newTaskContainerGroup(spec.InitContainers, spec.Volumes),
+		containers:          newTaskContainerGroup(spec.Containers, spec.Volumes),
+		finalizerContainers: newTaskContainerGroup([]TestJobContainer{spec.FinalizerContainer}, spec.Volumes),
+		spec:                spec,
 	}
 	podSpec := buildCtx.podSpec()
 	podMeta := tmpl.ObjectMeta
@@ -149,7 +150,11 @@ func (b *TaskBuilder) buildJob(ctx context.Context, mainContainer TestJobContain
 	}
 	podMeta.Labels = labels
 	podMeta.Annotations = annotations
-	job, err := NewJobBuilder(b.cfg, b.namespace, b.runMode).BuildWithJob(&batchv1.Job{
+	jobBuilder := NewJobBuilder(b.cfg, b.namespace, b.runMode)
+	if spec.FinalizerContainer.Name != "" {
+		jobBuilder.SetFinalizer(&spec.FinalizerContainer.Container)
+	}
+	job, err := jobBuilder.BuildWithJob(&batchv1.Job{
 		ObjectMeta: tmpl.ObjectMeta,
 		Spec: batchv1.JobSpec{
 			Template: corev1.PodTemplateSpec{
@@ -496,14 +501,18 @@ func (b *TaskBuilder) getCopyPathForReport(ctx context.Context, buildCtx *TaskBu
 }
 
 type TaskBuildContext struct {
-	initContainers *TaskContainerGroup
-	containers     *TaskContainerGroup
-	spec           TestJobPodSpec
+	initContainers      *TaskContainerGroup
+	containers          *TaskContainerGroup
+	finalizerContainers *TaskContainerGroup
+	spec                TestJobPodSpec
 }
 
 func (c *TaskBuildContext) taskContainer(name string, isInitContainer bool) *TaskContainer {
 	if isInitContainer {
 		return c.initContainers.containerMap[name]
+	}
+	if task := c.finalizerContainers.containerMap[name]; task != nil {
+		return task
 	}
 	return c.containers.containerMap[name]
 }
@@ -511,6 +520,9 @@ func (c *TaskBuildContext) taskContainer(name string, isInitContainer bool) *Tas
 func (c *TaskBuildContext) containerNameToInstalledAgentPathMap() map[string]string {
 	ret := c.initContainers.containerNameToInstalledAgentPathMap()
 	for k, v := range c.containers.containerNameToInstalledAgentPathMap() {
+		ret[k] = v
+	}
+	for k, v := range c.finalizerContainers.containerNameToInstalledAgentPathMap() {
 		ret[k] = v
 	}
 	path := c.preInitAgentPath()
@@ -522,12 +534,17 @@ func (c *TaskBuildContext) containerNameToInstalledAgentPathMap() map[string]str
 
 func (c *TaskBuildContext) isUsedLogVolume() bool {
 	for _, container := range c.initContainers.containerMap {
-		if len(container.logOrgMountPaths) > 0 {
+		if len(container.logOrgMountPaths) != 0 {
 			return true
 		}
 	}
 	for _, container := range c.containers.containerMap {
-		if len(container.logOrgMountPaths) > 0 {
+		if len(container.logOrgMountPaths) != 0 {
+			return true
+		}
+	}
+	for _, container := range c.finalizerContainers.containerMap {
+		if len(container.logOrgMountPaths) != 0 {
 			return true
 		}
 	}
@@ -536,12 +553,17 @@ func (c *TaskBuildContext) isUsedLogVolume() bool {
 
 func (c *TaskBuildContext) isUsedReportVolume() bool {
 	for _, container := range c.initContainers.containerMap {
-		if len(container.reportOrgMountPaths) > 0 {
+		if len(container.reportOrgMountPaths) != 0 {
 			return true
 		}
 	}
 	for _, container := range c.containers.containerMap {
-		if len(container.reportOrgMountPaths) > 0 {
+		if len(container.reportOrgMountPaths) != 0 {
+			return true
+		}
+	}
+	for _, container := range c.finalizerContainers.containerMap {
+		if len(container.reportOrgMountPaths) != 0 {
 			return true
 		}
 	}
@@ -554,6 +576,9 @@ func (c *TaskBuildContext) repoNames() []string {
 		repoNameMap[name] = struct{}{}
 	}
 	for _, name := range c.containers.repoNames() {
+		repoNameMap[name] = struct{}{}
+	}
+	for _, name := range c.finalizerContainers.repoNames() {
 		repoNameMap[name] = struct{}{}
 	}
 	repoNames := make([]string, 0, len(repoNameMap))
@@ -572,6 +597,9 @@ func (c *TaskBuildContext) tokenNames() []string {
 	for _, name := range c.containers.tokenNames() {
 		tokenNameMap[name] = struct{}{}
 	}
+	for _, name := range c.finalizerContainers.tokenNames() {
+		tokenNameMap[name] = struct{}{}
+	}
 	tokenNames := make([]string, 0, len(tokenNameMap))
 	for name := range tokenNameMap {
 		tokenNames = append(tokenNames, name)
@@ -588,6 +616,9 @@ func (c *TaskBuildContext) artifactNames() []string {
 	for _, name := range c.containers.artifactNames() {
 		artifactNameMap[name] = struct{}{}
 	}
+	for _, name := range c.finalizerContainers.artifactNames() {
+		artifactNameMap[name] = struct{}{}
+	}
 	artifactNames := make([]string, 0, len(artifactNameMap))
 	for name := range artifactNameMap {
 		artifactNames = append(artifactNames, name)
@@ -601,7 +632,11 @@ func (g *TaskBuildContext) repoNameToArchiveMountPath(name string) string {
 	if path != "" {
 		return path
 	}
-	return g.containers.repoNameToArchiveMountPath(name)
+	path = g.containers.repoNameToArchiveMountPath(name)
+	if path != "" {
+		return path
+	}
+	return g.finalizerContainers.repoNameToArchiveMountPath(name)
 }
 
 func (g *TaskBuildContext) tokenNameToMountPath(name string) string {
@@ -609,7 +644,11 @@ func (g *TaskBuildContext) tokenNameToMountPath(name string) string {
 	if path != "" {
 		return path
 	}
-	return g.containers.tokenNameToMountPath(name)
+	path = g.containers.tokenNameToMountPath(name)
+	if path != "" {
+		return path
+	}
+	return g.finalizerContainers.tokenNameToMountPath(name)
 }
 
 func (g *TaskBuildContext) artifactNameToMountPath(name string) string {
@@ -617,11 +656,15 @@ func (g *TaskBuildContext) artifactNameToMountPath(name string) string {
 	if path != "" {
 		return path
 	}
-	return g.containers.artifactNameToMountPath(name)
+	path = g.containers.artifactNameToMountPath(name)
+	if path != "" {
+		return path
+	}
+	return g.finalizerContainers.artifactNameToMountPath(name)
 }
 
 func (c *TaskBuildContext) needsToPreInit() bool {
-	return c.initContainers.hasTestVolumeMont() || c.containers.hasTestVolumeMont()
+	return c.initContainers.hasTestVolumeMount() || c.containers.hasTestVolumeMount() || c.finalizerContainers.hasTestVolumeMount()
 }
 
 func (c *TaskBuildContext) podSpec() corev1.PodSpec {
@@ -657,6 +700,9 @@ func (c *TaskBuildContext) preInitVolumeMounts() []corev1.VolumeMount {
 		preInitVolumeMountMap[k] = v
 	}
 	for k, v := range c.containers.preInitVolumeMountMap() {
+		preInitVolumeMountMap[k] = v
+	}
+	for k, v := range c.finalizerContainers.preInitVolumeMountMap() {
 		preInitVolumeMountMap[k] = v
 	}
 	for _, v := range preInitVolumeMountMap {
@@ -807,7 +853,7 @@ func (g *TaskContainerGroup) preInitAgentPath() string {
 	return ""
 }
 
-func (g *TaskContainerGroup) hasTestVolumeMont() bool {
+func (g *TaskContainerGroup) hasTestVolumeMount() bool {
 	for _, c := range g.containerMap {
 		if c.hasTestVolumeMount() {
 			return true

@@ -161,11 +161,12 @@ type TestJobTemplateSpec struct {
 
 // TestJobPodSpec
 type TestJobPodSpec struct {
-	corev1.PodSpec `json:",inline"`
-	InitContainers []TestJobContainer `json:"initContainers,omitempty"`
-	Containers     []TestJobContainer `json:"containers"`
-	Volumes        []TestJobVolume    `json:"volumes,omitempty"`
-	Artifacts      []ArtifactSpec     `json:"artifacts,omitempty"`
+	corev1.PodSpec     `json:",inline"`
+	InitContainers     []TestJobContainer `json:"initContainers,omitempty"`
+	Containers         []TestJobContainer `json:"containers"`
+	FinalizerContainer TestJobContainer   `json:"finalizerContainer"`
+	Volumes            []TestJobVolume    `json:"volumes,omitempty"`
+	Artifacts          []ArtifactSpec     `json:"artifacts,omitempty"`
 }
 
 // TestAgentSpec describes the specification of kubetest-agent.

@@ -23,7 +23,7 @@ type PreInitCallback func(context.Context, JobExecutor) error
 type Job interface {
 	Spec() batchv1.JobSpec
 	PreInit(TestJobContainer, PreInitCallback)
-	RunWithExecutionHandler(context.Context, func([]JobExecutor) error) error
+	RunWithExecutionHandler(context.Context, func([]JobExecutor) error, func(JobExecutor) error) error
 	Mount(func(ctx context.Context, exec JobExecutor, isInitContainer bool) error)
 }
 
@@ -43,6 +43,7 @@ type JobBuilder struct {
 	cfg       *rest.Config
 	namespace string
 	runMode   RunMode
+	finalizer *corev1.Container
 }
 
 func NewJobBuilder(cfg *rest.Config, namespace string, runMode RunMode) *JobBuilder {
@@ -51,6 +52,10 @@ func NewJobBuilder(cfg *rest.Config, namespace string, runMode RunMode) *JobBuil
 		namespace: namespace,
 		runMode:   runMode,
 	}
+}
+
+func (b *JobBuilder) SetFinalizer(finalizer *corev1.Container) {
+	b.finalizer = finalizer
 }
 
 func (b *JobBuilder) BuildWithJob(jobSpec *batchv1.Job, containerNameToInstalledPathMap map[string]string, sharedAgentSpec *TestAgentSpec) (Job, error) {
@@ -75,15 +80,15 @@ func (b *JobBuilder) BuildWithJob(jobSpec *batchv1.Job, containerNameToInstalled
 			job.UseAgent(cfg)
 			agentConfig = cfg
 		}
-		return newKubernetesJob(job, agentConfig), nil
+		return newKubernetesJob(job, b.finalizer, agentConfig), nil
 	case RunModeLocal:
 		rootDir, err := os.MkdirTemp("", "root")
 		if err != nil {
 			return nil, fmt.Errorf("kubetest: failed to create working directory for running on local file system")
 		}
-		return newLocalJob(rootDir, jobSpec), nil
+		return newLocalJob(rootDir, jobSpec, b.finalizer), nil
 	case RunModeDryRun:
-		return &dryRunJob{job: jobSpec}, nil
+		return &dryRunJob{job: jobSpec, finalizer: b.finalizer}, nil
 	}
 	return nil, fmt.Errorf("kubetest: unknown run mode %v", b.runMode)
 }
@@ -91,15 +96,17 @@ func (b *JobBuilder) BuildWithJob(jobSpec *batchv1.Job, containerNameToInstalled
 type kubernetesJob struct {
 	preInitCallbackContext context.Context
 	job                    *kubejob.Job
+	finalizer              *corev1.Container
 	agentConfig            *kubejob.AgentConfig
 	mountCallback          func(context.Context, JobExecutor, bool) error
 }
 
 var defaultMountCallback = func(context.Context, JobExecutor, bool) error { return nil }
 
-func newKubernetesJob(job *kubejob.Job, agentConfig *kubejob.AgentConfig) *kubernetesJob {
+func newKubernetesJob(job *kubejob.Job, finalizer *corev1.Container, agentConfig *kubejob.AgentConfig) *kubernetesJob {
 	return &kubernetesJob{
 		job:           job,
+		finalizer:     finalizer,
 		agentConfig:   agentConfig,
 		mountCallback: defaultMountCallback,
 	}
@@ -119,7 +126,7 @@ func (j *kubernetesJob) Mount(cb func(context.Context, JobExecutor, bool) error)
 	j.mountCallback = cb
 }
 
-func (j *kubernetesJob) RunWithExecutionHandler(ctx context.Context, handler func([]JobExecutor) error) error {
+func (j *kubernetesJob) RunWithExecutionHandler(ctx context.Context, handler func([]JobExecutor) error, finalizerHandler func(JobExecutor) error) error {
 	j.preInitCallbackContext = ctx
 	j.job.DisableInitContainerLog()
 	j.job.SetPendingPhaseTimeout(10 * time.Minute)
@@ -131,6 +138,15 @@ func (j *kubernetesJob) RunWithExecutionHandler(ctx context.Context, handler fun
 		_, err := exec.ExecOnly()
 		return err
 	})
+	var finalizer *kubejob.JobFinalizer
+	if j.finalizer != nil {
+		finalizer = &kubejob.JobFinalizer{
+			Container: *j.finalizer,
+			Handler: func(exec *kubejob.JobExecutor) error {
+				return finalizerHandler(&kubernetesJobExecutor{exec: exec})
+			},
+		}
+	}
 	return j.job.RunWithExecutionHandler(ctx, func(execs []*kubejob.JobExecutor) error {
 		converted := make([]JobExecutor, 0, len(execs))
 		for _, exec := range execs {
@@ -141,7 +157,7 @@ func (j *kubernetesJob) RunWithExecutionHandler(ctx context.Context, handler fun
 			converted = append(converted, e)
 		}
 		return handler(converted)
-	})
+	}, finalizer)
 }
 
 type kubernetesJobExecutor struct {
@@ -203,13 +219,15 @@ type localJob struct {
 	preInitCallback  PreInitCallback
 	mountCallback    func(context.Context, JobExecutor, bool) error
 	job              *batchv1.Job
+	finalizer        *corev1.Container
 }
 
-func newLocalJob(rootDir string, job *batchv1.Job) *localJob {
+func newLocalJob(rootDir string, job *batchv1.Job, finalizer *corev1.Container) *localJob {
 	return &localJob{
 		rootDir:       rootDir,
 		job:           job,
 		mountCallback: defaultMountCallback,
+		finalizer:     finalizer,
 	}
 }
 
@@ -226,7 +244,7 @@ func (j *localJob) Mount(cb func(context.Context, JobExecutor, bool) error) {
 	j.mountCallback = cb
 }
 
-func (j *localJob) RunWithExecutionHandler(ctx context.Context, handler func([]JobExecutor) error) error {
+func (j *localJob) RunWithExecutionHandler(ctx context.Context, handler func([]JobExecutor) error, finalizer func(JobExecutor) error) error {
 	preInitNameToPath := map[string]string{}
 	if j.preInitCallback != nil {
 		j.preInitCallback(ctx, &localJobExecutor{
@@ -251,12 +269,24 @@ func (j *localJob) RunWithExecutionHandler(ctx context.Context, handler func([]J
 		}
 		execs = append(execs, e)
 	}
-	return handler(execs)
+	if err := handler(execs); err != nil {
+		return err
+	}
+	if j.finalizer != nil {
+		if err := finalizer(&localJobExecutor{
+			rootDir:   j.rootDir,
+			container: *j.finalizer,
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 type localJobExecutor struct {
 	rootDir   string
 	container corev1.Container
+	finalizer *corev1.Container
 }
 
 func (e *localJobExecutor) cmd(cmdarr []string) (*exec.Cmd, error) {
@@ -359,7 +389,8 @@ func (e *localJobExecutor) Pod() *corev1.Pod {
 }
 
 type dryRunJob struct {
-	job *batchv1.Job
+	job       *batchv1.Job
+	finalizer *corev1.Container
 }
 
 func (j *dryRunJob) Spec() batchv1.JobSpec {
@@ -369,14 +400,24 @@ func (j *dryRunJob) Spec() batchv1.JobSpec {
 func (j *dryRunJob) PreInit(c TestJobContainer, cb PreInitCallback)         {}
 func (j *dryRunJob) Mount(_ func(context.Context, JobExecutor, bool) error) {}
 
-func (j *dryRunJob) RunWithExecutionHandler(ctx context.Context, handler func([]JobExecutor) error) error {
+func (j *dryRunJob) RunWithExecutionHandler(ctx context.Context, handler func([]JobExecutor) error, finalizer func(JobExecutor) error) error {
 	execs := make([]JobExecutor, 0, len(j.job.Spec.Template.Spec.Containers))
 	for _, container := range j.job.Spec.Template.Spec.Containers {
 		execs = append(execs, &dryRunJobExecutor{
 			container: container,
 		})
 	}
-	return handler(execs)
+	if err := handler(execs); err != nil {
+		return err
+	}
+	if j.finalizer != nil {
+		if err := finalizer(&dryRunJobExecutor{
+			container: *j.finalizer,
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 type dryRunJobExecutor struct {
