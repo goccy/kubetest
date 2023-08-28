@@ -13,14 +13,13 @@ require (
 	github.com/lestrrat-go/backoff v1.0.1
 	github.com/sosedoff/gitkit v0.4.0
 	golang.org/x/sync v0.3.0
-	k8s.io/api v0.28.0
-	k8s.io/apimachinery v0.28.0
+	k8s.io/api v0.28.1
+	k8s.io/apimachinery v0.28.1
 	k8s.io/client-go v0.28.0
 	sigs.k8s.io/controller-runtime v0.15.1
 )
 
 require (
-	cloud.google.com/go/compute/metadata v0.2.3 // indirect
 	dario.cat/mergo v1.0.0 // indirect
 	github.com/Microsoft/go-winio v0.6.1 // indirect
 	github.com/ProtonMail/go-crypto v0.0.0-20230717121422-5aa5874ade95 // indirect
