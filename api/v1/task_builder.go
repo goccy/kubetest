@@ -219,7 +219,7 @@ func (b *TaskBuilder) mountRepository(ctx context.Context, taskContainer *TaskCo
 			"mount repository %s on %s by '%s'",
 			containerName, repoName, strings.Join(cmd, " "),
 		)
-		out, err := exec.PrepareCommand(cmd)
+		out, err := exec.PrepareCommand(ctx, cmd)
 		if err != nil {
 			return fmt.Errorf("kubetest: failed to mount repository. %s: %w", string(out), err)
 		}
@@ -246,7 +246,7 @@ func (b *TaskBuilder) mountToken(ctx context.Context, taskContainer *TaskContain
 			"mount token %s on %s by '%s'",
 			containerName, tokenName, strings.Join(cmd, " "),
 		)
-		out, err := exec.PrepareCommand(cmd)
+		out, err := exec.PrepareCommand(ctx, cmd)
 		if err != nil {
 			return fmt.Errorf("kubetest: failed to mount token. %s: %w", string(out), err)
 		}
@@ -284,7 +284,7 @@ func (b *TaskBuilder) mountArtifact(ctx context.Context, taskContainer *TaskCont
 			"mount artifact %s on %s by '%s'",
 			containerName, artifactName, strings.Join(cmd, " "),
 		)
-		out, err := exec.PrepareCommand(cmd)
+		out, err := exec.PrepareCommand(ctx, cmd)
 		if err != nil {
 			return fmt.Errorf("kubetest: failed to mount artifact. %s: %w", string(out), err)
 		}
@@ -307,7 +307,7 @@ func (b *TaskBuilder) mountLog(ctx context.Context, taskContainer *TaskContainer
 			"mount log on %s by '%s'",
 			containerName, strings.Join(cmd, " "),
 		)
-		out, err := exec.PrepareCommand(cmd)
+		out, err := exec.PrepareCommand(ctx, cmd)
 		if err != nil {
 			return fmt.Errorf("kubetest: failed to mount log. %s: %w", string(out), err)
 		}
@@ -330,7 +330,7 @@ func (b *TaskBuilder) mountReport(ctx context.Context, taskContainer *TaskContai
 			"mount report on %s by '%s'",
 			containerName, strings.Join(cmd, " "),
 		)
-		out, err := exec.PrepareCommand(cmd)
+		out, err := exec.PrepareCommand(ctx, cmd)
 		if err != nil {
 			return fmt.Errorf("kubetest: failed to mount report. %s: %w", string(out), err)
 		}

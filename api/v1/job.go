@@ -23,7 +23,7 @@ type PreInitCallback func(context.Context, JobExecutor) error
 type Job interface {
 	Spec() batchv1.JobSpec
 	PreInit(TestJobContainer, PreInitCallback)
-	RunWithExecutionHandler(context.Context, func([]JobExecutor) error, func(JobExecutor) error) error
+	RunWithExecutionHandler(context.Context, func(context.Context, []JobExecutor) error, func(context.Context, JobExecutor) error) error
 	Mount(func(ctx context.Context, exec JobExecutor, isInitContainer bool) error)
 }
 
@@ -36,7 +36,7 @@ type JobExecutor interface {
 	CopyTo(context.Context, string, string) error
 	Container() corev1.Container
 	Pod() *corev1.Pod
-	PrepareCommand([]string) ([]byte, error)
+	PrepareCommand(context.Context, []string) ([]byte, error)
 }
 
 type JobBuilder struct {
@@ -94,11 +94,10 @@ func (b *JobBuilder) BuildWithJob(jobSpec *batchv1.Job, containerNameToInstalled
 }
 
 type kubernetesJob struct {
-	preInitCallbackContext context.Context
-	job                    *kubejob.Job
-	finalizer              *corev1.Container
-	agentConfig            *kubejob.AgentConfig
-	mountCallback          func(context.Context, JobExecutor, bool) error
+	job           *kubejob.Job
+	finalizer     *corev1.Container
+	agentConfig   *kubejob.AgentConfig
+	mountCallback func(context.Context, JobExecutor, bool) error
 }
 
 var defaultMountCallback = func(context.Context, JobExecutor, bool) error { return nil }
@@ -117,8 +116,8 @@ func (j *kubernetesJob) Spec() batchv1.JobSpec {
 }
 
 func (j *kubernetesJob) PreInit(c TestJobContainer, cb PreInitCallback) {
-	j.job.PreInit(c.Container, func(exec *kubejob.JobExecutor) error {
-		return cb(j.preInitCallbackContext, &kubernetesJobExecutor{exec: exec})
+	j.job.PreInit(c.Container, func(ctx context.Context, exec *kubejob.JobExecutor) error {
+		return cb(ctx, &kubernetesJobExecutor{exec: exec})
 	})
 }
 
@@ -126,28 +125,27 @@ func (j *kubernetesJob) Mount(cb func(context.Context, JobExecutor, bool) error)
 	j.mountCallback = cb
 }
 
-func (j *kubernetesJob) RunWithExecutionHandler(ctx context.Context, handler func([]JobExecutor) error, finalizerHandler func(JobExecutor) error) error {
-	j.preInitCallbackContext = ctx
+func (j *kubernetesJob) RunWithExecutionHandler(ctx context.Context, handler func(context.Context, []JobExecutor) error, finalizerHandler func(context.Context, JobExecutor) error) error {
 	j.job.DisableInitContainerLog()
 	j.job.SetPendingPhaseTimeout(10 * time.Minute)
-	j.job.SetInitContainerExecutionHandler(func(exec *kubejob.JobExecutor) error {
+	j.job.SetInitContainerExecutionHandler(func(ctx context.Context, exec *kubejob.JobExecutor) error {
 		e := &kubernetesJobExecutor{exec: exec}
 		if err := j.mountCallback(ctx, e, true); err != nil {
 			return err
 		}
-		_, err := exec.ExecOnly()
+		_, err := exec.ExecOnly(ctx)
 		return err
 	})
 	var finalizer *kubejob.JobFinalizer
 	if j.finalizer != nil {
 		finalizer = &kubejob.JobFinalizer{
 			Container: *j.finalizer,
-			Handler: func(exec *kubejob.JobExecutor) error {
-				return finalizerHandler(&kubernetesJobExecutor{exec: exec})
+			Handler: func(ctx context.Context, exec *kubejob.JobExecutor) error {
+				return finalizerHandler(ctx, &kubernetesJobExecutor{exec: exec})
 			},
 		}
 	}
-	return j.job.RunWithExecutionHandler(ctx, func(execs []*kubejob.JobExecutor) error {
+	return j.job.RunWithExecutionHandler(ctx, func(ctx context.Context, execs []*kubejob.JobExecutor) error {
 		converted := make([]JobExecutor, 0, len(execs))
 		for _, exec := range execs {
 			e := &kubernetesJobExecutor{exec: exec}
@@ -156,7 +154,7 @@ func (j *kubernetesJob) RunWithExecutionHandler(ctx context.Context, handler fun
 			}
 			converted = append(converted, e)
 		}
-		return handler(converted)
+		return handler(ctx, converted)
 	}, finalizer)
 }
 
@@ -164,19 +162,19 @@ type kubernetesJobExecutor struct {
 	exec *kubejob.JobExecutor
 }
 
-func (e *kubernetesJobExecutor) PrepareCommand(cmd []string) ([]byte, error) {
-	return e.exec.ExecPrepareCommand([]string{"sh", "-c", strings.Join(cmd, " ")})
+func (e *kubernetesJobExecutor) PrepareCommand(ctx context.Context, cmd []string) ([]byte, error) {
+	return e.exec.ExecPrepareCommand(ctx, []string{"sh", "-c", strings.Join(cmd, " ")})
 }
 
-func (e *kubernetesJobExecutor) Output(_ context.Context) ([]byte, error) {
-	return e.exec.ExecOnly()
+func (e *kubernetesJobExecutor) Output(ctx context.Context) ([]byte, error) {
+	return e.exec.ExecOnly(ctx)
 }
 
-func (e *kubernetesJobExecutor) ExecAsync(_ context.Context) {
-	e.exec.ExecAsync()
+func (e *kubernetesJobExecutor) ExecAsync(ctx context.Context) {
+	e.exec.ExecAsync(ctx)
 }
 
-func (e *kubernetesJobExecutor) TerminationLog(_ context.Context, log string) error {
+func (e *kubernetesJobExecutor) TerminationLog(ctx context.Context, log string) error {
 	return e.exec.TerminationLog(log)
 }
 
@@ -195,14 +193,14 @@ func (e *kubernetesJobExecutor) CopyFrom(ctx context.Context, src string, dst st
 	containerName := e.exec.Container.Name
 	addr := e.exec.Pod.Status.PodIP
 	LoggerFromContext(ctx).Debug("copy from %s on container(%s) in %s pod to %s on local by %s", src, containerName, addr, dst, e.execProtocol())
-	return e.exec.CopyFromPod(src, dst)
+	return e.exec.CopyFromPod(ctx, src, dst)
 }
 
 func (e *kubernetesJobExecutor) CopyTo(ctx context.Context, src string, dst string) error {
 	containerName := e.exec.Container.Name
 	addr := e.exec.Pod.Status.PodIP
 	LoggerFromContext(ctx).Debug("copy from %s on local to %s on container(%s) in %s pod by %s", src, dst, containerName, addr, e.execProtocol())
-	return e.exec.CopyToPod(src, dst)
+	return e.exec.CopyToPod(ctx, src, dst)
 }
 
 func (e *kubernetesJobExecutor) Container() corev1.Container {
@@ -244,7 +242,7 @@ func (j *localJob) Mount(cb func(context.Context, JobExecutor, bool) error) {
 	j.mountCallback = cb
 }
 
-func (j *localJob) RunWithExecutionHandler(ctx context.Context, handler func([]JobExecutor) error, finalizer func(JobExecutor) error) error {
+func (j *localJob) RunWithExecutionHandler(ctx context.Context, handler func(context.Context, []JobExecutor) error, finalizer func(context.Context, JobExecutor) error) error {
 	preInitNameToPath := map[string]string{}
 	if j.preInitCallback != nil {
 		j.preInitCallback(ctx, &localJobExecutor{
@@ -269,11 +267,11 @@ func (j *localJob) RunWithExecutionHandler(ctx context.Context, handler func([]J
 		}
 		execs = append(execs, e)
 	}
-	if err := handler(execs); err != nil {
+	if err := handler(ctx, execs); err != nil {
 		return err
 	}
 	if j.finalizer != nil {
-		if err := finalizer(&localJobExecutor{
+		if err := finalizer(ctx, &localJobExecutor{
 			rootDir:   j.rootDir,
 			container: *j.finalizer,
 		}); err != nil {
@@ -306,7 +304,7 @@ func (e *localJobExecutor) cmd(cmdarr []string) (*exec.Cmd, error) {
 	return cmd, nil
 }
 
-func (e *localJobExecutor) PrepareCommand(cmdarr []string) ([]byte, error) {
+func (e *localJobExecutor) PrepareCommand(ctx context.Context, cmdarr []string) ([]byte, error) {
 	filteredCmd := []string{}
 	for _, c := range cmdarr {
 		if strings.HasPrefix(c, "/") {
@@ -400,18 +398,18 @@ func (j *dryRunJob) Spec() batchv1.JobSpec {
 func (j *dryRunJob) PreInit(c TestJobContainer, cb PreInitCallback)         {}
 func (j *dryRunJob) Mount(_ func(context.Context, JobExecutor, bool) error) {}
 
-func (j *dryRunJob) RunWithExecutionHandler(ctx context.Context, handler func([]JobExecutor) error, finalizer func(JobExecutor) error) error {
+func (j *dryRunJob) RunWithExecutionHandler(ctx context.Context, handler func(context.Context, []JobExecutor) error, finalizer func(context.Context, JobExecutor) error) error {
 	execs := make([]JobExecutor, 0, len(j.job.Spec.Template.Spec.Containers))
 	for _, container := range j.job.Spec.Template.Spec.Containers {
 		execs = append(execs, &dryRunJobExecutor{
 			container: container,
 		})
 	}
-	if err := handler(execs); err != nil {
+	if err := handler(ctx, execs); err != nil {
 		return err
 	}
 	if j.finalizer != nil {
-		if err := finalizer(&dryRunJobExecutor{
+		if err := finalizer(ctx, &dryRunJobExecutor{
 			container: *j.finalizer,
 		}); err != nil {
 			return err
@@ -424,7 +422,7 @@ type dryRunJobExecutor struct {
 	container corev1.Container
 }
 
-func (e *dryRunJobExecutor) PrepareCommand(cmd []string) ([]byte, error) {
+func (e *dryRunJobExecutor) PrepareCommand(ctx context.Context, cmd []string) ([]byte, error) {
 	return nil, nil
 }
 

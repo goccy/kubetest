@@ -101,7 +101,7 @@ func (t *Task) runWithRetry(ctx context.Context) (*TaskResult, error) {
 
 func (t *Task) run(ctx context.Context) (*TaskResult, error) {
 	var result TaskResult
-	if err := t.job.RunWithExecutionHandler(ctx, func(executors []JobExecutor) error {
+	if err := t.job.RunWithExecutionHandler(ctx, func(ctx context.Context, executors []JobExecutor) error {
 		for _, sidecar := range t.sideCarExecutors(executors) {
 			sidecar.ExecAsync(ctx)
 		}
@@ -115,7 +115,7 @@ func (t *Task) run(ctx context.Context) (*TaskResult, error) {
 			result.add(subTaskGroup.Run(ctx))
 		}
 		return nil
-	}, func(finalizer JobExecutor) error {
+	}, func(ctx context.Context, finalizer JobExecutor) error {
 		out, err := finalizer.Output(ctx)
 		if err != nil {
 			LoggerFromContext(ctx).Error("failed to run finalizer: output %s: %s", string(out), err.Error())
