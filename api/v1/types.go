@@ -370,7 +370,9 @@ type StrategyKeySource struct {
 }
 
 type StrategyDynamicKeySource struct {
-	// Spec
+	// TTLSecondsAfterFinished.
+	TTLSecondsAfterFinished *int32 `json:"ttlSecondsAfterFinished,omitempty"`
+	// Template spec.
 	Template TestJobTemplateSpec `json:"template"`
 	// Delimiter for strategy keys ( default: new line character ( \n ) )
 	Delim string `json:"delimiter,omitempty"`
