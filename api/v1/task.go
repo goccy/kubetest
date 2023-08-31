@@ -100,6 +100,7 @@ func (t *Task) runWithRetry(ctx context.Context) (*TaskResult, error) {
 }
 
 func (t *Task) run(ctx context.Context) (*TaskResult, error) {
+	logger := LoggerFromContext(ctx)
 	var result TaskResult
 	if err := t.job.RunWithExecutionHandler(ctx, func(ctx context.Context, executors []JobExecutor) error {
 		for _, sidecar := range t.sideCarExecutors(executors) {
@@ -118,10 +119,10 @@ func (t *Task) run(ctx context.Context) (*TaskResult, error) {
 	}, func(ctx context.Context, finalizer JobExecutor) error {
 		out, err := finalizer.Output(ctx)
 		if err != nil {
-			LoggerFromContext(ctx).Error("failed to run finalizer: output %s: %s", string(out), err.Error())
+			logger.Error("failed to run finalizer: output %s: %s", string(out), err.Error())
 			return fmt.Errorf("failed to run finalizer: %s: %w", string(out), err)
 		}
-		LoggerFromContext(ctx).Debug("run finalizer: output %s", string(out))
+		logger.Debug("run finalizer: output %s", string(out))
 		return nil
 	}); err != nil {
 		var failedJob *kubejob.FailedJob
