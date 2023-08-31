@@ -66,7 +66,7 @@ func (t *Task) runWithRetry(ctx context.Context) (*TaskResult, error) {
 		backoff.WithInterval(1*time.Second),
 		backoff.WithMaxRetries(taskRetryCount),
 	)
-	b, cancel := policy.Start(context.Background())
+	b, cancel := policy.Start(ctx)
 	defer cancel()
 
 	var (
