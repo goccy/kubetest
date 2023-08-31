@@ -59,7 +59,7 @@ func (b *TaskBuilder) BuildWithKey(ctx context.Context, step Step, strategyKey *
 		return nil, fmt.Errorf("kubetest: main container name must be specified")
 	}
 	createJob := func(ctx context.Context) (Job, error) {
-		return b.buildJob(ctx, mainContainer, tmpl, strategyKey)
+		return b.buildJob(ctx, mainContainer, step, tmpl, strategyKey)
 	}
 	job, err := createJob(ctx)
 	if err != nil {
@@ -121,7 +121,7 @@ func (b *TaskBuilder) BuildWithKey(ctx context.Context, step Step, strategyKey *
 	}, nil
 }
 
-func (b *TaskBuilder) buildJob(ctx context.Context, mainContainer TestJobContainer, tmpl TestJobTemplateSpec, strategyKey *StrategyKey) (Job, error) {
+func (b *TaskBuilder) buildJob(ctx context.Context, mainContainer TestJobContainer, step Step, tmpl TestJobTemplateSpec, strategyKey *StrategyKey) (Job, error) {
 	spec := *tmpl.Spec.DeepCopy()
 	b.addContainersByStrategyKey(&spec, mainContainer, strategyKey)
 	buildCtx := &TaskBuildContext{
@@ -157,6 +157,7 @@ func (b *TaskBuilder) buildJob(ctx context.Context, mainContainer TestJobContain
 	job, err := jobBuilder.BuildWithJob(&batchv1.Job{
 		ObjectMeta: tmpl.ObjectMeta,
 		Spec: batchv1.JobSpec{
+			TTLSecondsAfterFinished: step.GetTTLSecondsAfterFinished(),
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: podMeta,
 				Spec:       podSpec,
