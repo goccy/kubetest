@@ -7,7 +7,7 @@ require (
 	github.com/go-git/go-billy/v5 v5.4.1
 	github.com/go-git/go-git/v5 v5.8.1
 	github.com/go-logr/logr v1.2.4
-	github.com/goccy/kubejob v0.4.1-0.20230831081935-6cac1108d876
+	github.com/goccy/kubejob v0.4.1-0.20230831100651-90ef5cb172fd
 	github.com/google/go-github/v54 v54.0.0
 	github.com/jessevdk/go-flags v1.5.0
 	github.com/lestrrat-go/backoff v1.0.1
