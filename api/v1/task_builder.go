@@ -174,7 +174,9 @@ func (b *TaskBuilder) buildJob(ctx context.Context, mainContainer TestJobContain
 		}
 		job.PreInit(b.preInitContainer(buildCtx), callback)
 	}
+	logger := LoggerFromContext(ctx)
 	job.Mount(func(ctx context.Context, exec JobExecutor, isInitContainer bool) error {
+		ctx = WithLogger(ctx, logger)
 		containerName := exec.Container().Name
 		taskContainer := buildCtx.taskContainer(containerName, isInitContainer)
 		if err := b.mountRepository(ctx, taskContainer, exec); err != nil {
@@ -409,7 +411,9 @@ func (b *TaskBuilder) preInitCallback(ctx context.Context, buildCtx *TaskBuildCo
 	}); err != nil {
 		return nil, err
 	}
+	logger := LoggerFromContext(ctx)
 	return func(ctx context.Context, exec JobExecutor) error {
+		ctx = WithLogger(ctx, logger)
 		for _, path := range copyPaths {
 			path := path
 			if err := func(path *copyPath) error {

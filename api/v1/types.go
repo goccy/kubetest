@@ -188,6 +188,8 @@ type TestJobPodSpec struct {
 type TestAgentSpec struct {
 	// Installed path to the kubetest-agent e.g.) /bin/kubetest-agent
 	InstalledPath string `json:"installedPath"`
+	// Timeout kubetest-agent server's timeout time by Go's time.Duration format. see details: https://pkg.go.dev/time#ParseDuration.
+	Timeout string `json:"timeout"`
 	// kubetest automatically determines the port to listen to when starting kubetest-agent.
 	// If you need to run multiple containers, the default is to assign ports from 5000 to 5001, 5002.
 	// AllocationStartPort allows you to change the default start port.

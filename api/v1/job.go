@@ -71,6 +71,13 @@ func (b *JobBuilder) BuildWithJob(jobSpec *batchv1.Job, containerNameToInstalled
 			if err != nil {
 				return nil, fmt.Errorf("kubetest: failed to create agent config: %w", err)
 			}
+			if sharedAgentSpec.Timeout != "" {
+				timeout, err := time.ParseDuration(sharedAgentSpec.Timeout)
+				if err != nil {
+					return nil, err
+				}
+				cfg.SetTimeout(timeout)
+			}
 			if sharedAgentSpec.AllocationStartPort != nil {
 				cfg.SetAllocationStartPort(*sharedAgentSpec.AllocationStartPort)
 			}

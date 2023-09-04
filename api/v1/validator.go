@@ -5,6 +5,7 @@ package v1
 
 import (
 	"fmt"
+	"time"
 )
 
 type Validator struct {
@@ -273,6 +274,11 @@ func (v *Validator) ValidateTestJobContainer(container TestJobContainer) error {
 func (v *Validator) ValidateTestAgentSpec(spec *TestAgentSpec) error {
 	if spec.InstalledPath == "" {
 		return fmt.Errorf("kubetest: agent.installedPath must be specified")
+	}
+	if spec.Timeout != "" {
+		if _, err := time.ParseDuration(spec.Timeout); err != nil {
+			return fmt.Errorf("kubetest: agent.timeout is invalid format: %w", err)
+		}
 	}
 	return nil
 }

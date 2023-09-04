@@ -1286,6 +1286,7 @@ func TestRunner(t *testing.T) {
 										{
 											Agent: &TestAgentSpec{
 												InstalledPath: filepath.Join("/", "bin", "kubetest-agent"),
+												Timeout:       "10m",
 											},
 											Container: corev1.Container{
 												Name:            "test",
