@@ -79,8 +79,8 @@ github.com/go-stack/stack v1.8.0/go.mod h1:v0f6uXyyMGvRgIKkXu+yp6POWl0qKG85gN/me
 github.com/go-task/slim-sprig v0.0.0-20230315185526-52ccab3ef572 h1:tfuBGBXKqDEevZMzYi5KSi8KkcZtzBcTgAUUtapy0OI=
 github.com/goccy/go-json v0.10.2 h1:CrxCmQqYDkv1z7lO7Wbh2HN93uovUHgrECaO5ZrCXAU=
 github.com/goccy/go-json v0.10.2/go.mod h1:6MelG93GURQebXPDq3khkgXZkazVtN9CRI+MGFi0w8I=
-github.com/goccy/kubejob v0.4.1-0.20230905040748-8d78b49bc96b h1:Ma9rRyZpB0cg6QbkHgncqbGF+/aXtx22TgpJlVL7TGc=
-github.com/goccy/kubejob v0.4.1-0.20230905040748-8d78b49bc96b/go.mod h1:WJt0+413UYDY0Q9CYUB68pdn2hdM92aE9kj8BjGVFNo=
+github.com/goccy/kubejob v0.5.0 h1:KX0at4Wp/oMauwtI8xZuowpmGpJny+4udMdZhl+UtRI=
+github.com/goccy/kubejob v0.5.0/go.mod h1:WJt0+413UYDY0Q9CYUB68pdn2hdM92aE9kj8BjGVFNo=
 github.com/gofrs/uuid v4.0.0+incompatible h1:1SD/1F5pU8p29ybwgQSwpQk+mwdRrXCYuPhW6m+TnJw=
 github.com/gofrs/uuid v4.0.0+incompatible/go.mod h1:b2aQJv3Z4Fp6yNu3cdSllBxTCLRxnplIgP/c0N/04lM=
 github.com/gogo/protobuf v1.3.2 h1:Ov1cvc58UF3b5XjBnZv7+opcTcQFZebYjWzi34vdm4Q=
