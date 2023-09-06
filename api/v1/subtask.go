@@ -39,6 +39,7 @@ func (t *SubTask) outputError(logGroup Logger, baseErr error) {
 	cmdErr, ok := failedJob.Reason.(*kubejob.CommandError)
 	if !ok {
 		logGroup.Log(failedJob.Reason.Error())
+		return
 	}
 	if !cmdErr.IsExitError() {
 		logGroup.Log(cmdErr.Error())

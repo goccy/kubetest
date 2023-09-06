@@ -94,8 +94,9 @@ type GitHubTokenSource corev1.SecretKeySelector
 
 // PreStep defines pre-processing to prepare files for testing that are not included in the repository.
 type PreStep struct {
-	Name     string              `json:"name"`
-	Template TestJobTemplateSpec `json:"template"`
+	Name                    string              `json:"name"`
+	TTLSecondsAfterFinished *int32              `json:"ttlSecondsAfterFinished,omitempty"`
+	Template                TestJobTemplateSpec `json:"template"`
 }
 
 func (s *PreStep) GetName() string {
@@ -106,6 +107,10 @@ func (s *PreStep) GetType() StepType {
 	return PreStepType
 }
 
+func (s *PreStep) GetTTLSecondsAfterFinished() *int32 {
+	return s.TTLSecondsAfterFinished
+}
+
 func (s *PreStep) GetTemplate() TestJobTemplateSpec {
 	return s.Template
 }
@@ -114,8 +119,9 @@ func (s *PreStep) GetTemplate() TestJobTemplateSpec {
 type MainStep struct {
 	// Strategy strategy for distributed task
 	// +optional
-	Strategy *Strategy           `json:"strategy,omitempty"`
-	Template TestJobTemplateSpec `json:"template"`
+	Strategy                *Strategy           `json:"strategy,omitempty"`
+	TTLSecondsAfterFinished *int32              `json:"ttlSecondsAfterFinished,omitempty"`
+	Template                TestJobTemplateSpec `json:"template"`
 }
 
 func (s *MainStep) GetName() string {
@@ -126,14 +132,19 @@ func (s *MainStep) GetType() StepType {
 	return MainStepType
 }
 
+func (s *MainStep) GetTTLSecondsAfterFinished() *int32 {
+	return s.TTLSecondsAfterFinished
+}
+
 func (s *MainStep) GetTemplate() TestJobTemplateSpec {
 	return s.Template
 }
 
 // PostStep defines post-processing to export artifacts.
 type PostStep struct {
-	Name     string              `json:"name"`
-	Template TestJobTemplateSpec `json:"template"`
+	Name                    string              `json:"name"`
+	TTLSecondsAfterFinished *int32              `json:"ttlSecondsAfterFinished,omitempty"`
+	Template                TestJobTemplateSpec `json:"template"`
 }
 
 func (s *PostStep) GetName() string {
@@ -142,6 +153,10 @@ func (s *PostStep) GetName() string {
 
 func (s *PostStep) GetType() StepType {
 	return PostStepType
+}
+
+func (s *PostStep) GetTTLSecondsAfterFinished() *int32 {
+	return s.TTLSecondsAfterFinished
 }
 
 func (s *PostStep) GetTemplate() TestJobTemplateSpec {
@@ -173,6 +188,8 @@ type TestJobPodSpec struct {
 type TestAgentSpec struct {
 	// Installed path to the kubetest-agent e.g.) /bin/kubetest-agent
 	InstalledPath string `json:"installedPath"`
+	// Timeout kubetest-agent server's timeout time by Go's time.Duration format. see details: https://pkg.go.dev/time#ParseDuration.
+	Timeout string `json:"timeout"`
 	// kubetest automatically determines the port to listen to when starting kubetest-agent.
 	// If you need to run multiple containers, the default is to assign ports from 5000 to 5001, 5002.
 	// AllocationStartPort allows you to change the default start port.
@@ -355,7 +372,9 @@ type StrategyKeySource struct {
 }
 
 type StrategyDynamicKeySource struct {
-	// Spec
+	// TTLSecondsAfterFinished.
+	TTLSecondsAfterFinished *int32 `json:"ttlSecondsAfterFinished,omitempty"`
+	// Template spec.
 	Template TestJobTemplateSpec `json:"template"`
 	// Delimiter for strategy keys ( default: new line character ( \n ) )
 	Delim string `json:"delimiter,omitempty"`

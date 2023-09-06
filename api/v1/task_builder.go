@@ -59,7 +59,7 @@ func (b *TaskBuilder) BuildWithKey(ctx context.Context, step Step, strategyKey *
 		return nil, fmt.Errorf("kubetest: main container name must be specified")
 	}
 	createJob := func(ctx context.Context) (Job, error) {
-		return b.buildJob(ctx, mainContainer, tmpl, strategyKey)
+		return b.buildJob(ctx, mainContainer, step, tmpl, strategyKey)
 	}
 	job, err := createJob(ctx)
 	if err != nil {
@@ -121,7 +121,7 @@ func (b *TaskBuilder) BuildWithKey(ctx context.Context, step Step, strategyKey *
 	}, nil
 }
 
-func (b *TaskBuilder) buildJob(ctx context.Context, mainContainer TestJobContainer, tmpl TestJobTemplateSpec, strategyKey *StrategyKey) (Job, error) {
+func (b *TaskBuilder) buildJob(ctx context.Context, mainContainer TestJobContainer, step Step, tmpl TestJobTemplateSpec, strategyKey *StrategyKey) (Job, error) {
 	spec := *tmpl.Spec.DeepCopy()
 	b.addContainersByStrategyKey(&spec, mainContainer, strategyKey)
 	buildCtx := &TaskBuildContext{
@@ -157,6 +157,7 @@ func (b *TaskBuilder) buildJob(ctx context.Context, mainContainer TestJobContain
 	job, err := jobBuilder.BuildWithJob(&batchv1.Job{
 		ObjectMeta: tmpl.ObjectMeta,
 		Spec: batchv1.JobSpec{
+			TTLSecondsAfterFinished: step.GetTTLSecondsAfterFinished(),
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: podMeta,
 				Spec:       podSpec,
@@ -173,7 +174,9 @@ func (b *TaskBuilder) buildJob(ctx context.Context, mainContainer TestJobContain
 		}
 		job.PreInit(b.preInitContainer(buildCtx), callback)
 	}
+	logger := LoggerFromContext(ctx)
 	job.Mount(func(ctx context.Context, exec JobExecutor, isInitContainer bool) error {
+		ctx = WithLogger(ctx, logger)
 		containerName := exec.Container().Name
 		taskContainer := buildCtx.taskContainer(containerName, isInitContainer)
 		if err := b.mountRepository(ctx, taskContainer, exec); err != nil {
@@ -218,7 +221,7 @@ func (b *TaskBuilder) mountRepository(ctx context.Context, taskContainer *TaskCo
 			"mount repository %s on %s by '%s'",
 			containerName, repoName, strings.Join(cmd, " "),
 		)
-		out, err := exec.PrepareCommand(cmd)
+		out, err := exec.PrepareCommand(ctx, cmd)
 		if err != nil {
 			return fmt.Errorf("kubetest: failed to mount repository. %s: %w", string(out), err)
 		}
@@ -245,7 +248,7 @@ func (b *TaskBuilder) mountToken(ctx context.Context, taskContainer *TaskContain
 			"mount token %s on %s by '%s'",
 			containerName, tokenName, strings.Join(cmd, " "),
 		)
-		out, err := exec.PrepareCommand(cmd)
+		out, err := exec.PrepareCommand(ctx, cmd)
 		if err != nil {
 			return fmt.Errorf("kubetest: failed to mount token. %s: %w", string(out), err)
 		}
@@ -283,7 +286,7 @@ func (b *TaskBuilder) mountArtifact(ctx context.Context, taskContainer *TaskCont
 			"mount artifact %s on %s by '%s'",
 			containerName, artifactName, strings.Join(cmd, " "),
 		)
-		out, err := exec.PrepareCommand(cmd)
+		out, err := exec.PrepareCommand(ctx, cmd)
 		if err != nil {
 			return fmt.Errorf("kubetest: failed to mount artifact. %s: %w", string(out), err)
 		}
@@ -306,7 +309,7 @@ func (b *TaskBuilder) mountLog(ctx context.Context, taskContainer *TaskContainer
 			"mount log on %s by '%s'",
 			containerName, strings.Join(cmd, " "),
 		)
-		out, err := exec.PrepareCommand(cmd)
+		out, err := exec.PrepareCommand(ctx, cmd)
 		if err != nil {
 			return fmt.Errorf("kubetest: failed to mount log. %s: %w", string(out), err)
 		}
@@ -329,7 +332,7 @@ func (b *TaskBuilder) mountReport(ctx context.Context, taskContainer *TaskContai
 			"mount report on %s by '%s'",
 			containerName, strings.Join(cmd, " "),
 		)
-		out, err := exec.PrepareCommand(cmd)
+		out, err := exec.PrepareCommand(ctx, cmd)
 		if err != nil {
 			return fmt.Errorf("kubetest: failed to mount report. %s: %w", string(out), err)
 		}
@@ -408,7 +411,9 @@ func (b *TaskBuilder) preInitCallback(ctx context.Context, buildCtx *TaskBuildCo
 	}); err != nil {
 		return nil, err
 	}
+	logger := LoggerFromContext(ctx)
 	return func(ctx context.Context, exec JobExecutor) error {
+		ctx = WithLogger(ctx, logger)
 		for _, path := range copyPaths {
 			path := path
 			if err := func(path *copyPath) error {

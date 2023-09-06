@@ -14,5 +14,6 @@ const (
 type Step interface {
 	GetName() string
 	GetType() StepType
+	GetTTLSecondsAfterFinished() *int32
 	GetTemplate() TestJobTemplateSpec
 }

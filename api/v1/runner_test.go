@@ -7,7 +7,9 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -143,14 +145,16 @@ func TestRunner(t *testing.T) {
 			t.Run(runMode.String(), func(t *testing.T) {
 				runner := NewRunner(getConfig(), runMode)
 				runner.SetLogger(NewLogger(os.Stdout, LogLevelDebug))
+				ttl := int32(1)
 				if _, err := runner.Run(context.Background(), TestJob{
 					ObjectMeta: testjobObjectMeta(),
 					Spec: TestJobSpec{
 						Repos: testRepos(),
 						MainStep: MainStep{
+							TTLSecondsAfterFinished: &ttl,
 							Template: TestJobTemplateSpec{
 								ObjectMeta: metav1.ObjectMeta{
-									GenerateName: "test",
+									GenerateName: "finalizer-test-",
 								},
 								Spec: TestJobPodSpec{
 									Containers: []TestJobContainer{
@@ -181,7 +185,85 @@ func TestRunner(t *testing.T) {
 				}); err != nil {
 					t.Fatal(err)
 				}
+				if runMode == RunModeKubernetes {
+					// Make sure ttl is working properly.
+					time.Sleep(5 * time.Second)
+					clientset, err := kubernetes.NewForConfig(getConfig())
+					if err != nil {
+						t.Fatal(err)
+					}
+					list, err := clientset.BatchV1().Jobs("default").List(context.Background(), metav1.ListOptions{})
+					if err != nil {
+						t.Fatal(err)
+					}
+					for _, job := range list.Items {
+						if strings.HasPrefix(job.GetName(), "finalizer-test-") {
+							t.Fatal("failed to delete job by ttl")
+						}
+					}
+				}
 			})
+		}
+	})
+	t.Run("cancel", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		runner := NewRunner(getConfig(), RunModeKubernetes)
+		runner.SetLogger(NewLogger(os.Stdout, LogLevelDebug))
+		ttl := int32(1)
+		if _, err := runner.Run(ctx, TestJob{
+			ObjectMeta: testjobObjectMeta(),
+			Spec: TestJobSpec{
+				Repos: testRepos(),
+				MainStep: MainStep{
+					TTLSecondsAfterFinished: &ttl,
+					Template: TestJobTemplateSpec{
+						ObjectMeta: metav1.ObjectMeta{
+							GenerateName: "cancel-test-",
+						},
+						Spec: TestJobPodSpec{
+							Containers: []TestJobContainer{
+								{
+									Container: corev1.Container{
+										Name:         "test",
+										Image:        "alpine",
+										Command:      []string{"sleep"},
+										Args:         []string{"50"},
+										WorkingDir:   filepath.Join("/", "work"),
+										VolumeMounts: []corev1.VolumeMount{testRepoVolumeMount()},
+									},
+								},
+							},
+							FinalizerContainer: TestJobContainer{
+								Container: corev1.Container{
+									Name:    "finalizer",
+									Image:   "alpine",
+									Command: []string{"echo"},
+									Args:    []string{"finalizer"},
+								},
+							},
+							Volumes: []TestJobVolume{testRepoVolume()},
+						},
+					},
+				},
+			},
+		}); err != nil {
+			t.Fatal(err)
+		}
+		// Make sure ttl is working properly.
+		time.Sleep(5 * time.Second)
+		clientset, err := kubernetes.NewForConfig(getConfig())
+		if err != nil {
+			t.Fatal(err)
+		}
+		list, err := clientset.BatchV1().Jobs("default").List(context.Background(), metav1.ListOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, job := range list.Items {
+			if strings.HasPrefix(job.GetName(), "cancel-test-") {
+				t.Fatal("failed to delete job by ttl")
+			}
 		}
 	})
 
@@ -1204,6 +1286,7 @@ func TestRunner(t *testing.T) {
 										{
 											Agent: &TestAgentSpec{
 												InstalledPath: filepath.Join("/", "bin", "kubetest-agent"),
+												Timeout:       "10m",
 											},
 											Container: corev1.Container{
 												Name:            "test",

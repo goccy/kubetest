@@ -218,7 +218,10 @@ func (s *TaskScheduler) getScheduleKeys(ctx context.Context, builder *TaskBuilde
 
 func (s *TaskScheduler) dynamicKeys(ctx context.Context, builder *TaskBuilder, source *StrategyDynamicKeySource) ([]string, error) {
 	LoggerFromContext(ctx).Info("start to get dynamic task keys for running distributed task")
-	keyTask, err := builder.Build(ctx, &MainStep{Template: source.Template})
+	keyTask, err := builder.Build(ctx, &MainStep{
+		TTLSecondsAfterFinished: source.TTLSecondsAfterFinished,
+		Template:                source.Template,
+	})
 	if err != nil {
 		return nil, err
 	}
