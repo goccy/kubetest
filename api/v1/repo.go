@@ -236,21 +236,38 @@ func (m *RepositoryManager) archiveRepo(repoDir, archivePath string) error {
 			return nil
 		}
 		name := path[len(repoDir)+1:]
-		if err := tw.WriteHeader(&tar.Header{
-			Name:    name,
-			Mode:    int64(info.Mode()),
-			ModTime: info.ModTime(),
-			Size:    info.Size(),
-		}); err != nil {
-			return fmt.Errorf("kubetest: failed to write archive header to create archive file for repository: %w", err)
-		}
-		f, err := os.Open(path)
-		if err != nil {
-			return fmt.Errorf("kubetest: failed to open local file to create archive file for repository: %w", err)
-		}
-		defer f.Close()
-		if _, err := io.Copy(tw, f); err != nil {
-			return fmt.Errorf("kubetest: failed to copy local file to archive file for repository: %w", err)
+		switch {
+		case info.Mode()&os.ModeSymlink == os.ModeSymlink:
+			linkName, err := os.Readlink(path)
+			if err != nil {
+				return fmt.Errorf("kubetest: failed to read symlink file: %s: %w", path, err)
+			}
+			hdr, err := tar.FileInfoHeader(info, linkName)
+			if err != nil {
+				return fmt.Errorf("kubetest: failed to get header from symlink file name: %s: %w", linkName, err)
+			}
+			hdr.Name = name
+			hdr.Linkname = linkName
+			if err := tw.WriteHeader(hdr); err != nil {
+				return fmt.Errorf("kubetest: failed to write tar header for symlink: %w", err)
+			}
+		default:
+			if err := tw.WriteHeader(&tar.Header{
+				Name:    name,
+				Mode:    int64(info.Mode()),
+				ModTime: info.ModTime(),
+				Size:    info.Size(),
+			}); err != nil {
+				return fmt.Errorf("kubetest: failed to write archive header to create archive file for repository: %w", err)
+			}
+			f, err := os.Open(path)
+			if err != nil {
+				return fmt.Errorf("kubetest: failed to open local file to create archive file for repository: %w", err)
+			}
+			defer f.Close()
+			if _, err := io.Copy(tw, f); err != nil {
+				return fmt.Errorf("kubetest: failed to copy local file to archive file for repository: %w", err)
+			}
 		}
 		return nil
 	})
