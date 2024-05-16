@@ -1,6 +1,6 @@
 module github.com/goccy/kubetest/tools
 
-go 1.21
+go 1.22
 
 require (
 	sigs.k8s.io/controller-runtime/tools/setup-envtest v0.0.0-20230816140827-f30e11d97fd1

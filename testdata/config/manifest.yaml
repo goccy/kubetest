@@ -100,7 +100,7 @@ spec:
       serviceAccountName: kubetest
       containers:
         - name: kubetest
-          image: golang:1.21.0-bookworm
+          image: golang:1.22.0-bookworm
           workingDir: /go/src/kubetest
           command:
             - tail
